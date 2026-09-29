@@ -75,8 +75,25 @@ targets 的 bug，Rust 版已修正；另 `(_4.0: T)` 投影归一到基 local�
 - 未知 stmt kind → `bad mir.json: unknown variant …`，`RC=2`。
 - `--strict` 下有 UNSUPPORTED → `RC=1`。
 - `hi.mir.json → hi.sa`：`UNSUPPORTED=0`。
-- `cargo test` 3/3：`scalar_hex_driver_form`、`const_elem_both_forms`、
-  `array_init_bb30_shape`（array-init 回归锁）。
+- `cargo test` 4/4：`scalar_hex_driver_form`、`const_elem_both_forms`、
+  `array_init_bb30_shape`（array-init 回归锁）、`repeat_forms`（repeat lowering 锁）。
+
+## T6 rosetta 全量（sci 334 demos，rsc 管线实测）
+
+- 官方 `.sa` 直跑：`sa run` 314/334 通过；5 个阴性 demo 按设计拒绝
+  （import-cycle ×2、DuplicateDef ×2、CapabilityMismatch ×1）；15 个验证过
+  执行挂（bc2sa-LLVM 子集 ×1、沙箱资源 ×7、extern broker 缺失 ×1、
+  InvalidAddress 运行时 ×6，属 sci 侧问题，已分类）。
+- rsc 驱动：320/334（95.8%）。14 个非驱动责任：外部 crate ×5
+  （tokio/futures，需 cargo 工程模式）、nightly 实验特性 ×4
+  （specialization/negative_impls/TAIT/try_blocks）、OUT_DIR 环境 ×1、
+  demo 自身类型错 ×1（161，官方 rustc 同样拒绝）、无 main.rs ×3。
+  （101/104 用 `--edition 2024` 重跑后通过。）
+- `mir2sa coverage`：320 文件，3781 stmts + 2794 terms = 6575 项，
+  141 缺口 → **97.9%**，成分：Aggregate-Adt ×130、SetDisc ×6、
+  ThreadLocal ×4、InlineAsm ×1（另 Repeat/RawPtr/Nop 在此规模零残留）。
+  抽查确认多元素 Aggregate 均为 Move 元组/struct（45_config_merge、
+  47_tuple_swap），布局活，无误报。
 
 ## 剩余缺口（诚实）
 

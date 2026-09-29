@@ -1,0 +1,45 @@
+{
+  "functions": [
+    {
+      "name": "main",
+      "locals": [
+        {"id": 0, "ty": "i32"},
+        {"id": 1, "ty": "String"}
+      ],
+      "blocks": [
+        {
+          "id": "L_ENTRY",
+          "statements": [
+            {"kind": "StorageLive", "local": "_1"},
+            {"kind": "Assign", "dest": "_1",
+             "rvalue": {"kind": "Call", "func": "string_from",
+                        "args": [{"kind": "Const", "value": "utf8:\"hi\""}]}}
+          ],
+          "terminator": {"kind": "Goto", "target": "L_PRINT"}
+        },
+        {
+          "id": "L_PRINT",
+          "statements": [
+            {"kind": "Assign", "dest": "_2",
+             "rvalue": {"kind": "Ref", "place": "_1"}}
+          ],
+          "terminator": {"kind": "Call", "func": "sa_print_string",
+                          "args": [{"kind": "Move", "place": "_2"}],
+                          "dest": "_0", "target": "L_DROP"}
+        },
+        {
+          "id": "L_DROP",
+          "statements": [],
+          "terminator": {"kind": "Drop", "place": "_1", "target": "L_RET"}
+        },
+        {
+          "id": "L_RET",
+          "statements": [
+            {"kind": "StorageDead", "local": "_1"}
+          ],
+          "terminator": {"kind": "Return"}
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,299 @@
+fn f_match: blocks=11 stmts+terms=30 unsupported=0
+       2 Assign/BinOp/AddWithOverflow
+       1 Assign/BinOp/Gt
+       1 Assign/BinOp/SubWithOverflow
+       1 Assign/Discriminant
+       2 Assign/Ref
+      12 Assign/Use
+       3 T/Assert
+       4 T/Goto
+       1 T/Return
+       2 T/SwitchInt
+       1 T/Unreachable
+fn f_opt_mutate: blocks=2 stmts+terms=9 unsupported=0
+       3 Assign/Aggregate
+       4 Assign/Use
+       1 T/Call
+       1 T/Return
+fn f_struct: blocks=4 stmts+terms=12 unsupported=0
+       1 Assign/BinOp/AddWithOverflow
+       1 Assign/BinOp/MulWithOverflow
+       1 Assign/BinOp/SubWithOverflow
+       5 Assign/Use
+       3 T/Assert
+       1 T/Return
+fn f_tuple: blocks=7 stmts+terms=16 unsupported=0
+       2 Assign/BinOp/AddWithOverflow
+       2 Assign/Cast
+       1 Assign/Ref
+       4 Assign/Use
+       2 T/Assert
+       1 T/Call
+       2 T/Drop
+       1 T/Resume
+       1 T/Return
+fn f_slice: blocks=9 stmts+terms=31 unsupported=0
+       3 Assign/BinOp/AddWithOverflow
+       3 Assign/BinOp/Lt
+       2 Assign/RawPtr
+       1 Assign/Ref
+       3 Assign/UnOp/PtrMetadata
+      10 Assign/Use
+       5 T/Assert
+       2 T/Goto
+       1 T/Return
+       1 T/SwitchInt
+fn f_repeat: blocks=1 stmts+terms=2 unsupported=0
+       1 Assign/Repeat
+       1 T/Return
+fn {constant#0}: blocks=1 stmts+terms=2 unsupported=0
+       1 Assign/Use
+       1 T/Return
+fn {constant#1}: blocks=1 stmts+terms=2 unsupported=0
+       1 Assign/Use
+       1 T/Return
+fn f_loops: blocks=26 stmts+terms=58 unsupported=2
+       2 Assign/Aggregate
+       5 Assign/BinOp/AddWithOverflow
+       1 Assign/BinOp/Ge
+       1 Assign/BinOp/Gt
+       3 Assign/Discriminant
+       3 Assign/Ref
+      17 Assign/Use
+       5 T/Assert
+       7 T/Call
+       7 T/Goto
+       1 T/Return
+       5 T/SwitchInt
+       1 T/Unreachable
+    ?? bb10:_19 Aggregate()
+    ?? bb17:_26 Aggregate()
+fn f_closure: blocks=10 stmts+terms=21 unsupported=0
+       4 Assign/Aggregate
+       5 Assign/Ref
+       2 Assign/Use
+       7 T/Call
+       1 T/Drop
+       1 T/Resume
+       1 T/Return
+fn {closure#0}: blocks=2 stmts+terms=6 unsupported=0
+       1 Assign/BinOp/AddWithOverflow
+       3 Assign/Use
+       1 T/Assert
+       1 T/Return
+fn {closure#1}: blocks=2 stmts+terms=5 unsupported=0
+       1 Assign/BinOp/AddWithOverflow
+       2 Assign/Use
+       1 T/Assert
+       1 T/Return
+fn f_generic: blocks=7 stmts+terms=9 unsupported=1
+       1 Assign/Aggregate
+       1 Assign/Ref
+       2 T/Call
+       3 T/Drop
+       1 T/Resume
+       1 T/Return
+    ?? bb2:_0 Aggregate()
+fn shout: blocks=2 stmts+terms=2 unsupported=0
+       1 T/Call
+       1 T/Return
+fn shout: blocks=2 stmts+terms=2 unsupported=0
+       1 T/Call
+       1 T/Return
+fn f_dyn: blocks=6 stmts+terms=7 unsupported=0
+       1 Assign/Ref
+       2 T/Call
+       2 T/Drop
+       1 T/Resume
+       1 T/Return
+fn f_static_dispatch: blocks=8 stmts+terms=10 unsupported=0
+       2 Assign/Ref
+       2 T/Call
+       4 T/Drop
+       1 T/Resume
+       1 T/Return
+fn f_parse: blocks=9 stmts+terms=15 unsupported=0
+       1 Assign/Aggregate
+       1 Assign/BinOp/MulWithOverflow
+       1 Assign/Discriminant
+       3 Assign/Use
+       1 T/Assert
+       4 T/Call
+       1 T/Goto
+       1 T/Return
+       1 T/SwitchInt
+       1 T/Unreachable
+fn {closure#0}: blocks=2 stmts+terms=2 unsupported=0
+       1 T/Call
+       1 T/Return
+fn f_box: blocks=10 stmts+terms=22 unsupported=0
+       2 Assign/BinOp/BitAnd
+       2 Assign/BinOp/Eq
+       1 Assign/BinOp/Sub
+       5 Assign/Cast
+       1 Assign/Ref
+       1 Assign/UnOp/Not
+       2 T/Assert
+       4 T/Call
+       2 T/Drop
+       1 T/Resume
+       1 T/Return
+fn f_rc: blocks=14 stmts+terms=19 unsupported=0
+       1 Assign/BinOp/AddWithOverflow
+       3 Assign/Ref
+       1 Assign/Use
+       1 T/Assert
+       7 T/Call
+       4 T/Drop
+       1 T/Resume
+       1 T/Return
+fn f_str: blocks=11 stmts+terms=20 unsupported=0
+       1 Assign/BinOp/AddWithOverflow
+       1 Assign/Discriminant
+       2 Assign/Ref
+       5 Assign/Use
+       1 T/Assert
+       4 T/Call
+       2 T/Goto
+       1 T/Return
+       2 T/SwitchInt
+       1 T/Unreachable
+fn f_cast: blocks=3 stmts+terms=19 unsupported=0
+       1 Assign/BinOp/BitAnd
+       2 Assign/BinOp/BitOr
+       1 Assign/BinOp/BitXor
+       2 Assign/BinOp/Lt
+       1 Assign/BinOp/Shl
+       1 Assign/BinOp/Shr
+       8 Assign/Cast
+       2 T/Assert
+       1 T/Return
+fn TLS_N: blocks=2 stmts+terms=3 unsupported=0
+       1 Nop
+       1 T/Call
+       1 T/Return
+fn __RUST_STD_INTERNAL_INIT: blocks=2 stmts+terms=3 unsupported=0
+       1 Nop
+       1 T/Call
+       1 T/Return
+fn {constant#0}: blocks=5 stmts+terms=16 unsupported=0
+       2 Assign/Aggregate
+       2 Assign/Cast
+       1 Nop
+       3 StorageDead
+       3 StorageLive
+       1 T/Call
+       2 T/Goto
+       1 T/Return
+       1 T/SwitchInt
+fn {closure#0}: blocks=2 stmts+terms=3 unsupported=1
+       1 Assign/ThreadLocal
+       1 T/Call
+       1 T/Return
+    ?? bb0:_3 ThreadLocal()
+fn __RUST_STD_INTERNAL_VAL: blocks=2 stmts+terms=3 unsupported=0
+       1 Nop
+       1 T/Call
+       1 T/Return
+fn {closure#1}: blocks=1 stmts+terms=3 unsupported=1
+       1 Assign/RawPtr
+       1 Assign/ThreadLocal
+       1 T/Return
+    ?? bb0:_3 ThreadLocal()
+fn __RUST_STD_INTERNAL_VAL: blocks=1 stmts+terms=2 unsupported=0
+       1 Assign/Use
+       1 T/Return
+fn f_tls: blocks=2 stmts+terms=3 unsupported=0
+       1 Assign/Use
+       1 T/Call
+       1 T/Return
+fn {closure#0}: blocks=5 stmts+terms=7 unsupported=0
+       1 Assign/BinOp/AddWithOverflow
+       1 Assign/Use
+       1 T/Assert
+       3 T/Call
+       1 T/Return
+fn f_raw: blocks=6 stmts+terms=34 unsupported=0
+       1 Assign/BinOp/AddWithOverflow
+       4 Assign/BinOp/BitAnd
+       4 Assign/BinOp/Eq
+       2 Assign/BinOp/Ne
+       2 Assign/BinOp/Sub
+       8 Assign/Cast
+       2 Assign/RawPtr
+       2 Assign/UnOp/Not
+       3 Assign/Use
+       5 T/Assert
+       1 T/Return
+fn f_asm: blocks=2 stmts+terms=3 unsupported=1
+       1 Assign/Use
+       1 T/InlineAsm
+       1 T/Return
+    ?? bb0: T/InlineAsm(asm [String("mov "), Placeholder { operand_idx: 0, modifier:)
+fn f_underscore: blocks=9 stmts+terms=24 unsupported=0
+       2 Assign/BinOp/BitAnd
+       2 Assign/BinOp/Eq
+       1 Assign/BinOp/Ne
+       1 Assign/BinOp/Sub
+       6 Assign/Cast
+       1 Assign/Ref
+       1 Assign/UnOp/Not
+       1 Assign/Use
+       2 T/Assert
+       2 T/Call
+       3 T/Drop
+       1 T/Resume
+       1 T/Return
+fn f_thread_map: blocks=20 stmts+terms=34 unsupported=0
+       1 Assign/BinOp/AddWithOverflow
+       3 Assign/Ref
+      10 Assign/Use
+       1 T/Assert
+      11 T/Call
+       4 T/Drop
+       1 T/Resume
+       1 T/Return
+       2 T/SwitchInt
+fn {closure#0}: blocks=2 stmts+terms=4 unsupported=0
+       1 Assign/BinOp/AddWithOverflow
+       1 Assign/Use
+       1 T/Assert
+       1 T/Return
+fn f_async: blocks=1 stmts+terms=2 unsupported=0
+       1 Assign/Aggregate
+       1 T/Return
+fn {closure#0}: blocks=8 stmts+terms=20 unsupported=2
+       2 Assign/Aggregate
+       1 Assign/BinOp/AddWithOverflow
+       1 Assign/BinOp/MulWithOverflow
+       1 Assign/Cast
+       1 Assign/Discriminant
+       4 Assign/Use
+       2 SetDisc
+       4 T/Assert
+       1 T/Resume
+       1 T/Return
+       1 T/SwitchInt
+       1 T/Unreachable
+    ?? bb2:_9 SetDisc
+    ?? bb3:_9 SetDisc
+fn main: blocks=97 stmts+terms=260 unsupported=4
+      47 Assign/Aggregate
+       4 Assign/BinOp/BitAnd
+       4 Assign/BinOp/Eq
+       2 Assign/BinOp/Ne
+       2 Assign/BinOp/Sub
+      13 Assign/Cast
+      43 Assign/Ref
+       2 Assign/UnOp/Not
+      46 Assign/Use
+       4 T/Assert
+      87 T/Call
+       4 T/Drop
+       1 T/Resume
+       1 T/Return
+    ?? bb0:_6 Aggregate()
+    ?? bb8:_27 Aggregate()
+    ?? bb13:_37 Aggregate()
+    ?? bb17:_50 Aggregate()
+TOTAL stmts=428 terms=317 unsupported=12 coverage=98.4%

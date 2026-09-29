@@ -1,0 +1,22 @@
+{
+  "schema": "sa.plugin/1",
+  "name": "sa_plugin_rsc",
+  "version": "0.1.0",
+  "source": { "type": "local", "path": "." },
+  "abi": { "plugin": 1, "saasm": ">=0.4.0", "symbols": "sa_plugin_rsc.sai" },
+  "artifacts": { "linux-x86_64": { "path": "tools/mir_json_to_sa.py" } },
+  "interfaces": { "sai": { "path": "sa_plugin_rsc.sai" } },
+  "skills": ["rsc.lower", "rsc.check", "rsc.build", "rsc.build-exe", "rsc.init"],
+  "permissions": {
+    "fs": [
+      { "op": "read", "path": "$PROJECT/**" },
+      { "op": "write", "path": "$PROJECT/**" },
+      { "op": "create", "path": "$PROJECT/**" }
+    ],
+    "net": [],
+    "env": ["HOME", "PATH", "SA_*", "RUSTC_BOOTSTRAP"],
+    "process": { "spawn": true, "exec": [] }
+  },
+  "dependencies": {},
+  "help": "usage: rsc <command> [options]\n       sa rsc <command> [options]\n\nCommands:\n  lower      [file.rs] [--emit-mir-json <file>] [--out <file.sa>]\n  check      [file.rs]\n  build      [file.rs] [--out <file.sa>]\n  build-exe  [file.rs] [--out <exe>] [<sa-build-exe-args>...]\n  init       [path]\n"
+}

@@ -1,0 +1,6 @@
+[toolchain]
+# Container floats on installed nightly (has rustc-dev).
+# CI pins an exact date, e.g. channel = "nightly-2026-09-28", with
+# `rustup component add rustc-dev` on that toolchain.
+channel = "nightly"
+components = ["rustc-dev", "rust-src", "llvm-tools"]

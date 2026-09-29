@@ -1,0 +1,3 @@
+[workspace]
+members = ["mir2sa"]
+resolver = "2"

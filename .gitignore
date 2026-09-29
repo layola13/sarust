@@ -1,0 +1,21 @@
+# Rust build outputs
+rsc/target/
+rsc/driver/target/
+**/target/
+
+# Logs & caches
+*.log
+*.sa_cache/
+.sa_cache/
+*.sax
+*.sav
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Local notes (keep TEST_LOG.md, drop scratch)
+scratch/

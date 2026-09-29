@@ -1,0 +1,21 @@
+@import "sa_std/io/print.sai"
+
+// MIR callees (map to sci/sa_std per STD_MAP.md):
+@extern sa_print_string()
+@extern string_from()
+
+@main() -> i32:
+L_ENTRY:
+    // StorageLive _1
+    _1 = call @string_from(utf8:"hi")
+    jmp L_PRINT
+L_PRINT:
+    _2 = &_1
+    _0 = call @sa_print_string(^_2)
+    jmp L_DROP
+L_DROP:
+    !_1
+    jmp L_RET
+L_RET:
+    // StorageDead _1
+    return 0

@@ -1,0 +1,227 @@
+@import "sa_std/io/print.sai"
+
+// MIR callees (map to sci/sa_std per STD_MAP.md):
+@extern core_fmt_rt_Argument___new_display_i32()
+@extern core_fmt_rt_Argument___new_display_std_string_String()
+@extern core_fmt_rt_Argument___new_display_usize()
+@extern core_slice_impl_i32_iter()
+@extern std_boxed_Box_i32_3_new_uninit()
+@extern std_boxed_box_assume_init_into_vec_unsafe_i32_3()
+@extern std_fmt_Arguments___from_str()
+@extern std_fmt_Arguments___new_15_1()
+@extern std_fmt_Arguments___new_7_1()
+@extern std_fmt_Arguments___new_9_1()
+@extern std_io__print()
+@extern std_slice_Iter___i32_as_std_iter_IntoIterator_into_iter()
+@extern std_slice_Iter___i32_as_std_iter_Iterator_next()
+@extern std_string_String_as_std_convert_From_str_from()
+@extern std_vec_Vec_i32_as_std_ops_Deref_deref()
+@extern std_vec_Vec_i32_len()
+@extern std_vec_Vec_i32_push()
+@extern sum()
+
+@sum() -> i32:
+bb0:
+    _2 = Val(Scalar(0x00000000), i32)
+    // MIR: <std::vec::Vec<i32> as std::ops::Deref>::deref
+    _5 = call @std_vec_Vec_i32_as_std_ops_Deref_deref(_1)
+    jmp bb1
+bb1:
+    // MIR: core::slice::<impl [i32]>::iter
+    _4 = call @core_slice_impl_i32_iter(_5)
+    jmp bb2
+bb2:
+    // MIR: <std::slice::Iter<'_, i32> as std::iter::IntoIterator>::into_iter
+    _3 = call @std_slice_Iter___i32_as_std_iter_IntoIterator_into_iter(^_4)
+    jmp bb3
+bb3:
+    _6 = ^_3
+    jmp bb4
+bb4:
+    _8 = &_6 // mut-borrow (Phase1: & + Referee)
+    // MIR: <std::slice::Iter<'_, i32> as std::iter::Iterator>::next
+    _7 = call @std_slice_Iter___i32_as_std_iter_Iterator_next(_8)
+    jmp bb5
+bb5:
+    _9 = discriminant(_7) // enum tag read
+    _sw_bb5 = ^_9
+    br _sw_bb5 == 0 -> bb8
+    br _sw_bb5 == 1 -> bb7
+    jmp bb6
+bb6:
+    unreachable
+bb7:
+    _10 = _7
+    _11 = _10
+    _12 = AddWithOverflow(_2, _11)
+    assert ^_12
+    jmp bb9
+bb8:
+    _0 = _2
+    return 0
+bb9:
+    _2 = ^_12
+    jmp bb4
+
+@main() -> i32:
+bb0:
+    _45 = Val(Scalar(0x00), bool)
+    // MIR: <std::string::String as std::convert::From<&str>>::from
+    _1 = call @std_string_String_as_std_convert_From_str_from(Val(Slice { alloc_id: alloc1, meta: 2 }, &'{erased} str))
+    jmp bb1
+bb1:
+    _5 = &_1
+    _4 = ^_5 // single-elem aggregate (exact)
+    _42 = _4
+    // MIR: core::fmt::rt::Argument::<'_>::new_display::<std::string::String>
+    _7 = call @core_fmt_rt_Argument___new_display_std_string_String(_42)
+    jmp bb2
+bb2:
+    _6 = ^_7 // single-elem aggregate (exact)
+    _8 = Val(Scalar(alloc2), &'{erased} [u8; 7_usize])
+    _9 = &_6
+    // MIR: std::fmt::Arguments::<'_>::new::<7, 1>
+    _3 = call @std_fmt_Arguments___new_7_1(^_8, _9)
+    jmp bb3
+bb3:
+    // MIR: std::io::_print
+    _2 = call @std_io__print(^_3)
+    jmp bb4
+bb4:
+    // MIR: std::boxed::Box::<[i32; 3]>::new_uninit
+    _11 = call @std_boxed_Box_i32_3_new_uninit()
+    jmp bb5
+bb5:
+    _46 = *_11 // cast: *const std::mem::MaybeUninit<[i32; 3_usize]>
+    _47 = *_46 // cast: *const ()
+    _48 = *_47 // cast: usize
+    _49 = Sub(Unevaluated(UnevaluatedConst { def: DefId(2:3023 ~ core[f1c6, Val(Scalar(0x0000000000000001), usize))
+    _50 = BitAnd(_48, _49)
+    _51 = Eq(_50, Val(Scalar(0x0000000000000000), usize))
+    assert _51
+    jmp bb29
+bb6:
+    _45 = Val(Scalar(0x01), bool)
+    _13 = &_10 // mut-borrow (Phase1: & + Referee)
+    // MIR: std::vec::Vec::<i32>::push
+    _12 = call @std_vec_Vec_i32_push(^_13, Val(Scalar(0x00000004), i32))
+    jmp bb7
+bb7:
+    _45 = Val(Scalar(0x00), bool)
+    _14 = ^_10
+    _20 = &_14
+    // MIR: sum
+    _19 = call @sum(_20)
+    jmp bb8
+bb8:
+    _18 = &_19
+    _17 = ^_18 // single-elem aggregate (exact)
+    _43 = _17
+    // MIR: core::fmt::rt::Argument::<'_>::new_display::<i32>
+    _22 = call @core_fmt_rt_Argument___new_display_i32(_43)
+    jmp bb9
+bb9:
+    _21 = ^_22 // single-elem aggregate (exact)
+    _23 = Val(Scalar(alloc3), &'{erased} [u8; 9_usize])
+    _24 = &_21
+    // MIR: std::fmt::Arguments::<'_>::new::<9, 1>
+    _16 = call @std_fmt_Arguments___new_9_1(^_23, _24)
+    jmp bb10
+bb10:
+    // MIR: std::io::_print
+    _15 = call @std_io__print(^_16)
+    jmp bb11
+bb11:
+    _30 = &_14
+    // MIR: std::vec::Vec::<i32>::len
+    _29 = call @std_vec_Vec_i32_len(^_30)
+    jmp bb12
+bb12:
+    _28 = &_29
+    _27 = ^_28 // single-elem aggregate (exact)
+    _44 = _27
+    // MIR: core::fmt::rt::Argument::<'_>::new_display::<usize>
+    _32 = call @core_fmt_rt_Argument___new_display_usize(_44)
+    jmp bb13
+bb13:
+    _31 = ^_32 // single-elem aggregate (exact)
+    _33 = Val(Scalar(alloc4), &'{erased} [u8; 15_usize])
+    _34 = &_31
+    // MIR: std::fmt::Arguments::<'_>::new::<15, 1>
+    _26 = call @std_fmt_Arguments___new_15_1(^_33, _34)
+    jmp bb14
+bb14:
+    // MIR: std::io::_print
+    _25 = call @std_io__print(^_26)
+    jmp bb15
+bb15:
+    _37 = &_14
+    // MIR: std::vec::Vec::<i32>::len
+    _36 = call @std_vec_Vec_i32_len(^_37)
+    jmp bb16
+bb16:
+    _35 = Gt(^_36, Val(Scalar(0x0000000000000002), usize))
+    _sw_bb16 = ^_35
+    br _sw_bb16 == 0 -> bb19
+    jmp bb17
+bb17:
+    // MIR: std::fmt::Arguments::<'_>::from_str
+    _39 = call @std_fmt_Arguments___from_str(Val(Slice { alloc_id: alloc5, meta: 4 }, &'{erased} str))
+    jmp bb18
+bb18:
+    // MIR: std::io::_print
+    _38 = call @std_io__print(^_39)
+    jmp bb31
+bb19:
+    // MIR: std::fmt::Arguments::<'_>::from_str
+    _41 = call @std_fmt_Arguments___from_str(Val(Slice { alloc_id: alloc6, meta: 6 }, &'{erased} str))
+    jmp bb20
+bb20:
+    // MIR: std::io::_print
+    _40 = call @std_io__print(^_41)
+    jmp bb32
+bb21:
+    !_14
+    jmp bb22
+bb22:
+    _45 = Val(Scalar(0x00), bool)
+    !_1
+    jmp bb23
+bb23:
+    return 0
+bb24:
+    !_14
+    jmp bb28
+bb25:
+    !_1
+    jmp bb26
+bb26:
+    panic("unwind-resume") // MIR Resume (cleanup path)
+bb27:
+    !_10
+    jmp bb25
+bb28:
+    br _45 == 0 -> bb25
+    jmp bb27
+bb29:
+    _52 = *_46 // cast: *const ()
+    _53 = *_52 // cast: usize
+    _54 = Ne(Unevaluated(UnevaluatedConst { def: DefId(2:3022 ~ core[f1c6, Val(Scalar(0x0000000000000000), usize))
+    _55 = Eq(_53, Val(Scalar(0x0000000000000000), usize))
+    _56 = BitAnd(_55, _54)
+    _57 = Not(_56)
+    assert _57
+    jmp bb30
+bb30:
+    // aggregate (((*_46).1: std::mem::ManuallyDrop<[i32; 3]>).0: [i32; 3]) init i32; 3
+    _agg_bb30 = alloc 12
+    store _agg_bb30+0, 1 as i32
+    store _agg_bb30+4, 2 as i32
+    store _agg_bb30+8, 3 as i32
+    // MIR: std::boxed::box_assume_init_into_vec_unsafe::<i32, 3>
+    _10 = call @std_boxed_box_assume_init_into_vec_unsafe_i32_3(_11)
+    jmp bb6
+bb31:
+    jmp bb21
+bb32:
+    jmp bb21

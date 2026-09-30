@@ -1,8 +1,40 @@
 //! rsc_driver::tyinfo.
 use crate::util::trunc;
+use rustc_middle::mir::interpret::GlobalId;
 use rustc_middle::mir::{Body, Const, ConstOperand, Operand, Place};
 use rustc_middle::ty::{ConstKind, Mutability, Ty, TyCtxt, TyKind};
 use rustc_middle::ty;
+use rustc_span::DUMMY_SP;
+
+/// Resolve a MIR const to a `Const::Val` when possible.
+///
+/// After monomorphization most consts arrive evaluated, but const items that
+/// escaped substitution stay `Const::Unevaluated` — and the backend can only
+/// read the Debug text of a `Val`, so those became unresolvable-const gaps.
+/// `const_eval_global_id` runs the compiler's own evaluator on the item's
+/// DefId; on success the backend gets the value form. Failure (generic params,
+/// unsupported ops, post-mono leftovers) returns the original const untouched:
+/// extraction must never die or ICE.
+pub fn resolve_const<'tcx>(tcx: TyCtxt<'tcx>, c: &Const<'tcx>) -> Const<'tcx> {
+    let Const::Unevaluated(uc, _) = c else {
+        return *c;
+    };
+    let instance = ty::Instance::new_raw(uc.def, uc.args);
+    let cid = GlobalId { instance, promoted: uc.promoted };
+    let typing_env = ty::TypingEnv::fully_monomorphized();
+    // Returns a `ConstValue` (not a `Const`): wrap it with the operand's own
+    // type so the backend sees the same `Val(...)` shape it parses elsewhere.
+    match tcx.const_eval_global_id(typing_env, cid, DUMMY_SP) {
+        Ok(v) => {
+            let ty = match c {
+                Const::Unevaluated(_, t) => *t,
+                _ => return *c,
+            };
+            Const::Val(v, ty)
+        }
+        Err(_) => *c,
+    }
+}
 
 /// Byte-literal payload for a slice constant (`Const::Val` with
 /// `ConstValue::Slice`): (bytes, len), else None.

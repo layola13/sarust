@@ -20,6 +20,7 @@ extern crate rustc_interface;
 extern crate rustc_middle;
 extern crate rustc_ast;
 extern crate rustc_abi;
+extern crate rustc_span;
 
 use rustc_driver::{Callbacks, Compilation, run_compiler};
 use rustc_hir::def::DefKind;

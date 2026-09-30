@@ -31,7 +31,7 @@
 | Aggregate 零元素 | ✅ | `dest = 0`（unit/niche；tag 另由 SetDisc 写入） |
 | Aggregate 单元素 | ✅ | 直接赋值（exact） |
 | Aggregate 数组 `[T; N]` 全 Const | ✅ | `alloc` + `store`（sla/vec.sa 惯例） |
-| Aggregate struct/tuple/range/enum | ✅ | `alloc` + 逐字段 `store`（p_layout v1：sla tuple/struct ABI；Move 保持 `^` 可见；`dest = _agg_bbN`） |
+| Aggregate struct/tuple/range/enum | ✅ | `alloc` + 逐字段 `store`（p_layout v2：driver 下发真 `size/offsets`，`dest = _agg_bbN`；缺布局回退 v1 sla ABI） |
 | Aggregate ZST 字段（PhantomData/Pinned） | ✅ | 占 0 字节，不发射 `store`（exact；全 ZST 则 `dest = 0`） |
 | Aggregate 含 Slice/alloc 常量 | 🔶 | 具名 + 计数，大声 UNSUPPORTED（需 const-eval 提升 alloc 内容；语料库零残留，rosetta 8 处） |
 | Repeat `[c; N]` u8/i8 Const | ✅ | `alloc` + `call @sa_mem_set` |
@@ -70,12 +70,15 @@
 
 `Deref / Field / Index / ConstantIndex / Subslice / Downcast / OpaqueCast / UnwrapUnsafeBinder / PhantomDeref`：
 当前 driver 一律归一到基 local（`base_local`），读.f_struct/.f_slice 等因
-optimized MIR 已把常用投影展开而恰好全过；v1 已用 sla ABI 启发式关闭
-7 个 Aggregate + 2 个 SetDisc（`lower_adt_init` + `store tag+0`，`cargo test` 7/7 锁定）。
-p_layout v2（真布局）：driver 内 `place.ty()` +
-`tcx.layout_of()` 算出显式 `base+off`，随 mir.json 下发 `layout/offsets/tys`，
-Adt 构造逐字段 `store`（Move 元素保持
-`^` 可见），Downcast/niche 布局按真实 Layout 不猜。
+optimized MIR 已把常用投影展开而恰好全过；v1 曾用 sla ABI 启发式关闭
+7 个 Aggregate + 2 个 SetDisc。v2（本轮）：driver 内 `place.ty()` +
+`tcx.layout_of()`（`TypingEnv::fully_monomorphized`；枚举经
+`AggregateKind::Adt` variant 走 `for_variant` 取 payload 布局；Primitive/
+Union/失配一律回退，驱动永不因子布局失败）下发真 `size/offsets`，
+mir2sa 覆盖偏移原文使用（reorder 非升序与枚举 tag-gap 绝对偏移皆 exact；
+逐元渲染仍复用 v1：Const 按后缀十进制化，Move/Copy 作 u64 槽保 `^` 可见；
+`total` 取 max(启发式, 真值）防缩水）。泛型单态（`f_generic`）无布局，
+诚实回退 v1。
 
 ## 当前缺口（corpus 基线）
 

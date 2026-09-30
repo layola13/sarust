@@ -194,3 +194,25 @@ targets 的 bug，Rust 版已修正；另 `(_4.0: T)` 投影归一到基 local�
     `/* native escape */` 非 mov 形，保持大声，正确）。
 - corpus 侧：`lower`/`coverage` 重跑仍 UNSUPPORTED=0 / 100.0%（锁定产物
   字节一致）；`cargo test` 12/12（新增 `adt_zst_skipped`）。
+
+## T11 p_layout v2（本轮：真布局下发，关 v1 理论 pad 差）
+
+- 动机：v1 按源码序排布，rustc 会重排字段（T10 已披露为理论缺口）。
+  实锤：`main bb13` 三元组真布局 `[24,0,28]/32`（v1 给出 `17`）；
+  `main bb0` 枚举 payload 真布局 `[4,8]/12`（v1 给出 `8`，丢 tag-gap）。
+- driver：`aggregate_layout`（`dest.ty(local_decls)` + `layout_of`
+  fully-monomorphized + 枚举 `for_variant`；Primitive/Union/arity 失配/
+  泛型 → None，提取永不失败）。API 取证：`layout_of` 在本 nightly 收
+  `PseudoCanonicalInput{typing_env,..}`（`offload_meta.rs` 同款），
+  `for_variant` 需 `&LayoutCx`（`ty/layout.rs:317`），`FieldsShape::offset`
+  在 `rustc_abi/src/lib.rs:1738`（`Union→0` 故显式排除，`Primitive` 会
+  panic 故 `count` 守卫 + 形状白名单）。
+- mir2sa：`Rvalue::Aggregate` 增可选 `layout{size,offsets}`（serde 默认缺席，
+  旧 fixture 照解析）；`lower_adt_init` 布局存在且 arity 相符即原文采用
+  （`total` 取 max 防缩水），否则 v1；`coverage` 同口径；单测
+  `adt_v2_reordered_tuple` / `adt_v2_enum_payload_absolute` /
+  `adt_v2_arity_mismatch_falls_back`。
+- 实测：corpus 重提重落仍 100.0%，差分仅两处修正（见上）+ 标记翻 v2
+  （6 v2 + 1 v1=`f_generic` 无布局诚实回退）；保真 `^`245 / `&`70 /
+  `!`29 不变；rosetta 320 文件重跑缺口 9 → 9（零回归；11 驱动失败集不变）；
+  `cargo test` 15/15。

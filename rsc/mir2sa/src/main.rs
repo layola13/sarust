@@ -55,6 +55,13 @@ enum Stmt {
 }
 
 #[derive(Serialize, Deserialize)]
+struct AdtLayout {
+    size: u64,
+    #[serde(default)]
+    offsets: Vec<u64>,
+}
+
+#[derive(Serialize, Deserialize)]
 #[serde(tag = "kind")]
 enum Rvalue {
     Use { op: Operand },
@@ -63,7 +70,11 @@ enum Rvalue {
     BinOp { op: String, left: Box<Operand>, right: Box<Operand> },
     UnOp { op: String, operand: Box<Operand> },
     Cast { op: Box<Operand>, ty: String },
-    Aggregate { elems: Vec<Operand> },
+    Aggregate {
+        elems: Vec<Operand>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        layout: Option<AdtLayout>,
+    },
     Discriminant { place: String },
     RawPtr { place: String, #[serde(rename = "mut", default, skip_serializing_if = "is_false")] mut_: bool },
     Repeat { op: Box<Operand>, len: String },
@@ -367,7 +378,13 @@ fn const_elem_ty(value: &str) -> Option<(&'static str, usize)> {
 /// (sla `else => 8`). Zero-sized Consts (`Val(ZeroSized, …)`: PhantomData,
 /// PhantomPinned) occupy 0 bytes and emit no store (exact, per Rust layout).
 /// Returns SA lines bound to `dest`, or None.
-fn lower_adt_init(bid: &str, dest: &str, dest_place: &str, elems: &[Operand]) -> Option<Vec<String>> {
+fn lower_adt_init(
+    bid: &str,
+    dest: &str,
+    dest_place: &str,
+    elems: &[Operand],
+    layout: Option<&AdtLayout>,
+) -> Option<Vec<String>> {
     if elems.len() < 2 {
         return None;
     }
@@ -403,24 +420,45 @@ fn lower_adt_init(bid: &str, dest: &str, dest_place: &str, elems: &[Operand]) ->
             }
         }
     }
-    let mut offsets = Vec::with_capacity(plans.len());
-    let mut off = 0usize;
+    // v1 footprint (also the all-zero-sized detector).
+    let mut v1_total = 0usize;
     for (_, _, size) in &plans {
-        off = align_agg_offset(off, *size);
-        offsets.push(off);
-        off += *size;
+        v1_total = align_agg_offset(v1_total, *size);
+        v1_total += *size;
     }
-    if off == 0 {
+    if v1_total == 0 {
         // All fields zero-sized: no storage, bind a null marker (exact).
         return Some(vec![
             format!("// aggregate Adt init @ {} (all fields zero-sized)", dest_place.trim()),
             format!("{} = 0 // zero-size Adt", dest),
         ]);
     }
-    let total = off;
+    // p_layout v2: driver-supplied rustc offsets win when the arity matches.
+    // They may be non-ascending (reordered fields) or non-zero-based (enum
+    // payload after the tag gap) — both exact, used verbatim. Per-element
+    // rendering still comes from the v1 plans above (Const decimalized via
+    // its own suffix, Move/Copy as u64 slots with `^` visible).
+    let (total, offsets, origin) = match layout {
+        Some(l) if l.offsets.len() == elems.len() && l.size > 0 => {
+            (l.size as usize, l.offsets.iter().map(|o| *o as usize).collect(), "p_layout v2: rustc layout")
+        }
+        _ => {
+            let mut v1 = Vec::with_capacity(plans.len());
+            let mut off = 0usize;
+            for (_, _, size) in &plans {
+                off = align_agg_offset(off, *size);
+                v1.push(off);
+                off += *size;
+            }
+            (off, v1, "p_layout v1: sla tuple/struct ABI")
+        }
+    };
+    // Never under-allocate against the heuristic (e.g. Move slots assumed 8B
+    // while the true field is smaller); over-allocation is harmless slack.
+    let total = v1_total.max(total);
     let base = format!("_agg_{}", bid);
     let mut lines = vec![
-        format!("// aggregate Adt init @ {} (p_layout v1: sla tuple/struct ABI)", dest_place.trim()),
+        format!("// aggregate Adt init @ {} ({})", dest_place.trim(), origin),
         format!("{} = alloc {}", base, total),
     ];
     for (i, (rendered, sa_ty, _)) in plans.iter().enumerate() {
@@ -552,7 +590,7 @@ fn render_rvalue(
             // DefPath -> key mapping (STD_MAP.md).
             format!("{} = call @sa_thread_local_slot({}) // thread-local: {}", dest, tls_key(def), def)
         }
-        Rvalue::Aggregate { elems } => {
+        Rvalue::Aggregate { elems, layout } => {
             if elems.is_empty() {
                 format!("{} = 0 // zero-elem aggregate (unit/niche; tag via SetDisc when present)", dest)
             } else if elems.len() == 1 {
@@ -561,7 +599,7 @@ fn render_rvalue(
                 // Array fast path first (exact [T; N] all-const, incl. ManuallyDrop backing).
                 if let Some(lines) = lower_array_init(bid, place, elems) {
                     lines.join("\n")
-                } else if let Some(lines) = lower_adt_init(bid, dest, place, elems) {
+                } else if let Some(lines) = lower_adt_init(bid, dest, place, elems, layout.as_ref()) {
                     lines.join("\n")
                 } else {
                     let e: Vec<String> = elems.iter().map(render_operand).collect();
@@ -955,7 +993,7 @@ fn parse_rvalue(rhs: &str) -> Rvalue {
     if (rhs.starts_with('[') && rhs.ends_with(']')) || (rhs.starts_with('(') && rhs.ends_with(')')) {
         let inner = rhs[1..rhs.len() - 1].trim().trim_end_matches(',').trim();
         if !inner.is_empty() {
-            return Rvalue::Aggregate { elems: split_top(inner).into_iter().map(|e| parse_operand(&e)).collect() };
+            return Rvalue::Aggregate { elems: split_top(inner).into_iter().map(|e| parse_operand(&e)).collect(), layout: None };
         }
     }
     Rvalue::Unsupported { text: rhs.chars().take(120).collect() }
@@ -1206,10 +1244,10 @@ fn cmd_coverage(args: &[String]) -> ExitCode {
                                 Operand::Const { value } => repeat_plan(value, len).is_none(),
                                 _ => true,
                             },
-                            Rvalue::Aggregate { elems } if elems.len() > 1 => match dest_place {
+                            Rvalue::Aggregate { elems, layout } if elems.len() > 1 => match dest_place {
                                 Some(p) => {
                                     lower_array_init(&b.id, p, elems).is_none()
-                                        && lower_adt_init(&b.id, dest, p, elems).is_none()
+                                        && lower_adt_init(&b.id, dest, p, elems, layout.as_ref()).is_none()
                                 }
                                 None => true,
                             },
@@ -1386,7 +1424,7 @@ mod tests {
             c("Val(Scalar(0x00000000), i32)"),
             c("Val(Scalar(0x00000004), i32)"),
         ];
-        let lines = lower_adt_init("bb10", "_19", "_19", &elems).expect("range must lower");
+        let lines = lower_adt_init("bb10", "_19", "_19", &elems, None).expect("range must lower");
         assert_eq!(lines[1], "_agg_bb10 = alloc 8");
         assert_eq!(lines[2], "store _agg_bb10+0, 0 as i32");
         assert_eq!(lines[3], "store _agg_bb10+4, 4 as i32");
@@ -1402,7 +1440,7 @@ mod tests {
             Operand::Move { place: "_38".to_string() },
             c("Val(Scalar(0x01), bool)"),
         ];
-        let lines = lower_adt_init("bb13", "_37", "_37", &elems).expect("mixed tuple must lower");
+        let lines = lower_adt_init("bb13", "_37", "_37", &elems, None).expect("mixed tuple must lower");
         assert_eq!(lines[1], "_agg_bb13 = alloc 17");
         assert_eq!(lines[2], "store _agg_bb13+0, 1 as i32");
         assert_eq!(lines[3], "store _agg_bb13+8, ^_38 as u64");
@@ -1417,7 +1455,7 @@ mod tests {
             Operand::Move { place: "_2".to_string() },
             Operand::Move { place: "_4".to_string() },
         ];
-        let lines = lower_adt_init("bb2", "_0", "_0", &elems).expect("generic tuple must lower");
+        let lines = lower_adt_init("bb2", "_0", "_0", &elems, None).expect("generic tuple must lower");
         assert_eq!(lines[1], "_agg_bb2 = alloc 16");
         assert_eq!(lines[2], "store _agg_bb2+0, ^_2 as u64");
         assert_eq!(lines[3], "store _agg_bb2+8, ^_4 as u64");
@@ -1484,9 +1522,62 @@ mod tests {
             c("Val(Scalar(0x00000008), i32)"),
             c("Val(ZeroSized, std::marker::PhantomPinned)"),
         ];
-        let lines = lower_adt_init("bb0", "_2", "_2", &elems).expect("zst pair must lower");
+        let lines = lower_adt_init("bb0", "_2", "_2", &elems, None).expect("zst pair must lower");
         assert_eq!(lines[1], "_agg_bb0 = alloc 4");
         assert_eq!(lines[2], "store _agg_bb0+0, 8 as i32");
         assert_eq!(lines[3], "_2 = _agg_bb0");
+    }
+
+    fn adt_layout(size: u64, offsets: &[u64]) -> AdtLayout {
+        AdtLayout { size, offsets: offsets.to_vec() }
+    }
+
+    #[test]
+    fn adt_v2_reordered_tuple() {
+        // main bb13 shape: (1_i32, Move String, true) reordered by rustc to
+        // [24, 0, 28] size 32. v1 would emit alloc 17 — v2 must win verbatim.
+        let elems = vec![
+            c("Val(Scalar(0x00000001), i32)"),
+            Operand::Move { place: "_38".to_string() },
+            c("Val(Scalar(0x01), bool)"),
+        ];
+        let layout = adt_layout(32, &[24, 0, 28]);
+        let lines = lower_adt_init("bb13", "_37", "_37", &elems, Some(&layout))
+            .expect("v2 layout must lower");
+        assert_eq!(lines[1], "_agg_bb13 = alloc 32");
+        assert_eq!(lines[2], "store _agg_bb13+24, 1 as i32");
+        assert_eq!(lines[3], "store _agg_bb13+0, ^_38 as u64");
+        assert_eq!(lines[4], "store _agg_bb13+28, 1 as u8");
+        assert!(lines[0].contains("p_layout v2"));
+    }
+
+    #[test]
+    fn adt_v2_enum_payload_absolute() {
+        // Shape::Point(1, 2): payload offsets absolute in the 12B enum
+        // (tag gap at 0..4), size is the full enum size.
+        let elems = vec![
+            c("Val(Scalar(0x00000001), i32)"),
+            c("Val(Scalar(0x00000002), i32)"),
+        ];
+        let layout = adt_layout(12, &[4, 8]);
+        let lines = lower_adt_init("bb0", "_6", "_6", &elems, Some(&layout))
+            .expect("enum payload must lower");
+        assert_eq!(lines[1], "_agg_bb0 = alloc 12");
+        assert_eq!(lines[2], "store _agg_bb0+4, 1 as i32");
+        assert_eq!(lines[3], "store _agg_bb0+8, 2 as i32");
+    }
+
+    #[test]
+    fn adt_v2_arity_mismatch_falls_back() {
+        // Layout arity != operand count -> v1 heuristic (must not miscompile).
+        let elems = vec![
+            c("Val(Scalar(0x00000000), i32)"),
+            c("Val(Scalar(0x00000004), i32)"),
+        ];
+        let layout = adt_layout(8, &[0]);
+        let lines = lower_adt_init("bb10", "_19", "_19", &elems, Some(&layout))
+            .expect("mismatch must fall back to v1");
+        assert!(lines[0].contains("p_layout v1"));
+        assert_eq!(lines[1], "_agg_bb10 = alloc 8");
     }
 }

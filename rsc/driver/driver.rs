@@ -19,6 +19,7 @@ extern crate rustc_hir;
 extern crate rustc_interface;
 extern crate rustc_middle;
 extern crate rustc_ast;
+extern crate rustc_abi;
 
 use rustc_ast::ast::InlineAsmTemplatePiece;
 
@@ -131,7 +132,12 @@ fn operand_json(op: &Operand<'_>, into: &mut String) {
     }
 }
 
-fn rvalue_json(rv: &Rvalue<'_>, tcx: TyCtxt<'_>, into: &mut String) {
+fn rvalue_json(
+    rv: &Rvalue<'_>,
+    tcx: TyCtxt<'_>,
+    layout: Option<&(u64, Vec<u64>)>,
+    into: &mut String,
+) {
     match rv {
         Rvalue::Use(op, _) => {
             into.push_str("{\"kind\": \"Use\", \"op\": ");
@@ -196,8 +202,7 @@ fn rvalue_json(rv: &Rvalue<'_>, tcx: TyCtxt<'_>, into: &mut String) {
             esc(&trunc(format!("{:?}", ty), 60), into);
             into.push_str("\"}");
         }
-        Rvalue::Aggregate(kind, ops) => {
-            let _ = kind;
+        Rvalue::Aggregate(_kind, ops) => {
             into.push_str("{\"kind\": \"Aggregate\", \"elems\": [");
             for (i, o) in ops.iter().enumerate() {
                 if i > 0 {
@@ -205,7 +210,18 @@ fn rvalue_json(rv: &Rvalue<'_>, tcx: TyCtxt<'_>, into: &mut String) {
                 }
                 operand_json(o, into);
             }
-            into.push_str("]}");
+            into.push_str("]");
+            if let Some((size, offsets)) = layout {
+                write!(into, ", \"layout\": {{\"size\": {}, \"offsets\": [", size).unwrap();
+                for (i, o) in offsets.iter().enumerate() {
+                    if i > 0 {
+                        into.push_str(", ");
+                    }
+                    write!(into, "{}", o).unwrap();
+                }
+                into.push_str("]}");
+            }
+            into.push('}');
         }
         Rvalue::Discriminant(p) => {
             let (s, _) = place_name(p);
@@ -276,7 +292,69 @@ fn bb_name(b: BasicBlock) -> String {
     format!("bb{}", b.index())
 }
 
-fn body_json(tcx: TyCtxt<'_>, name: &str, body: &Body<'_>, into: &mut String) {
+/// p_layout v2: true ADT field offsets for a multi-operand aggregate.
+/// Resolves the destination value type against this body's decls and asks
+/// rustc for the real layout (`tcx.layout_of`); enum payloads resolve
+/// through the aggregate's variant index (the tag layout's fields would not
+/// match the operands). Any failure (generics, unsized, const-only bodies)
+/// yields None and mir2sa falls back to the v1 sla-ABI heuristic — the
+/// driver never fails extraction because of layout.
+fn aggregate_layout<'tcx>(
+    tcx: TyCtxt<'tcx>,
+    param_env: ty::ParamEnv<'tcx>,
+    body: &Body<'tcx>,
+    kind: &rustc_middle::mir::AggregateKind<'tcx>,
+    dest: &Place<'tcx>,
+    n: usize,
+) -> Option<(u64, Vec<u64>)> {
+    use rustc_middle::mir::AggregateKind;
+    use rustc_middle::ty::PseudoCanonicalInput;
+    use rustc_middle::ty::layout::LayoutCx;
+    use rustc_middle::ty::TypingEnv;
+    // MIR bodies here are destructor-observable monomorphic shapes; generic
+    // params have no layout, so resolve under the fully-monomorphized env and
+    // fall back (None) on any failure — extraction must never die on layout.
+    let _ = param_env;
+    let typing_env = TypingEnv::fully_monomorphized();
+    let ty = dest.ty(&body.local_decls, tcx).ty;
+    let layout = tcx
+        .layout_of(PseudoCanonicalInput { typing_env, value: ty })
+        .ok()?;
+    // Enum payloads live in the variant layout, not the tag layout.
+    // Guarded to real ADTs: for_variant bugs on non-ADT types.
+    let layout = match kind {
+        AggregateKind::Adt(_, variant_idx, ..) if matches!(ty.kind(), TyKind::Adt(..)) => {
+            let cx = LayoutCx::new(tcx, typing_env);
+            layout.for_variant(&cx, *variant_idx)
+        }
+        _ => layout,
+    };
+    // Primitive has no fields (offset() would panic); unions overlap all
+    // fields at 0, which the alloc+store model cannot express — both fall
+    // back to the v1 heuristic downstream.
+    if !matches!(
+        layout.fields,
+        rustc_abi::FieldsShape::Arbitrary { .. } | rustc_abi::FieldsShape::Array { .. }
+    ) {
+        return None;
+    }
+    if layout.fields.count() != n {
+        return None;
+    }
+    let mut offsets = Vec::with_capacity(n);
+    for i in 0..n {
+        offsets.push(layout.fields.offset(i).bytes());
+    }
+    Some((layout.size.bytes(), offsets))
+}
+
+fn body_json<'tcx>(
+    tcx: TyCtxt<'tcx>,
+    param_env: ty::ParamEnv<'tcx>,
+    name: &str,
+    body: &Body<'tcx>,
+    into: &mut String,
+) {
     into.push_str("{\"name\": \"");
     esc(name, into);
     into.push_str("\", \"locals\": [], \"blocks\": [");
@@ -302,7 +380,14 @@ fn body_json(tcx: TyCtxt<'_>, name: &str, body: &Body<'_>, into: &mut String) {
                     into.push_str("\", \"dest_place\": \"");
                     esc(&full, into);
                     into.push_str("\", \"rvalue\": ");
-                    rvalue_json(rv, tcx, into);
+                    // p_layout v2 goes only on multi-operand aggregates.
+                    let layout = match rv {
+                        Rvalue::Aggregate(kind, ops) if ops.len() > 1 => {
+                            aggregate_layout(tcx, param_env, body, kind, place, ops.len())
+                        }
+                        _ => None,
+                    };
+                    rvalue_json(rv, tcx, layout.as_ref(), into);
                     into.push('}');
                 }
                 StatementKind::StorageLive(l) => {
@@ -500,7 +585,7 @@ impl Callbacks for RscCallbacks {
                 out.push_str(", ");
             }
             first = false;
-            body_json(tcx, short, body, &mut out);
+            body_json(tcx, tcx.param_env(did), short, body, &mut out);
         }
         out.push_str("]}");
         let approx = out.matches("RuntimeChecks-unsupported").count();

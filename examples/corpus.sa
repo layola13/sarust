@@ -318,7 +318,7 @@ bb9:
     br _sw_bb9 == 0 -> bb11
     jmp bb10
 bb10:
-    // aggregate Adt init @ _19 (p_layout v1: sla tuple/struct ABI)
+    // aggregate Adt init @ _19 (p_layout v2: rustc layout)
     _agg_bb10 = alloc 8
     store _agg_bb10+0, 0 as i32
     store _agg_bb10+4, 4 as i32
@@ -355,7 +355,7 @@ bb16:
     jmp bb5
 bb17:
     _24 = _21
-    // aggregate Adt init @ _26 (p_layout v1: sla tuple/struct ABI)
+    // aggregate Adt init @ _26 (p_layout v2: rustc layout)
     _agg_bb17 = alloc 8
     store _agg_bb17+0, 0 as i32
     store _agg_bb17+4, 4 as i32
@@ -1122,10 +1122,10 @@ bb7:
 
 @main() -> i32:
 bb0:
-    // aggregate Adt init @ _6 (p_layout v1: sla tuple/struct ABI)
-    _agg_bb0 = alloc 8
-    store _agg_bb0+0, 1 as i32
-    store _agg_bb0+4, 2 as i32
+    // aggregate Adt init @ _6 (p_layout v2: rustc layout)
+    _agg_bb0 = alloc 12
+    store _agg_bb0+4, 1 as i32
+    store _agg_bb0+8, 2 as i32
     _6 = _agg_bb0
     // MIR: f_match
     _5 = call @f_match(^_6)
@@ -1173,7 +1173,7 @@ bb7:
     _11 = call @std_io__print(^_12)
     jmp bb8
 bb8:
-    // aggregate Adt init @ _27 (p_layout v1: sla tuple/struct ABI)
+    // aggregate Adt init @ _27 (p_layout v2: rustc layout)
     _agg_bb8 = alloc 8
     store _agg_bb8+0, 1 as i32
     store _agg_bb8+4, 2 as i32
@@ -1204,11 +1204,11 @@ bb12:
     _38 = call @std_string_String_as_std_convert_From_str_from(Val(Slice { alloc_id: alloc28, meta: 2 }, &'{erased} str))
     jmp bb13
 bb13:
-    // aggregate Adt init @ _37 (p_layout v1: sla tuple/struct ABI)
-    _agg_bb13 = alloc 17
-    store _agg_bb13+0, 1 as i32
-    store _agg_bb13+8, ^_38 as u64
-    store _agg_bb13+16, 1 as u8
+    // aggregate Adt init @ _37 (p_layout v2: rustc layout)
+    _agg_bb13 = alloc 32
+    store _agg_bb13+24, 1 as i32
+    store _agg_bb13+0, ^_38 as u64
+    store _agg_bb13+28, 1 as u8
     _37 = _agg_bb13
     // MIR: f_tuple
     _36 = call @f_tuple(^_37)
@@ -1232,7 +1232,7 @@ bb16:
     _32 = call @std_io__print(^_33)
     jmp bb17
 bb17:
-    // aggregate Adt init @ _50 (p_layout v1: sla tuple/struct ABI)
+    // aggregate Adt init @ _50 (p_layout v2: rustc layout)
     _agg_bb17 = alloc 12
     store _agg_bb17+0, 1 as i32
     store _agg_bb17+4, 2 as i32

@@ -107,11 +107,13 @@
 IllegalUnsafeContext/UnsupportedType）：三集归零（逐函数/整文件普查）。
 Referee 层由前端负责（sala 03 模型：Drop 插入与 Phi 由上游负责）：
 
-rosetta 两列为 **T20 逐函数普查**（同 harness、同文件集、同 item 数，
-基线＝T18 之前的 `09ba17b` 版本 worktree 重跑；此前为整文件口径，
-不可直接比）。基线→现状：sci 318 文件 503 函数 **391→426 全绿**
-（77.7%→84.7%）、Borrow 21→2、UAM 63→46；sla 296 文件 509 函数
-**366→399 全绿**（71.9%→78.4%）、Borrow 27→5、UAM 73→61。
+rosetta 两列为 **T20 起逐函数普查**（同 harness、同文件集、同 item 数，基线
+＝T18 之前的 `09ba17b` 版本 worktree 重跑；此前为整文件口径，不可直接比）。
+基线→现状：sci 318 文件 503 函数 **391→426 全绿**（77.7%→84.7%）、Borrow
+21→2、UAM 63→46、loud 805→**497**（cov 87.6%→**92.3%**）；sla 296 文件
+509 函数 **366→399 全绿**（71.9%→78.4%）、Borrow 27→5、UAM 73→61、loud
+2291→**2029**（cov 75.5%→**78.3%**）。sla 余量的 ~86% 是胖指针（值位 ~941 +
+实参 ~803），**同一前置**：局部需能持 (ptr,len) 对（见 TEST_LOG T22）。
 
 | trap | corpus 40fn | sci 318 文件/503fn | sla 296 文件/509fn | 出路 |
 |---|---|---|---|---|
@@ -148,10 +150,10 @@ mir2sa 覆盖偏移原文使用（reorder 非升序与枚举 tag-gap 绝对偏�
 
 | 类别 | 数 | 出路 |
 |---|---|---|
-| ConstValue（Unevaluated/byte-ref 标量位） | 38 | 驱动 const-eval（`const_eval_resolve`）；`&[u8;N]` 字节提升已于 T21a 落地（值位） |
+| ConstValue（corpus 基线） | 38 | 驱动 const-eval（`const_eval_resolve`）；`&[u8;N]` 字节提升已于 T21a 落地（值位） |
 | Rebind（同路重定义） | 23 | SSA 版本改写 + join-phi（Referee 程序） |
-| `*WithOverflow` BinOp | 27 | 元组解构 + 溢出断言重写（Referee 程序） |
-| CallConstValue（调用实参） | 10 | 实参位胖指针 ABI：按 `sci/sa_std` 约定 1 形参→(ptr,u64) 双寄存器展开（driver 声明 + 后端传参协同，T21b-2）；定长 `&[u8;N]` 可直接内联薄指针 |
+| `*WithOverflow` BinOp | 27 | 元组解构 + 溢出断言改写（Referee 程序） |
+| CallConstValue（调用实参） | 10 | **胖指针局部表示**（T22 定性）：sa_std ABI 为 (ptr,u64)，需局部持对 + 声明/实参同步展开；`sci/sa_std` 无现成 checked 算术，溢出检查亦需在 sa_std 补 |
 | 有序比较/移位（Lt/Gt/Ge/Shr） | 9 | driver 下发符号性 |
 | PointerCoercion（Unsize/fn-ptr） | 5 | 胖指针构造/intrinsic 策略 |
 | UnOp-PtrMetadata | 0（3→0，T21b-1 落为 `load p+8`） | 0（13→0） | 0（5→0） | 已落地：slice.sal (ptr,len) 布局 meta 恒在 +8 |

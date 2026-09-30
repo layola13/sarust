@@ -5,6 +5,17 @@ use crate::layout::{lower_adt_init, lower_array_init, tls_key};
 use crate::mir::*;
 use crate::render_util::*;
 
+/// Operand text for a spilled source: a `load` from its slot. None when the
+/// operand is not a spilled register (constants, spills absent).
+pub fn spill_reg(op: &Operand, spill: &crate::spill::SpillMap) -> Option<String> {
+    let place = match op {
+        Operand::Move { place } | Operand::Copy { place } => place,
+        _ => return None,
+    };
+    let t = spill.get(place)?;
+    Some(format!("load {}+0 as {}", crate::spill::spill_slot(place), t))
+}
+
 pub fn render_rvalue(
     rv: &Rvalue,
     dest: &str,
@@ -27,6 +38,9 @@ pub fn render_rvalue(
                         ty
                     );
                 }
+            }
+            if let Some(t) = spill_reg(op, spill) {
+                return format!("{} = {}", dest, t);
             }
             // Const-propagated literals re-materialize instead of moving a
             // shared temp (a second move of the temp would trap UseAfterMove).
@@ -56,6 +70,13 @@ pub fn render_rvalue(
                 lines.push(format!("// via {}", flat_comment(v)));
             }
             lines.push(format!("{} = &{}", dest, place));
+            // Spilled borrow temps keep a slot: their MIR Copy-uses reload,
+            // so the later `drop(b)` still finds `b` bound.
+            if let Some(t) = spill.get(dest) {
+                let s = crate::spill::spill_slot(dest);
+                lines.push(format!("{} = alloc 8", s));
+                lines.push(format!("store {}+0, {} as {}", s, dest, t));
+            }
             lines.join("\n")
         }
         Rvalue::Call { func, args, sig } => {
@@ -105,21 +126,39 @@ pub fn render_rvalue(
         }
         Rvalue::Cast { op, ty, castkind, src_ty } => {
             let dst = cast_dst_short(ty);
-            let (mut pre, ot) = bind_move_operand(op, bid, mv_idx);
+            // Spilled sources reload instead of moving (pointer-copy chains
+            // reuse one value 2-3 times, and a borrow temp must stay bound
+            // for its own later `!b`; `sa check` traps the plain assign as
+            // UseAfterMove / UnknownRegister).
+            let (mut pre, ot) = match spill_reg(op, spill) {
+                Some(t) => (vec![], t),
+                None => bind_move_operand(op, bid, mv_idx),
+            };
             // SA emission type for conversions (`as TY`).
             let emit_ty = if dst == "ptr" {
                 "ptr".to_string()
             } else {
                 sa_scalar_ty(dst.trim()).to_string()
             };
+            // Spilled cast dests get their slot setup here (same shape as the
+            // repeat/aggregate synthetic bases).
+            let slot = |pre: &mut Vec<String>| {
+                if let Some(t) = spill.get(dest) {
+                    let s = crate::spill::spill_slot(dest);
+                    pre.push(format!("{} = alloc 8", s));
+                    pre.push(format!("store {}+0, {} as {}", s, dest, t));
+                }
+            };
             match (castkind.as_deref(), src_ty.as_deref()) {
                 (Some(k), Some(s)) => match lower_cast(k, s, &dst) {
                     Some(CastLower::Copy) => {
                         pre.push(format!("{} = {}", dest, ot));
+                        slot(&mut pre);
                         pre.join("\n")
                     }
                     Some(CastLower::Convert(m)) => {
                         pre.push(format!("{} = {} {} as {}", dest, m, ot, emit_ty));
+                        slot(&mut pre);
                         pre.join("\n")
                     }
                     None => {
@@ -181,15 +220,11 @@ pub fn render_rvalue(
                 format!("// zero-elem aggregate (unit/niche; tag via SetDisc when present)\n{} = 0", dest)
             } else if elems.len() == 1 {
                 // Spilled shared buffers reload like plain Uses.
-                if let Operand::Copy { place } = &elems[0] {
-                    if let Some(ty) = spill.get(place) {
-                        return format!(
-                            "// single-elem aggregate (spill reload)\n{} = load {}+0 as {}",
-                            dest,
-                            crate::spill::spill_slot(place),
-                            ty
-                        );
-                    }
+                if let Some(t) = spill_reg(&elems[0], spill) {
+                    return format!(
+                        "// single-elem aggregate (spill reload)\n{} = {}",
+                        dest, t
+                    );
                 }
                 format!("// single-elem aggregate (exact)\n{} = {}", dest, render_operand(&elems[0]))
             } else if let Some(place) = dest_place {

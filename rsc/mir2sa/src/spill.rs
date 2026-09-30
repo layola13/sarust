@@ -42,9 +42,26 @@ pub fn call_spill_ty(ret: &str) -> Option<String> {
     None
 }
 
+/// SA store type for a cast dest's spill slot, from the MIR target type.
+/// Pointer spellings collapse to `ptr`, scalars map through `sa_scalar_ty`
+/// (bool->u8, usize->u64). None when the cast does not lower to a scalar
+/// (struct/enum/fn targets: no SA slot type) — caller stays direct.
+pub fn cast_spill_ty(ty: &str) -> Option<String> {
+    let dst = crate::asm::cast_dst_short(ty);
+    if dst == "ptr" {
+        return Some("ptr".to_string());
+    }
+    crate::const_util::sa_scalar_ty(dst.trim());
+    crate::asm::scalar_width_bits(&dst)
+        .filter(|w| *w != 128)
+        .map(|_| crate::const_util::sa_scalar_ty(&dst).to_string())
+}
+
 /// Copy-use positions that need reload (plain-assign moves of shared reads):
-/// Assign-Use RHS and single-elem aggregate elems. All other Copy positions
-/// render shared reads inline (non-consuming) and need nothing.
+/// Assign-Use RHS, single-elem aggregate elems, and cast operands. All other
+/// Copy positions render shared reads inline (non-consuming) and need nothing.
+/// Cast operands matter for pointer-copy chains (Box deref null/align checks
+/// copy the same pointer 2-3 times — corpus f_box/f_raw/f_underscore).
 fn copy_use_targets(st: &Stmt) -> Vec<String> {
     match st {
         Stmt::Assign { rvalue, .. } => match rvalue {
@@ -54,6 +71,34 @@ fn copy_use_targets(st: &Stmt) -> Vec<String> {
             },
             Rvalue::Aggregate { elems, .. } if elems.len() == 1 => match &elems[0] {
                 Operand::Copy { place } => vec![place.clone()],
+                _ => vec![],
+            },
+            Rvalue::Cast { op, .. } => match op.as_ref() {
+                Operand::Copy { place } => vec![place.clone()],
+                _ => vec![],
+            },
+            _ => vec![],
+        },
+        _ => vec![],
+    }
+}
+
+/// Positions that CONSUME their operand reg (plain assign of one place).
+/// MIR Move on a Copy-typed local still leaves the local valid, but SA `=`
+/// moves, so the reg would be gone before its own `!b` release.
+fn consuming_use_targets(st: &Stmt) -> Vec<String> {
+    match st {
+        Stmt::Assign { rvalue, .. } => match rvalue {
+            Rvalue::Use { op } => match op {
+                Operand::Move { place } => vec![place.clone()],
+                _ => vec![],
+            },
+            Rvalue::Aggregate { elems, .. } if elems.len() == 1 => match &elems[0] {
+                Operand::Move { place } => vec![place.clone()],
+                _ => vec![],
+            },
+            Rvalue::Cast { op, .. } => match op.as_ref() {
+                Operand::Move { place } => vec![place.clone()],
                 _ => vec![],
             },
             _ => vec![],
@@ -74,12 +119,15 @@ fn copy_use_targets(st: &Stmt) -> Vec<String> {
 pub fn build_spill(blocks: &[crate::mir::Block]) -> SpillMap {
     // Copy-use targets across the whole function.
     let mut copies: BTreeSet<String> = BTreeSet::new();
+    // Consuming (Move) uses: these need a slot for the SOURCE to survive.
+    let mut consuming: BTreeSet<String> = BTreeSet::new();
     for b in blocks {
         for st in &b.statements {
             copies.extend(copy_use_targets(st));
+            consuming.extend(consuming_use_targets(st));
         }
     }
-    if copies.is_empty() {
+    if copies.is_empty() && consuming.is_empty() {
         return BTreeMap::new();
     }
     // Definition counts (Assign dests + Call dests): only single-def regs
@@ -125,6 +173,45 @@ pub fn build_spill(blocks: &[crate::mir::Block]) -> SpillMap {
     for c in &copies {
         if (c.starts_with("_agg_") || c.starts_with("_rep_")) && !map.contains_key(c) {
             map.insert(c.clone(), "ptr".to_string());
+        }
+    }
+    // Cast dests: pointer copies (Box deref null/align chains copy the same
+    // pointer several times). Only casts that lower to a real value get a
+    // slot — a loud cast binds a `0` placeholder and gains nothing.
+    for b in blocks {
+        for st in &b.statements {
+            if let Stmt::Assign { dest, rvalue: Rvalue::Cast { ty, castkind, src_ty, .. }, .. } = st {
+                if copies.contains(dest) && single(dest) && !map.contains_key(dest) {
+                    let dst = crate::asm::cast_dst_short(ty);
+                    let lowers = match (castkind.as_deref(), src_ty.as_deref()) {
+                        (Some(k), Some(s)) => {
+                            crate::asm::lower_cast(k, s, &dst).is_some()
+                        }
+                        _ => false,
+                    };
+                    if lowers {
+                        if let Some(t) = cast_spill_ty(ty) {
+                            map.insert(dest.clone(), t);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // Borrow dests: `b = &p` is pointer-valued, and a plain assign of `b`
+    // (Aggregate/Use/Cast RHS) CONSUMES the reg. The later release (`drop(b)`
+    // or the borrow-end insertion before `drop(p)`) then reads a reg the
+    // Referee no longer has — UnknownRegister, not UseAfterMove. Spilling
+    // keeps `b` bound and reloads at the consuming use. ZST borrows emit
+    // `= 0` (no pointer) and are skipped.
+    for b in blocks {
+        for st in &b.statements {
+            if let Stmt::Assign { dest, rvalue: Rvalue::Ref { zst: false, .. }, .. } = st {
+                let used = copies.contains(dest) || consuming.contains(dest);
+                if used && single(dest) && !map.contains_key(dest) {
+                    map.insert(dest.clone(), "ptr".to_string());
+                }
+            }
         }
     }
     map
@@ -187,5 +274,124 @@ mod spill_tests {
             terminator: Term::Return,
         }];
         assert!(build_spill(&blocks).is_empty());
+    }
+
+    fn cast_copy(dest: &str, place: &str, ty: &str) -> Stmt {
+        Stmt::Assign {
+            dest: dest.to_string(),
+            dest_place: Some(dest.to_string()),
+            rvalue: Rvalue::Cast {
+                op: Box::new(Operand::Copy { place: place.to_string() }),
+                ty: ty.to_string(),
+                castkind: Some("PtrToPtr".to_string()),
+                src_ty: Some("*".to_string()),
+            },
+        }
+    }
+
+    fn borrow_ref(dest: &str, place: &str) -> Stmt {
+        Stmt::Assign {
+            dest: dest.to_string(),
+            dest_place: Some(dest.to_string()),
+            rvalue: Rvalue::Ref {
+                place: place.to_string(),
+                mut_: false,
+                via: None,
+                zst: false,
+            },
+        }
+    }
+
+    #[test]
+    fn cast_spill_ty_maps() {
+        assert_eq!(cast_spill_ty("*const std::vec::Vec<i32>"), Some("ptr".to_string()));
+        assert_eq!(cast_spill_ty("usize"), Some("u64".to_string()));
+        assert_eq!(cast_spill_ty("bool"), Some("u8".to_string()));
+        assert_eq!(cast_spill_ty("std::string::String"), None);
+        assert_eq!(cast_spill_ty("i128"), None, "128-bit has no SA slot type");
+    }
+
+    #[test]
+    fn cast_dest_spills_when_copy_used() {
+        use crate::mir::{Block, Rvalue, Term};
+        // f_box shape: _7 = cast(copy _6), _12 = cast(copy _6) — pointer-copy
+        // chain: the second plain assign would trap UseAfterMove.
+        let blocks = vec![Block {
+            id: "bb0".to_string(),
+            statements: vec![
+                borrow_ref("_6", "_1"),
+                cast_copy("_7", "_6", "*const ()"),
+                cast_copy("_12", "_6", "*const ()"),
+            ],
+            terminator: Term::Return,
+        }];
+        let m = build_spill(&blocks);
+        assert_eq!(m.get("_6"), Some(&"ptr".to_string()));
+        assert!(!m.contains_key("_7"), "single use needs no slot");
+    }
+
+    #[test]
+    fn borrow_dest_spills_when_consumed() {
+        use crate::mir::{Block, Rvalue, Term};
+        // main shape: _78 = &_79; _77 = Aggregate([Move(_78)]) — the later
+        // `!_78` (borrow-end) must still find the reg bound.
+        let blocks = vec![Block {
+            id: "bb0".to_string(),
+            statements: vec![
+                borrow_ref("_78", "_79"),
+                Stmt::Assign {
+                    dest: "_77".to_string(),
+                    dest_place: Some("_77".to_string()),
+                    rvalue: Rvalue::Aggregate {
+                        elems: vec![Operand::Move { place: "_78".to_string() }],
+                        layout: None,
+                    },
+                },
+            ],
+            terminator: Term::Return,
+        }];
+        assert_eq!(build_spill(&blocks).get("_78"), Some(&"ptr".to_string()));
+    }
+
+    #[test]
+    fn unused_borrow_dest_does_not_spill() {
+        use crate::mir::{Block, Term};
+        // Only call-arg uses (non-consuming) -> no slot needed.
+        let blocks = vec![Block {
+            id: "bb0".to_string(),
+            statements: vec![borrow_ref("_5", "_6")],
+            terminator: Term::Call {
+                func: "f".to_string(),
+                func_raw: None,
+                args: vec![Operand::Move { place: "_5".to_string() }],
+                dest: Some("_7".to_string()),
+                target: Some("bb1".to_string()),
+                sig: None,
+            },
+        }];
+        assert!(!build_spill(&blocks).contains_key("_5"));
+    }
+
+    #[test]
+    fn zst_borrow_never_spills() {
+        use crate::mir::{Block, Rvalue, Term};
+        let blocks = vec![Block {
+            id: "bb0".to_string(),
+            statements: vec![
+                Stmt::Assign {
+                    dest: "_6".to_string(),
+                    dest_place: Some("_6".to_string()),
+                    rvalue: Rvalue::Ref {
+                        place: "_1".to_string(),
+                        mut_: false,
+                        via: None,
+                        zst: true,
+                    },
+                },
+                cast_copy("_7", "_6", "usize"),
+            ],
+            terminator: Term::Return,
+        }];
+        assert!(!build_spill(&blocks).contains_key("_6"));
     }
 }

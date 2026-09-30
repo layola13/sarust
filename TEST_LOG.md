@@ -419,3 +419,32 @@ targets 的 bug，Rust 版已修正；另 `(_4.0: T)` 投影归一到基 local�
   `borrow_end.rs` 模块文档）：bt1/dd/pl/fu/ft/g1/g2/g3/pb1..pb4/t1..t3。
 - 残留不变：UAM 9（borrow-copy 与计算值复用类，见 INVENTORY）、
   PhiStateConflict 3（合流/循环携带 Conflict，需 phi 范式）。
+
+## T19 spill 扩展：cast/借用 dest 参与 reload（UseAfterMove 9→6，全绿 28→31）
+
+- 缺口分类（9 例 UAM 逐一定位）：5 例是「Box 解引用检查链」——rustc 生成
+  `_6 = cast(copy _2)` / `_7 = cast(copy _6)` / `_12 = cast(copy _6)` 形态，
+  同一指针被 plain-assign 复制 2-3 次；spill.rs 原本只覆盖 `Rvalue::Use` 与
+  单元素 Aggregate 的 Copy 源，且只给 *call dest* 与 `_agg_/_rep_` 合成缓冲
+  发槽位——cast dest 与借用 dest 从不 spill，于是第二次 assign 必 UAM。
+- 实现（spill.rs + render.rs，+5 单测 → **56/56**）：
+  (1) `cast_spill_ty`：指针拼写→`ptr`，标量过 `sa_scalar_ty`（bool→u8、
+  usize→u64），128 位与聚合目标返回 None（无 SA 槽类型）；
+  (2) cast dest 也是 copy-use 源，且在 `lower_cast` 判定可降级时按目标类型
+  发槽位（Cast 臂内联 `alloc 8` + `store`，与 `_rep_` 合成槽同形）；
+  (3) 借用 dest（`b = &p`，非 ZST）同样 spill 为 `ptr`——新增探针发现
+  **被移动过的 reg 上 `!r` 报 UnknownRegister 而非 UAM**（`m1` 探针：
+  `_77 = _78` 后 `!_78` → UnknownRegister），根因是 `_77 = Aggregate([Move
+  (_78)])` 消费了借用寄存器，而 borrow-end 要在 `!_p` 前发 `!_78`；故
+  `consuming_use_targets` 把 Move 位置也纳入源集合，Use/Aggregate/Cast 三臂
+  统一走 `spill_reg()` 重载。
+- 实测（corpus 40fn 逐函数 `sa check`）：全绿 **28→31**、UAM **9→6**、
+  PhiStateConflict **3→2**（f_parse 的合流冲突被 spill 重载改写后消解）、
+  parse-trap 归零；loud 104 不变（86.0%）；`cargo test` **56/56**。
+- 探针新证（已抄入本节与 spill.rs/render.rs 注释）：r4/r5 —— `return <reg>`
+  合法且**消费**该 reg（r4 ok），`return 0` 则泄漏它（r5 MemoryLeak）。
+  这是下一特性 T19b 的依据：当前 Return 恒发 `return 0`，既丢返回值又漏值。
+- 诚实记录：f_parse 露出 1 例新 MemoryLeak `_0_v0`（合流版本 `_0_v0/_0_v1`
+  各定义在一支，谁都不支配 join，drop.rs 按支配门不敢释放）——旧版被
+  PhiStateConflict 掩盖（Referee 首 trap 即停），属「需 phi」同一族限制的
+  泄漏面，**不新增能力缺口**，但已具名入册（INVENTORY trap 表）。

@@ -33,7 +33,7 @@
 | `borrow_end.rs` | Drop 点借用终结 + cleanup 去重（支配门控+可达性+单定义+死后无用；T18/T18b） | ~470 |
 | `lower.rs` | 函数装配（头/块/终结符/extern/占位/重绑定） | ~440 |
 | `drop.rs` | 出口释放插入（支配感知+借用拓扑） | ~340 |
-| `spill.rs` | 多用值 reload 槽（合成缓冲/call 结果） | ~200 |
+| `spill.rs` | 多用值 reload 槽（call/合成/cast/借用 dest；T19 扩类） | ~370 |
 | `main.rs` | CLI + coverage 镜像 + 单测 | ~700（含单测；逻辑约 400） |
 
 ## StatementKind
@@ -108,12 +108,14 @@ Referee 层由前端负责（sala 03 模型：Drop 插入与 Phi 由上游负责
 
 | trap | corpus 40fn | sci 321 | sla 298 | 出路 |
 |---|---|---|---|---|
-| MemoryLeak | 0（10→0） | 1（185→1） | 1（60→1） | `drop.rs` 出口释放（本轮）；残 2 需 use-analysis |
-| UseAfterMove | 9（14→9，T18/T18b 收口） | 57（102→57） | 61（104→61） | const-prop + spill（本轮）；残留需版本化/重借 |
+| PhiStateConflict | 2（3→2，T19 reload 改写后消解 f_parse） | 9（4→9） | 10（9→10） | 合流/循环携带 Conflict，需 phi/merge-slot 范式 |
+| UnknownRegister | 0（T19 前 1，修借用 dest 保活后归零） | 3（3） | 2（0→2） | 被移动 reg 上 `!r` 会报此错（T19 根因） |
+| MemoryLeak | 1（T19 揭开的合流版本泄漏面） | 1（185→1） | 1（60→1） | `drop.rs` 出口释放（T17）；残 2 需 use-analysis |
+| UseAfterMove | 6（14→9→6，T19 cast/借用 dest spill） | 57（102→57） | 61（104→61） | const-prop + spill（T17）+ cast/借用 dest reload（T19）；残留需 borrow-copy/use-analysis |
 | BorrowConflict | 0（4→5→0，T18 borrow-end + T18b cleanup 去重） | 14（9→14） | 21（16→21） | borrow-end 分析（先释借用再释源；rosetta 待重跑） |
 | PhiStateConflict | 3（2→3） | 21（20→21） | 22（114→22） | 路径敏感清理（join 状态对齐） |
 | RegisterRedefinition | 0 | 0 | 0 | 版本化+支配集重绑定检测已覆盖 |
-| 全绿文件 | 23（3→23） | 228（5→228） | 180（4→180） | — |
+| 全绿文件 | 31（3→23→28→31） | 228（5→228） | 180（4→180） | — |
 
 仿射消费表（探针取证）：`x = y` 移动源；call/store/eq/load/br 共享读；
 `&y` 锁定源（生借用未释禁 `!y`）；`!r` 释放；`^` 仅 call 实参/store 值位合法。

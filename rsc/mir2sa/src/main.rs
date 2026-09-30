@@ -19,6 +19,7 @@ mod order;
 mod parse;
 mod render;
 mod render_util;
+mod spill;
 
 use std::process::ExitCode;
 
@@ -381,7 +382,7 @@ mod tests {
         assert_ne!(tls_key(def), tls_key("TLS_N::{constant#0}::{closure#1}::__RUST_STD_INTERNAL_VAL"));
         let mut unsup = vec![];
         let rv = Rvalue::ThreadLocal { def: def.to_string() };
-        let line = render_rvalue(&rv, "_3", Some("_3"), &mut unsup, "bb0", &mut 0usize);
+        let line = render_rvalue(&rv, "_3", Some("_3"), &mut unsup, "bb0", &mut 0usize, &std::collections::HashMap::new(), &std::collections::BTreeMap::new());
         assert!(unsup.is_empty());
         assert_eq!(line, format!("// thread-local registry slot\n_3 = call @sa_thread_local_slot({})", tls_key(def)));
     }

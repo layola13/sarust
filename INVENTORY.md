@@ -30,6 +30,8 @@
 | `asm.rs` | asm 门控（mov/inout）+ cast 决策 + 标量宽度 | ~210 |
 | `order.rs` | RPO 排放序 + 支配集 bound 种子 | ~230 |
 | `lower.rs` | 函数装配（头/块/终结符/extern/占位/重绑定） | ~440 |
+| `drop.rs` | 出口释放插入（支配感知+借用拓扑） | ~340 |
+| `spill.rs` | 多用值 reload 槽（合成缓冲/call 结果） | ~200 |
 | `main.rs` | CLI + coverage 镜像 + 单测 | ~700（含单测；逻辑约 400） |
 
 ## StatementKind
@@ -105,11 +107,11 @@ Referee 层由前端负责（sala 03 模型：Drop 插入与 Phi 由上游负责
 | trap | corpus 40fn | sci 321 | sla 298 | 出路 |
 |---|---|---|---|---|
 | MemoryLeak | 0（10→0） | 1（185→1） | 1（60→1） | `drop.rs` 出口释放（本轮）；残 2 需 use-analysis |
-| UseAfterMove | 14 | 102 | 104 | 重借/reload 程序（MIR shared-copy 在 SA 须重借） |
-| BorrowConflict | 4 | 9 | 16 | borrow-end 分析（先释借用再释源） |
-| PhiStateConflict | 2 | 20 | 114 | 路径敏感清理（join 状态对齐） |
+| UseAfterMove | 9（14→9） | 57（102→57） | 61（104→61） | const-prop + spill（本轮）；残留需版本化/重借 |
+| BorrowConflict | 5（4→5） | 14（9→14） | 21（16→21） | borrow-end 分析（先释借用再释源） |
+| PhiStateConflict | 3（2→3） | 22（20→22） | 25（114→25） | 路径敏感清理（join 状态对齐） |
 | RegisterRedefinition | 0 | 0 | 0 | 支配集重绑定检测已覆盖 |
-| 全绿文件 | 20 | 189 | 63 | — |
+| 全绿文件 | 23（3→23） | 226（5→226） | 177（4→177） | — |
 
 仿射消费表（探针取证）：`x = y` 移动源；call/store/eq/load/br 共享读；
 `&y` 锁定源（生借用未释禁 `!y`）；`!r` 释放；`^` 仅 call 实参/store 值位合法。
@@ -154,4 +156,4 @@ mir2sa 覆盖偏移原文使用（reorder 非升序与枚举 tag-gap 绝对偏�
 MIR 245 move / 69 borrow / 29 drop。SA 侧：rvalue 位 move 已改裸写
 （`_x = ^_y` 非法；`=` 本身即 move），`^` 仅保留于 call 实参（已删：与
 plain-param 声明 mismatch，改裸写）与 store 值位；`&`70（含合成借用）；
-`!`29。`&(*_p)` 解引用再借用归基 local + `via` 原文。`examples/corpus.{mir.json,sa,coverage.txt}` 为锁定产物。
+`!`29。`&(*_p)` 解引用再借用归基 local + `via` 原文。`examples/corpus.{mir.json,sa,co

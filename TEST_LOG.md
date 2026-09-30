@@ -81,7 +81,7 @@ targets 的 bug，Rust 版已修正；另 `(_4.0: T)` 投影归一到基 local�
 - 未知 stmt kind → `bad mir.json: unknown variant …`，`RC=2`。
 - `--strict` 下有 UNSUPPORTED → `RC=1`。
 - `hi.mir.json → hi.sa`：`UNSUPPORTED=0`。
-- `cargo test` 35：`scalar_hex_driver_form`、`const_elem_both_forms`、
+- `cargo test` 38：`scalar_hex_driver_form`、`const_elem_both_forms`、
   `array_init_bb30_shape`（array-init 回归锁）、`repeat_forms`（repeat lowering 锁）、
   `adt_range_two_i32`（Range 2×i32）、`adt_mixed_move_const_bool`（move 混排对齐）、
   `adt_generic_two_moves`（泛型元组双 move 可见）、
@@ -97,7 +97,9 @@ targets 的 bug，Rust 版已修正；另 `(_4.0: T)` 投影归一到基 local�
   `rpo_loop_back_edge` / `rpo_diamond` / `rpo_unreachable_appended` /
   `dom_seeds_diamond`（order 四锁，`order.rs` 内）、`classify_shapes` /
   `frees_simple_leak` / `borrow_ordering` / `moved_not_freed` /
-  `branch_local_never_freed_at_join`（drop 五锁，`drop.rs` 内）。
+  `branch_local_never_freed_at_join`（drop 五锁，`drop.rs` 内）、
+  `call_spill_ty_maps` / `synth_base_spills_as_ptr` / `no_copies_no_spill`
+  （spill 三锁，`spill.rs` 内）。
 
 ## T7 p_layout v1（本轮：sala/sla 对齐的通用 Adt 落法）
 
@@ -336,3 +338,20 @@ targets 的 bug，Rust 版已修正；另 `(_4.0: T)` 投影归一到基 local�
 - 残 2 泄漏（181/188 `_sw` 临时量）：定义于条件区、join 出口可达但非支配
   ——需 use-analysis（末次使用后即释），下期。
 - `cargo test` 35/35（含 drop 5 锁 + order 支配锁）。
+
+## T16 uamn-1/2（本轮：const-prop + spill/reload，UAM 220→127）
+
+- 分类普查：UAM 源定义 `const-def`（含占位 `0`）103 → const-prop 重物化
+  字面量（RPO 前向 map + 占位回填；`Use` 位 Move/Copy 统一处理）。
+  剩余 `call-def`（调用结果复用，副作用禁重算）与 `other`（计算值复用）
+  走 spill。
+- `spill.rs`（新模块）：合成缓冲（`_agg_*`/`_rep_*` 恒 ptr）+ 有 sig 调用
+  结果（sig ret 映射槽类型），Copy 位重载（`load slot+0`），Move 位直传；
+  单定义门（多定义需版本化，否则槽重定义）+ 响亮路径补槽（占位一致）。
+- 实测：corpus 全绿 20→23（UAM 14→9）；sci 全绿 189→226（UAM 102→57）；
+  sla 全绿 63→177（UAM 104→61，UnknownRegister 95→0——多定义槽收敛 +
+  响亮补槽）。parse-trap 保持归零；无回归（既有全绿文件逐个复验仍绿）。
+- `cargo test` 38/38（含 spill 3 锁）。
+- 残留 UAM 全系多定义/版本化类（param 重写、分支 join、循环携带）与
+  重借类（borrow-copy），下期（sla merge-slot 范式：分支写槽/join 重载，
+  需 driver 局部宽度表）。

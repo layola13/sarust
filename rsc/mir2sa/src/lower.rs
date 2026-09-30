@@ -4,7 +4,8 @@ use std::process::ExitCode;
 use crate::asm::{asm_inout_passthrough, asm_mov_copy, is_plain_local};
 use crate::mir::*;
 use crate::render::*;
-use crate::render_util::{assert_panic_code, assign_loud_const, call_sig_loud, const_needs_loud, flat_comment, render_call_arg, render_operand, sa_ident, sa_label, unreachable_panic_code};
+use crate::render_util::{assert_panic_code, assign_loud_const, build_constmap, call_sig_loud, const_needs_loud, flat_comment, render_call_arg, render_operand, sa_ident, sa_label, unreachable_panic_code};
+use crate::spill::{build_spill, spill_slot};
 
 /// Placeholder bind for loud paths: an unbound dest gets `= 0` so
 /// downstream uses stay parseable (the function is already flagged loud).
@@ -18,6 +19,22 @@ pub fn bind_placeholder(
         if !bound.contains(d) {
             out.push(format!("    {} = 0", d));
             bound.insert(d.clone());
+        }
+    }
+}
+
+/// Mirror a placeholder bind into the spill slot (keeps reloads parseable).
+/// No-op when the dest is not spilled.
+pub fn spill_placeholder(
+    out: &mut Vec<String>,
+    spill: &crate::spill::SpillMap,
+    dest: &Option<String>,
+) {
+    if let Some(d) = dest {
+        if let Some(ty) = spill.get(d) {
+            let slot = crate::spill::spill_slot(d);
+            out.push(format!("    {} = alloc 8", slot));
+            out.push(format!("    store {}+0, {} as {}", slot, d, ty));
         }
     }
 }
@@ -42,10 +59,20 @@ pub fn lower_function(f: &Function, unsup: &mut Vec<String>) -> String {    // T
     // RPO emission order (see order.rs): SA checks def-before-use textually.
     // Bound seeds come from dominators (see order::dom_seeds): a rebind of
     // a seeded dest is a same-path redefinition and goes loud.
-    let order = crate::order::rpo_order(&f.blocks);
     let seeds = crate::order::dom_seeds(&f.blocks, f.params.len());
     // Block line ranges (for drop-glue insertion afterwards).
     let mut block_ranges: Vec<(usize, usize, usize)> = vec![];
+    // Const-propagation map (RPO order: defs precede dominated uses).
+    // Literals re-materialize at use sites instead of moving shared temps.
+    let order = crate::order::rpo_order(&f.blocks);
+    let mut cmap = build_constmap(
+        order
+            .iter()
+            .flat_map(|bi| f.blocks[*bi].statements.iter().map(move |st| (f.blocks[*bi].id.as_str(), st))),
+    );
+    // Spill map for multi-use shared values (reload slots instead of
+    // moving shared temps twice). Built over MIR statements once.
+    let spill = build_spill(&f.blocks);
     for bi in order {
         let b = &f.blocks[bi];
         let start = out.len();
@@ -70,7 +97,7 @@ pub fn lower_function(f: &Function, unsup: &mut Vec<String>) -> String {    // T
                         unsup.push(format!("{}:{} ConstValue", b.id, dest));
                         out.push(format!("    // UNSUPPORTED const-value -> {}: {}", dest, flat_comment(&why)));
                     } else {
-                        let line = render_rvalue(rvalue, dest, dest_place.as_deref(), unsup, &b.id, &mut mv_idx);
+                        let line = render_rvalue(rvalue, dest, dest_place.as_deref(), unsup, &b.id, &mut mv_idx, &cmap, &spill);
                         for l in line.split('\n') {
                             out.push(format!("    {}", l));
                         }
@@ -78,7 +105,13 @@ pub fn lower_function(f: &Function, unsup: &mut Vec<String>) -> String {    // T
                     if unsup.len() > before {
                         // Loud paths bind nothing: a `0` placeholder keeps
                         // downstream uses parseable (function already flagged).
+                        // Feed the constmap so later Copies re-materialize
+                        // the marker instead of moving it (UseAfterMove).
                         out.push(format!("    {} = 0", dest));
+                        cmap.insert(dest.clone(), "0".to_string());
+                        // Spilled dests mirror the placeholder into the slot
+                        // so reloads stay parseable too.
+                        spill_placeholder(&mut out, &spill, &Some(dest.clone()));
                     }
                     bound.insert(dest.clone());
                 }
@@ -120,6 +153,7 @@ pub fn lower_function(f: &Function, unsup: &mut Vec<String>) -> String {    // T
                     unsup.push(format!("{}: CallConstValue", b.id));
                     out.push("    // UNSUPPORTED call-args: unresolvable const (control preserved)".to_string());
                     bind_placeholder(&mut out, &mut bound, dest);
+                    spill_placeholder(&mut out, &spill, dest);
                     match target {
                         Some(t) => out.push(format!("    jmp {}", sa_label(t))),
                         None => out.push(format!("    panic({})", unreachable_panic_code(&b.id))),
@@ -133,6 +167,7 @@ pub fn lower_function(f: &Function, unsup: &mut Vec<String>) -> String {    // T
                     unsup.push(format!("{}: CallNoSig", b.id));
                     out.push("    // UNSUPPORTED call-sig: unresolvable callee signature (control preserved)".to_string());
                     bind_placeholder(&mut out, &mut bound, dest);
+                    spill_placeholder(&mut out, &spill, dest);
                     match target {
                         Some(t) => out.push(format!("    jmp {}", sa_label(t))),
                         None => out.push(format!("    panic({})", unreachable_panic_code(&b.id))),
@@ -156,6 +191,12 @@ pub fn lower_function(f: &Function, unsup: &mut Vec<String>) -> String {    // T
                     out.push(format!("    {} = call @{}({})", dest.as_deref().unwrap_or("_0"), sa_ident(func), a.join(", ")));
                     if let Some(d) = dest {
                         bound.insert(d.clone());
+                        // Spilled call dests get their slot setup inline.
+                        if let Some(ty) = spill.get(d) {
+                            let slot = spill_slot(d);
+                            out.push(format!("    {} = alloc 8", slot));
+                            out.push(format!("    store {}+0, {} as {}", slot, d, ty));
+                        }
                     }
                 }
                 match target {
@@ -448,3 +489,4 @@ pub fn cmd_lower(args: &[String]) -> ExitCode {
     }
     ExitCode::SUCCESS
 }
+

@@ -12,9 +12,35 @@ pub fn render_rvalue(
     unsup: &mut Vec<String>,
     bid: &str,
     mv_idx: &mut usize,
+    cmap: &std::collections::HashMap<String, String>,
+    spill: &crate::spill::SpillMap,
 ) -> String {
     match rv {
-        Rvalue::Use { op } => format!("{} = {}", dest, render_operand(op)),
+        Rvalue::Use { op } => {
+            // Spilled shared values reload (never move the slot source).
+            if let Operand::Copy { place } = op {
+                if let Some(ty) = spill.get(place) {
+                    return format!(
+                        "{} = load {}+0 as {}",
+                        dest,
+                        crate::spill::spill_slot(place),
+                        ty
+                    );
+                }
+            }
+            // Const-propagated literals re-materialize instead of moving a
+            // shared temp (a second move of the temp would trap UseAfterMove).
+            // Sound: literals carry no control or ownership dependence.
+            match op {
+                Operand::Move { place } | Operand::Copy { place } => {
+                    if let Some(lit) = cmap.get(place) {
+                        return format!("{} = {}", dest, lit);
+                    }
+                    format!("{} = {}", dest, render_operand(op))
+                }
+                _ => format!("{} = {}", dest, render_operand(op)),
+            }
+        }
         Rvalue::Ref { place, mut_, via, zst } => {
             // Zero-sized borrows carry no data: null marker (exact).
             // Trailing `//` is ForbiddenSyntax: provenance goes full-line
@@ -38,7 +64,13 @@ pub fn render_rvalue(
                 return format!("// UNSUPPORTED call-sig -> {}: unresolvable callee signature", dest);
             }
             let a: Vec<String> = args.iter().map(render_call_arg).collect();
-            format!("{} = call @{}({})", dest, sa_ident(func), a.join(", "))
+            let mut s = format!("{} = call @{}({})", dest, sa_ident(func), a.join(", "));
+            // Spilled call dests get their slot setup inline.
+            if let Some(ty) = spill.get(dest) {
+                let slot = crate::spill::spill_slot(dest);
+                s.push_str(&format!("\n{} = alloc 8\nstore {}+0, {} as {}", slot, slot, dest, ty));
+            }
+            s
         }
         Rvalue::BinOp { op, left, right } => {
             let (pl, lt) = bind_move_operand(left, bid, mv_idx);
@@ -114,10 +146,20 @@ pub fn render_rvalue(
         Rvalue::Repeat { op, len } => {
             match op.as_ref() {
                 Operand::Const { value, .. } => match repeat_plan(value, len) {
-                    Some((v, total)) => format!(
-                        "// repeat [{}; {}]\n_rep_{} = alloc {}\ncall @sa_mem_set(&_rep_{}, {}, {})\n{} = _rep_{}",
-                        value, len, bid, total, bid, v, total, dest, bid
-                    ),
+                    Some((v, total)) => {
+                        let mut s = format!(
+                            "// repeat [{}; {}]\n_rep_{} = alloc {}\ncall @sa_mem_set(&_rep_{}, {}, {})\n{} = _rep_{}",
+                            value, len, bid, total, bid, v, total, dest, bid
+                        );
+                        // Spilled repeat buffers get their slot setup here
+                        // (same shape as aggregate bases).
+                        let base = format!("_rep_{}", bid);
+                        if let Some(ty) = spill.get(&base) {
+                            let slot = crate::spill::spill_slot(&base);
+                            s.push_str(&format!("\n{} = alloc 8\nstore {}+0, {} as {}", slot, slot, base, ty));
+                        }
+                        s
+                    }
                     None => {
                         unsup.push(format!("{}:{} Repeat", bid, dest));
                         format!("// UNSUPPORTED repeat -> {}: [{}; {}]", dest, render_operand(op), len)
@@ -138,12 +180,25 @@ pub fn render_rvalue(
             if elems.is_empty() {
                 format!("// zero-elem aggregate (unit/niche; tag via SetDisc when present)\n{} = 0", dest)
             } else if elems.len() == 1 {
+                // Spilled shared buffers reload like plain Uses.
+                if let Operand::Copy { place } = &elems[0] {
+                    if let Some(ty) = spill.get(place) {
+                        return format!(
+                            "// single-elem aggregate (spill reload)\n{} = load {}+0 as {}",
+                            dest,
+                            crate::spill::spill_slot(place),
+                            ty
+                        );
+                    }
+                }
                 format!("// single-elem aggregate (exact)\n{} = {}", dest, render_operand(&elems[0]))
             } else if let Some(place) = dest_place {
                 // Array fast path first (exact [T; N] all-const, incl. ManuallyDrop backing).
-                if let Some(lines) = lower_array_init(bid, place, elems) {
+                if let Some(mut lines) = lower_array_init(bid, place, elems) {
+                    crate::spill::spill_slot_lines(&mut lines, bid, spill);
                     lines.join("\n")
-                } else if let Some(lines) = lower_adt_init(bid, dest, place, elems, layout.as_ref()) {
+                } else if let Some(mut lines) = lower_adt_init(bid, dest, place, elems, layout.as_ref()) {
+                    crate::spill::spill_slot_lines(&mut lines, bid, spill);
                     lines.join("\n")
                 } else {
                     let e: Vec<String> = elems.iter().map(render_operand).collect();

@@ -198,3 +198,47 @@ pub fn bind_move_operand(op: &Operand, bid: &str, idx: &mut usize) -> (Vec<Strin
 pub fn call_sig_loud(sig: &Option<CallSig>, args: &[Operand]) -> bool {
     sig.is_none() && !args.is_empty()
 }
+
+/// Build a reg->decimal-literal map by forward const propagation over the
+/// given statements (emission/RPO order: defs precede dominated uses).
+/// Seeds: `_X = <decimal>` (incl. `0` placeholders and scalar consts).
+/// Propagates through `_X = _Y` (Move or Copy: re-materializing a literal
+/// is always sound — literals carry no control or ownership dependence).
+/// Invalidated by any other assignment to the reg. Rebind-loud skips keep
+/// the old mapping (the skip keeps the first value, consistently).
+/// Used to re-materialize literals at Copy/Move use sites instead of moving
+/// a shared temp (which would trap UseAfterMove on the next use).
+pub fn build_constmap<'a>(
+    stmts: impl Iterator<Item = (&'a str, &'a crate::mir::Stmt)>,
+) -> std::collections::HashMap<String, String> {
+    use crate::mir::{Operand, Rvalue, Stmt};
+    let mut map = std::collections::HashMap::new();
+    for (_bid, st) in stmts {
+        if let Stmt::Assign { dest, rvalue, .. } = st {
+            match rvalue {
+                Rvalue::Use { op } => match op {
+                    Operand::Const { value, .. } => {
+                        if let Some(d) = const_scalar_text(value) {
+                            map.insert(dest.clone(), d);
+                        } else if value.trim_start().starts_with("Val(ZeroSized") {
+                            map.insert(dest.clone(), "0".to_string());
+                        } else {
+                            map.remove(dest);
+                        }
+                    }
+                    Operand::Move { place } | Operand::Copy { place } => {
+                        if let Some(v) = map.get(place).cloned() {
+                            map.insert(dest.clone(), v);
+                        } else {
+                            map.remove(dest);
+                        }
+                    }
+                },
+                _ => {
+                    map.remove(dest);
+                }
+            }
+        }
+    }
+    map
+}

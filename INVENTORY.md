@@ -1,9 +1,10 @@
 # MIR 全 kind 清单与支持状态 (nightly-1.101 c1070d693 + driver 实测闭环)
 
 > 基线：语料库 `corpus/`（24 fns + closures + consts + statics，428 stmts + 317 terms）
-> `mir2sa coverage` = **84.6%**（115 缺口，全部具名；见末尾）。
-> 验收集：`sci/demos/rosetta` 321 文件（6587 项，825 缺口）+
-> `sa_plugin_sla/demos/rosetta` 298 文件（9432 项，1959 缺口）。
+> `mir2sa coverage` = **85.6%**（107 缺口，全部具名；见末尾）。
+> 验收集（T20 起为逐函数 `sa check` 普查口径）：`sci/demos/rosetta`
+> 318 文件/503 函数/6478 项（loud 510，cov 92.1%）+
+> `sa_plugin_sla/demos/rosetta` 296 文件/509 函数/9335 项（loud 2034，cov 78.2%）。
 > 两仓官方 rustc 拒收的非独立 demo（外部 crate/未完成 nightly
 > 特性/缺构建产物）逐项定性（见 TEST_LOG T13），不计入。
 > driver 见到即命名，绝不静默吞掉。
@@ -117,7 +118,7 @@ rosetta 两列为 **T20 逐函数普查**（同 harness、同文件集、同 ite
 | PhiStateConflict | 2 | 23（23→23） | 23（23→23） | 合流/循环携带 Conflict，需 phi/merge-slot 范式 |
 | UnknownRegister | 0 | 0 | 0 | T19 揭出「被移动 reg 上 `!r`」根因并修（借用 dest 保活）；T20 修「转换操作数内嵌 load」 |
 | MemoryLeak | 1 | 6（5→6） | 21（20→21） | `drop.rs` 出口释放（T17）；残量需 use-analysis + phi |
-| UseAfterMove | 6 | 46（63→46） | 61（73→61） | const-prop + spill（T17）+ cast/借用 dest reload（T19）；残留需 borrow-copy/use-analysis |
+| UseAfterMove | 6 | 46（63→46） | 61（73→61） | const-prop + spill（T17）+ cast/借用/字节常量 dest reload（T19/T21a）；残留需 borrow-copy/use-analysis |
 | BorrowConflict | 0 | 2（21→2） | 5（27→5） | borrow-end + cleanup 去重（T18/T18b） |
 | RegisterRedefinition | 0 | 0 | 0 | 版本化+支配集重绑定检测已覆盖 |
 | 全绿函数 | 31/40（3→23→28→31） | 426/503（391→426） | 399/509（366→399） | — |
@@ -147,10 +148,10 @@ mir2sa 覆盖偏移原文使用（reorder 非升序与枚举 tag-gap 绝对偏�
 
 | 类别 | 数 | 出路 |
 |---|---|---|
-| ConstValue（Unevaluated/byte-ref 标量位） | 38 | driver const-eval（`const_eval_resolve`）+ `&[u8;N]` 字节提升 |
+| ConstValue（Unevaluated/byte-ref 标量位） | 38 | 驱动 const-eval（`const_eval_resolve`）；`&[u8;N]` 字节提升已于 T21a 落地（值位） |
 | Rebind（同路重定义） | 23 | SSA 版本改写 + join-phi（Referee 程序） |
 | `*WithOverflow` BinOp | 27 | 元组解构 + 溢出断言重写（Referee 程序） |
-| CallConstValue（调用实参） | 10 | 实参提升 + 胖指针展开（多行，外加元数改写） |
+| CallConstValue（调用实参） | 10 | 实参位字节内联（T21b）+ 胖指针展开（多行，外加元数改写） |
 | 有序比较/移位（Lt/Gt/Ge/Shr） | 9 | driver 下发符号性 |
 | PointerCoercion（Unsize/fn-ptr） | 5 | 胖指针构造/intrinsic 策略 |
 | UnOp-PtrMetadata | 3 | driver fat-meta 解析 |

@@ -214,6 +214,23 @@ pub fn build_spill(blocks: &[crate::mir::Block]) -> SpillMap {
             }
         }
     }
+    // Byte-literal const dests (`_x = <&[u8; K] payload>`): the value is a
+    // buffer address (known `ptr`). MIR Copy-uses of a Copy-typed local lower
+    // to plain assigns, which consume the reg — a later `Copy` (or the
+    // borrow-end release) would then read a reg the Referee dropped.
+    for b in blocks {
+        for st in &b.statements {
+            if let Stmt::Assign { dest, rvalue: Rvalue::Use { op: Operand::Const { value, str_bytes, str_len } }, .. } = st {
+                let inlineable =
+                    crate::layout::plan_const_bytes(dest, "bb", 0, value, str_bytes.as_ref(), *str_len)
+                        .is_some();
+                let used = copies.contains(dest) || consuming.contains(dest);
+                if inlineable && used && single(dest) && !map.contains_key(dest) {
+                    map.insert(dest.clone(), "ptr".to_string());
+                }
+            }
+        }
+    }
     map
 }
 
@@ -370,6 +387,86 @@ mod spill_tests {
             },
         }];
         assert!(!build_spill(&blocks).contains_key("_5"));
+    }
+
+    #[test]
+    fn byte_const_dest_spills_when_copied() {
+        use crate::mir::{Block, Rvalue, Term};
+        // b64 shape: `_1 = <&[u8; 3] payload>` then two plain-assign copies.
+        // Without a slot the second copy is a UseAfterMove.
+        let bytes = vec![77u64, 97, 110];
+        let konst = Operand::Const {
+            value: "Val(Scalar(alloc1), &'{erased} [u8; 3_usize])".to_string(),
+            str_bytes: Some(bytes),
+            str_len: Some(3),
+        };
+        let blocks = vec![Block {
+            id: "bb0".to_string(),
+            statements: vec![
+                Stmt::Assign {
+                    dest: "_1".to_string(),
+                    dest_place: Some("_1".to_string()),
+                    rvalue: Rvalue::Use { op: konst.clone() },
+                },
+                Stmt::Assign {
+                    dest: "_4".to_string(),
+                    dest_place: Some("_4".to_string()),
+                    rvalue: Rvalue::Use { op: Operand::Copy { place: "_1".to_string() } },
+                },
+                Stmt::Assign {
+                    dest: "_11".to_string(),
+                    dest_place: Some("_11".to_string()),
+                    rvalue: Rvalue::Use { op: Operand::Copy { place: "_1".to_string() } },
+                },
+            ],
+            terminator: Term::Return { ret: None },
+        }];
+        let m = build_spill(&blocks);
+        assert_eq!(m.get("_1"), Some(&"ptr".to_string()));
+        // Rendered shape: buffer + slot, copies reload.
+        let mut idx = 0usize;
+        let mut unsup = vec![];
+        let line = crate::render::render_rvalue(
+            &Rvalue::Use { op: konst },
+            "_1", Some("_1"), &mut unsup, "bb0", &mut idx,
+            &std::collections::HashMap::new(), &m,
+        );
+        assert!(unsup.is_empty());
+        assert_eq!(
+            line,
+            "_str_bb0_0 = alloc 3\nstore _str_bb0_0+0, 77 as u8\nstore _str_bb0_0+1, 97 as u8\n\
+             store _str_bb0_0+2, 110 as u8\n_1 = _str_bb0_0\n_1_spill = alloc 8\nstore _1_spill+0, _1 as ptr"
+        );
+    }
+
+    #[test]
+    fn fat_byte_const_dest_does_not_spill() {
+        use crate::mir::{Block, Rvalue, Term};
+        // A `&str` pointee is a fat pointer: value position cannot represent
+        // it, so the dest stays loud and gets no slot.
+        let blocks = vec![Block {
+            id: "bb0".to_string(),
+            statements: vec![
+                Stmt::Assign {
+                    dest: "_1".to_string(),
+                    dest_place: Some("_1".to_string()),
+                    rvalue: Rvalue::Use {
+                        op: Operand::Const {
+                            value: "Val(Slice { alloc_id: alloc1, meta: 3 }, &'{erased} str)".to_string(),
+                            str_bytes: Some(vec![104, 105, 33]),
+                            str_len: Some(3),
+                        },
+                    },
+                },
+                Stmt::Assign {
+                    dest: "_4".to_string(),
+                    dest_place: Some("_4".to_string()),
+                    rvalue: Rvalue::Use { op: Operand::Copy { place: "_1".to_string() } },
+                },
+            ],
+            terminator: Term::Return { ret: None },
+        }];
+        assert!(!build_spill(&blocks).contains_key("_1"));
     }
 
     #[test]

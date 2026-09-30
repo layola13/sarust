@@ -4,32 +4,73 @@ use rustc_middle::mir::{Body, Const, ConstOperand, Operand, Place};
 use rustc_middle::ty::{ConstKind, Mutability, Ty, TyCtxt, TyKind};
 use rustc_middle::ty;
 
-/// String-literal bytes for a `&str` slice constant (`Const::Val` with
-/// `ConstValue::Slice`): (bytes, len) for valid UTF-8, else None.
+/// Byte-literal payload for a slice constant (`Const::Val` with
+/// `ConstValue::Slice`): (bytes, len), else None.
+///
+/// Covers `&str` and byte containers (`&[u8; N]`, `&[u8]`, `&u8`): both are
+/// laid out as a fat pointer (ptr,len) and both are materialized by the
+/// backend as an inline byte buffer plus a double store, so the payload is
+/// what matters, not the pointee's Rust type. UTF-8 is NOT required (byte
+/// arrays are arbitrary); for `&str` rustc guarantees validity anyway.
+/// `meta` carries the element count for both str and `[u8; N]`, and is
+/// clamped to the allocation size so `get_bytes_unchecked` stays in range.
 pub fn str_const_bytes<'a>(tcx: TyCtxt<'a>, c: &Const<'a>) -> Option<(&'a [u8], u64)> {
     use rustc_abi::Size;
-    use rustc_middle::mir::interpret::{AllocRange, GlobalAlloc};
+    use rustc_middle::mir::interpret::{AllocRange, GlobalAlloc, Scalar};
     let (cval, ty) = match c {
         Const::Val(v, ty) => (*v, *ty),
         _ => return None,
     };
     match ty.kind() {
-        TyKind::Ref(_, inner, Mutability::Not) if inner.is_str() => {}
+        // `&str`, `&[u8; N]`, `&[u8]`, `&u8` — every fat/thin pointer to a
+        // byte container whose payload the backend inlines.
+        TyKind::Ref(_, inner, Mutability::Not) => match inner.kind() {
+            TyKind::Str | TyKind::Slice(_) | TyKind::Array(..) => {}
+            TyKind::Uint(ty::UintTy::U8) => {}
+            _ => return None,
+        },
         _ => return None,
     }
-    let (alloc_id, meta) = match cval {
-        rustc_middle::mir::ConstValue::Slice { alloc_id, meta } => (alloc_id, meta),
+    // Three shapes carry a byte payload (nightly ConstValue):
+    // - `Slice { alloc_id, meta }`: unsized pointee (`&str`, `&[u8]`), meta
+    //   is the element count;
+    // - `Scalar::Alloc(id)`: sized pointee (`&[u8; 7]`) — a thin pointer to
+    //   the start of the allocation, length from the pointee's layout;
+    // - anything else: no payload (ints, floats, ZeroSized).
+    let pointee = match ty.kind() {
+        TyKind::Ref(_, inner, _) => *inner,
+        _ => return None,
+    };
+    let (alloc_id, start, want) = match cval {
+        rustc_middle::mir::ConstValue::Slice { alloc_id, meta } => (alloc_id, Size::ZERO, meta),
+        rustc_middle::mir::ConstValue::Scalar(s) => {
+            // Thin pointer into a static allocation. `try_to_scalar_int`
+            // yields `Err(Scalar<AllocId>)` for a relative-offset pointer,
+            // which carries the AllocId and the byte offset.
+            let (prov, offset) = match s.try_to_scalar_int() {
+                Ok(_) => return None,               // plain integer, no payload
+                Err(Scalar::Ptr(p, _)) => p.into_raw_parts(),
+                Err(Scalar::Int(_)) => return None, // erased int, no payload
+            };
+            let typing_env = ty::TypingEnv::fully_monomorphized();
+            let lay = tcx
+                .layout_of(ty::PseudoCanonicalInput { typing_env, value: pointee })
+                .ok()?;
+            (prov, offset, lay.layout.size.bytes())
+        }
         _ => return None,
     };
     let mem = match tcx.global_alloc(alloc_id) {
         GlobalAlloc::Memory(m) => m,
         _ => return None,
     };
+    // Clamp to the real allocation: `get_bytes_unchecked` trusts the range.
+    let avail = mem.inner().size().bytes().saturating_sub(start.bytes());
+    let n = want.min(avail);
     let bytes = mem
         .inner()
-        .get_bytes_unchecked(AllocRange { start: Size::ZERO, size: Size::from_bytes(meta) });
-    std::str::from_utf8(bytes).ok()?;
-    Some((bytes, meta))
+        .get_bytes_unchecked(AllocRange { start, size: Size::from_bytes(n) });
+    Some((bytes, n))
 }
 
 pub fn operand_ty_short<'tcx>(tcx: TyCtxt<'tcx>, body: &Body<'tcx>, op: &Operand<'tcx>) -> String {

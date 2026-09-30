@@ -203,6 +203,41 @@ pub fn plan_str_field(value: &str, str_bytes: Option<&Vec<u64>>, str_len: Option
     Some(FieldPlan::StrLit { bytes: bytes.clone() })
 }
 
+/// Plan a byte-literal const in VALUE position (`_x = &[u8; K]`): inline the
+/// payload into a fresh buffer and bind its (thin) address.
+///
+/// SIZED pointees only: `&[u8; K]` is a thin pointer, so one register holds
+/// it. A `str` / `[u8]` pointee is a FAT pointer (ptr+len) and cannot live in
+/// one SA register — those stay loud (the aggregate path stores the pair into
+/// a field instead). Gate: driver-resolved bytes, len within STR_INLINE_MAX,
+/// counts agree, and the Debug text names a sized `[u8; K]` pointee.
+pub fn plan_const_bytes(
+    dest: &str,
+    bid: &str,
+    idx: usize,
+    value: &str,
+    str_bytes: Option<&Vec<u64>>,
+    str_len: Option<u64>,
+) -> Option<Vec<String>> {
+    let bytes = str_bytes?;
+    let len = str_len?;
+    if len == 0 || len > STR_INLINE_MAX || bytes.len() as u64 != len {
+        return None;
+    }
+    // Sized byte array pointee: `[u8; 12]`, `[u8; 4]` (Debug spacing varies).
+    let tight: String = value.chars().filter(|c| !c.is_whitespace()).collect();
+    if !tight.contains("[u8;") {
+        return None;
+    }
+    let buf = format!("_str_{}_{}", bid, idx);
+    let mut lines = vec![format!("{} = alloc {}", buf, bytes.len())];
+    for (j, b) in bytes.iter().enumerate() {
+        lines.push(format!("store {}+{}, {} as u8", buf, j, b));
+    }
+    lines.push(format!("{} = {}", dest, buf));
+    Some(lines)
+}
+
 /// FNV-1a 64 of a ThreadLocal def path: the u64 key passed to
 /// `sa_thread_local_slot` (see `sci/sa_std/thread_local.sai`). Keeps .sa
 /// string-free; collisions across a crate's few TLS statics are impractical.

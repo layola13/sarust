@@ -500,3 +500,38 @@ targets 的 bug，Rust 版已修正；另 `(_4.0: T)` 投影归一到基 local�
   修复后显形」的旧泄漏（Referee 首 trap 即停），非新增能力缺口。
 - 工具沉淀：批处理与 census 脚本在 `scratch/`（已 gitignore），方法与探针
   结论均已抄入本节与源码注释。
+
+## T21a 字节字面量：驱动补字节 + 值位内联（sci loud 807→510，sla 2293→2034）
+
+- 缺口定性（`scratch/const_shapes.py` 全集普查常量形态）：rosetta 的
+  ConstValue 头号形态是 **`&[u8; K]` 定长字节数组常量**（sci 约 300 项、
+  sla 约 295 项），此前驱动只对 `&str` 放行字节、且后端只在**聚合字段位**
+  处理字面量，值位（`_x = <const>`）一律大声。
+- 驱动侧（tyinfo.rs `str_const_bytes` 放开）：`&[u8; N]`/`&[u8]`/`&u8` 与
+  `&str` 同为字节载荷，一并下发 `str_bytes/str_len`；长度来源分两形——
+  非定长（`str`/`[u8]`）取 `ConstValue::Slice { meta }`，定长（`[u8; N]`）
+  是 `ConstValue::Scalar(Scalar::Ptr(..))`，取 `try_to_scalar_int()` 的
+  `Err(Scalar<AllocId>)` 分支拿 AllocId、长度取 pointee 布局
+  （`tcx.layout_of(PseudoCanonicalInput{..})`）；读取区间按分配实际大小夹紧
+  （`get_bytes_unchecked` 信任区间）。不再要求 UTF-8（字节数组本就不是）。
+- 后端侧（layout.rs `plan_const_bytes` + render.rs Use 臂）：值位定长字节
+  数组内联为 `_str_{bb}_{i} = alloc K` + 逐字节 `store`，再把薄指针绑到
+  dest。**只做定长**：`str`/`[u8]` 是胖指针（ptr+len），一个寄存器装不下，
+  仍大声（聚合字段位走既有双 `store` 路径）。新增
+  `const_needs_loud_value` 做**位置敏感**判据（值位可内联、其余位置沿用
+  严格判据），lower/coverage 共用同一谓词，parity 成立。
+- 回归修复（T21a 自身引入，rosetta 抓出）：值位常量转真值后，
+  `190_base64_encode_simd` 报 UAM——`_1 = <字节常量>` 的两个 Copy 用仍被
+  降成移动（T20 靠 constmap 把大声占位 `0` 重新物化而侥幸绕过）。修法：
+  字节常量 dest 也按 `ptr` spill（值已知类型，Copy-uses 走重载），Use 臂
+  补发槽位。加锁 2 用例（`byte_const_dest_spills_when_copied` /
+  `fat_byte_const_dest_does_not_spill`），**61/61**。
+- 实测（同驱动 A/B：T20 提交 vs 本轮）：
+  - sci：loud **807→510**（cov 87.5%→**92.1%**），ConstValue 500→180，
+    全绿函数 426 不变，trap 谱不变（UAM 46 / Phi 23 / Borrow 2 / Leak 6）。
+  - sla：loud **2293→2034**（cov 75.4%→**78.2%**），ConstValue 1236→941，
+    全绿 399 不变，UAM 修复后回到 61（与 T20 同）。
+  - 累计（对 pre-T18 基线）：sci loud −295、sla −257；全绿 +35/+33。
+- corpus 不变（本集无字节字面量常量），已重落确认 loud 107 / 85.6%。
+- 下一步（T21b）：`CallConstValue`（sla 803 项）——调用实参位同样可内联
+  字节缓冲并传薄指针，是当前最大单一缺口。

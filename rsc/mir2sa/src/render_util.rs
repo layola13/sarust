@@ -56,12 +56,31 @@ pub fn const_needs_loud(op: &Operand) -> bool {
     }
 }
 
+/// True when a const operand in VALUE position (`_x = <const>`) is
+/// materializable: sized byte-array literals get an inline buffer + thin
+/// address (see layout::plan_const_bytes), so they are NOT loud there.
+/// Every other position (call args, binop operands, discr/cond, aggregate
+/// elems) still needs a register the const machinery does not build, so it
+/// keeps the strict `const_needs_loud` verdict.
+pub fn const_needs_loud_value(op: &Operand) -> bool {
+    match op {
+        Operand::Const { value, str_bytes, str_len } => {
+            let inlineable = crate::layout::plan_const_bytes(
+                "_probe", "bb", 0, value, str_bytes.as_ref(), *str_len,
+            )
+            .is_some();
+            !inlineable && const_needs_loud(op)
+        }
+        _ => const_needs_loud(op),
+    }
+}
+
 /// Short reason when an rvalue's scalar-position consts need loud handling.
 /// Multi-element aggregates self-gate inside lower_array_init/lower_adt_init.
 pub fn assign_loud_const(rv: &Rvalue) -> Option<String> {
     use crate::mir::Rvalue;
     let hit: Option<&Operand> = match rv {
-        Rvalue::Use { op } => Some(op).filter(|o| const_needs_loud(o)),
+        Rvalue::Use { op } => Some(op).filter(|o| const_needs_loud_value(o)),
         Rvalue::BinOp { left, right, .. } => {
             if const_needs_loud(left) {
                 Some(left)

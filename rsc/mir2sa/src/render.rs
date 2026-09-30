@@ -52,6 +52,26 @@ pub fn render_rvalue(
                     }
                     format!("{} = {}", dest, render_operand(op))
                 }
+                // Byte-literal const in value position: inline the payload
+                // and bind its thin address (fat pointees stay loud).
+                Operand::Const { value, str_bytes, str_len } => {
+                    if let Some(mut lines) = crate::layout::plan_const_bytes(
+                        dest, bid, *mv_idx, value, str_bytes.as_ref(), *str_len,
+                    ) {
+                        *mv_idx += 1;
+                        // Spilled dests keep a slot so their Copy-uses reload
+                        // instead of moving the buffer address.
+                        if let Some(t) = spill.get(dest) {
+                            let s = crate::spill::spill_slot(dest);
+                            lines.push(format!("{} = alloc 8", s));
+                            lines.push(format!("store {}+0, {} as {}", s, dest, t));
+                        }
+                        return lines.join("\n");
+                    }
+                    format!("{} = {}", dest, render_operand(op))
+                }
+                // Conflict sentinels never reach here (intercepted loud
+                // upstream); the fallback keeps rendering total.
                 _ => format!("{} = {}", dest, render_operand(op)),
             }
         }

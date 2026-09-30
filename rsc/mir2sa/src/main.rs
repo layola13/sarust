@@ -405,6 +405,18 @@ fn lower_adt_init(bid: &str, dest: &str, dest_place: &str, elems: &[Operand]) ->
     Some(lines)
 }
 
+/// FNV-1a 64 of a ThreadLocal def path: the u64 key passed to
+/// `sa_thread_local_slot` (see `sci/sa_std/thread_local.sai`). Keeps .sa
+/// string-free; collisions across a crate's few TLS statics are impractical.
+fn tls_key(def: &str) -> u64 {
+    let mut h: u64 = 0xcbf29ce484222325;
+    for b in def.bytes() {
+        h ^= b as u64;
+        h = h.wrapping_mul(0x100000001b3);
+    }
+    h
+}
+
 fn render_rvalue(
     rv: &Rvalue,
     dest: &str,
@@ -465,8 +477,10 @@ fn render_rvalue(
             }
         }
         Rvalue::ThreadLocal { def } => {
-            unsup.push(format!("{}:{} ThreadLocal", bid, dest));
-            format!("// UNSUPPORTED thread-local -> {}: {} (TLS runtime TBD)", dest, def)
+            // Lowered to the shared registry (sci/sa_std/thread_local.sai):
+            // per-thread u64 cell, zero-init. No std copy in rsc, only the
+            // DefPath -> key mapping (STD_MAP.md).
+            format!("{} = call @sa_thread_local_slot({}) // thread-local: {}", dest, tls_key(def), def)
         }
         Rvalue::Aggregate { elems } => {
             if elems.is_empty() {
@@ -643,6 +657,11 @@ fn cmd_lower(args: &[String]) -> ExitCode {
     if bodies.iter().any(|b| b.contains("sa_mem_set")) {
         // Repeat lowering emits `call @sa_mem_set` directly (not via Rvalue::Call).
         exts.insert("sa_mem_set".to_string());
+    }
+    if bodies.iter().any(|b| b.contains("sa_thread_local_slot")) {
+        // ThreadLocal lowering emits `call @sa_thread_local_slot` directly
+        // (registry lives in sci/sa_std/thread_local.sai, not in rsc).
+        exts.insert("sa_thread_local_slot".to_string());
     }
     if !exts.is_empty() {
         sa_compat += "// MIR callees (map to sci/sa_std per STD_MAP.md):\n";
@@ -1105,7 +1124,7 @@ fn cmd_coverage(args: &[String]) -> ExitCode {
                         // Mirror lower(): only count what lower() cannot emit.
                         let fails = match rvalue {
                             Rvalue::Unsupported { .. } => true,
-                            Rvalue::ThreadLocal { .. } => true,
+                            // ThreadLocal lowers to sa_thread_local_slot (sci registry).
                             Rvalue::Repeat { op, len } => match op.as_ref() {
                                 Operand::Const { value } => repeat_plan(value, len).is_none(),
                                 _ => true,
@@ -1312,8 +1331,7 @@ mod tests {
     }
 
     #[test]
-    fn adt_generic_two_moves() {
-        // f_generic bb2: (Move _2, Move _4) -> two pointer slots, moves visible.
+    fn adt_generic_two_moves() {        // f_generic bb2: (Move _2, Move _4) -> two pointer slots, moves visible.
         let elems = vec![
             Operand::Move { place: "_2".to_string() },
             Operand::Move { place: "_4".to_string() },
@@ -1322,5 +1340,18 @@ mod tests {
         assert_eq!(lines[1], "_agg_bb2 = alloc 16");
         assert_eq!(lines[2], "store _agg_bb2+0, ^_2 as u64");
         assert_eq!(lines[3], "store _agg_bb2+8, ^_4 as u64");
+    }
+
+    #[test]
+    fn thread_local_registry_call() {
+        // ThreadLocal rvalue -> registry call with stable FNV-1a key, no UNSUPPORTED.
+        let def = "TLS_N::{constant#0}::{closure#0}::__RUST_STD_INTERNAL_VAL";
+        assert_eq!(tls_key(def), tls_key(def));
+        assert_ne!(tls_key(def), tls_key("TLS_N::{constant#0}::{closure#1}::__RUST_STD_INTERNAL_VAL"));
+        let mut unsup = vec![];
+        let rv = Rvalue::ThreadLocal { def: def.to_string() };
+        let line = render_rvalue(&rv, "_3", Some("_3"), &mut unsup, "bb0");
+        assert!(unsup.is_empty());
+        assert_eq!(line, format!("_3 = call @sa_thread_local_slot({}) // thread-local: {}", tls_key(def), def));
     }
 }

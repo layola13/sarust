@@ -39,6 +39,7 @@
 @extern f_tuple()
 @extern f_underscore()
 @extern sa_mem_set()
+@extern sa_thread_local_slot()
 @extern std_boxed_Box_i32_1_new_uninit()
 @extern std_boxed_Box_i32_2_new_uninit()
 @extern std_boxed_Box_i32_new()
@@ -827,7 +828,7 @@ bb4:
 
 @{closure#0}() -> i32:
 bb0:
-    // UNSUPPORTED thread-local -> _3: TLS_N::{constant#0}::{closure#0}::__RUST_STD_INTERNAL_VAL (TLS runtime TBD)
+    _3 = call @sa_thread_local_slot(2502843649321046884) // thread-local: TLS_N::{constant#0}::{closure#0}::__RUST_STD_INTERNAL_VAL
     // MIR: std::thread::local_impl::EagerStorage::<std::cell::Cell<u32>>::get
     _0 = call @std_thread_local_impl_EagerStorage_std_cell_Cell_u32_get(_3)
     jmp bb1
@@ -845,7 +846,7 @@ bb1:
 
 @{closure#1}() -> i32:
 bb0:
-    // UNSUPPORTED thread-local -> _3: TLS_N::{constant#0}::{closure#1}::__RUST_STD_INTERNAL_VAL (TLS runtime TBD)
+    _3 = call @sa_thread_local_slot(18153923440919753515) // thread-local: TLS_N::{constant#0}::{closure#1}::__RUST_STD_INTERNAL_VAL
     _0 = *_3 // raw-ptr const
     return 0
 

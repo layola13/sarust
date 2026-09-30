@@ -32,6 +32,7 @@
 | `net/tcp/udp/http` | `Call(func=std::net::…)` | `sa_std/net*.sa` + http 插件 | 同上, 走 host ABI |
 | `mem::size_of/transmute` | `Rvalue::Cast / Intrinsic` | `sa_std/mem.sa`, `core/mem.sa` | `abiTypeSize/structFieldLayout` 复用 `lowering_rules.zig` 的 ABI 布局规则 |
 | `marker::{Send,Sync,Copy}` | trait bound (MIR 类型元数据) | `sa_std/marker*.sa` | 仅作检查, 不发射代码 (rustc 已验, rsc 透传) |
+| `thread_local!` / `LocalKey<T>::with` | `Rvalue::ThreadLocal{def}`（内部 `EagerStorage` 访问体）+ `Call(LocalKey::with)` | `sa_std/thread_local.sai` + `thread_local.sa`（`sci@d7c5c812` 真 per-thread 注册表；Cell 宽度复用 `core/cell.sa` 约定） | `dest = call @sa_thread_local_slot(FNV1a64(DefPath))`（rsc 只记 DefPath→key 映射，不硬编码实现；`@extern` 自动补） |
 
 ## 不复用的东西 (有意)
 

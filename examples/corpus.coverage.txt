@@ -183,20 +183,18 @@ fn {constant#0}: blocks=5 stmts+terms=16 unsupported=0
        2 T/Goto
        1 T/Return
        1 T/SwitchInt
-fn {closure#0}: blocks=2 stmts+terms=3 unsupported=1
+fn {closure#0}: blocks=2 stmts+terms=3 unsupported=0
        1 Assign/ThreadLocal
        1 T/Call
        1 T/Return
-    ?? bb0:_3 ThreadLocal()
 fn __RUST_STD_INTERNAL_VAL: blocks=2 stmts+terms=3 unsupported=0
        1 Nop
        1 T/Call
        1 T/Return
-fn {closure#1}: blocks=1 stmts+terms=3 unsupported=1
+fn {closure#1}: blocks=1 stmts+terms=3 unsupported=0
        1 Assign/RawPtr
        1 Assign/ThreadLocal
        1 T/Return
-    ?? bb0:_3 ThreadLocal()
 fn __RUST_STD_INTERNAL_VAL: blocks=1 stmts+terms=2 unsupported=0
        1 Assign/Use
        1 T/Return
@@ -287,4 +285,4 @@ fn main: blocks=97 stmts+terms=260 unsupported=0
        4 T/Drop
        1 T/Resume
        1 T/Return
-TOTAL stmts=428 terms=317 unsupported=3 coverage=99.6%
+TOTAL stmts=428 terms=317 unsupported=1 coverage=99.9%

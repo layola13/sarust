@@ -1,7 +1,7 @@
 # MIR 全 kind 清单与支持状态 (inst nightly-1.101 + /content/rust checkout)
 
 > 基线：语料库 `corpus/`（24 fns + closures + consts + statics，428 stmts + 317 terms）
-> `mir2sa coverage` = **99.6%**，3 项具名缺口（见末尾）。driver 见到即命名，
+> `mir2sa coverage` = **99.9%**，1 项具名缺口（见末尾）。driver 见到即命名，
 > 绝不静默吞掉。
 
 ## StatementKind
@@ -35,7 +35,7 @@
 | Repeat `[c; N]` u8/i8 Const | ✅ | `alloc` + `call @sa_mem_set` |
 | Repeat 其他 | 🔶 | 具名 + 计数（非常量元素需循环） |
 | RawPtr | ✅ | `*p // raw-ptr`（Referee: UnsafeBinder 语义） |
-| ThreadLocalRef | 🔶 | 具名 + 计数，待 TLS runtime 设计 |
+| ThreadLocalRef | ✅ | `dest = call @sa_thread_local_slot(FNV1a(DefPath))`（注册表在 `sci/sa_std/thread_local.sai`，真 per-thread 隔离；语料库 2 处已落） |
 | CopyForDeref | ➖ | 未出现；出现即 Unsupported（deref 语义待 p_layout 的 Deref 投影） |
 | WrapUnsafeBinder / Reborrow | ➖ | 未出现；出现即 Unsupported |
 
@@ -74,14 +74,15 @@ p_layout v2（真布局）：driver 内 `place.ty()` +
 Adt 构造逐字段 `store`（Move 元素保持
 `^` 可见），Downcast/niche 布局按真实 Layout 不猜。
 
-## 当前 3 项缺口（corpus 基线，全部具名可复现）
+## 当前 1 项缺口（corpus 基线，具名可复现）
 
-- ThreadLocal ×2（TLS 静态初始化体）：待 TLS runtime 设计
 - InlineAsm ×1（f_asm）：SA 无等价物，策略 TBD
 
-已关闭（p_layout v1，本轮）：Aggregate struct/tuple/range ×7 +
-SetDisc ×2，另 0-elem Aggregate（unit/niche）3 处一并 exact 化。
-`cargo test` 7/7；`mir2sa coverage` 99.6%（428 stmts + 317 terms）。
+已关闭（p_layout v1）：Aggregate struct/tuple/range ×7 + SetDisc ×2，另
+0-elem Aggregate（unit/niche）3 处一并 exact 化。
+已关闭（TLS 注册表，本轮）：ThreadLocal ×2 → `sa_thread_local_slot`
+（`sci` 侧 `d7c5c812` 真 per-thread 注册表 + `thread_local.sai/.sa`）。
+`cargo test` 8/8；`mir2sa coverage` 99.9%（428 stmts + 317 terms）。
 
 ## 保真（corpus 全量对账）
 

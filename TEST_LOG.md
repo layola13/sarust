@@ -1,8 +1,8 @@
 # sa_plugin_rsc 验证记录 (2026-09-30, 容器实跑, 100% Rust / 0 Python)
 
 > 全支持路线：`INVENTORY.md` 为总表；语料库 `corpus/`（24 fns + closures +
-> consts + statics）`mir2sa coverage` **99.6%**（p_layout v1 后；仅剩 TLS×2 +
-> InlineAsm×1），demo 工程 `--strict` 全绿
+> consts + statics）`mir2sa coverage` **99.9%**（p_layout v1 + TLS 注册表后；
+> 仅剩 InlineAsm×1），demo 工程 `--strict` 全绿
 > （`UNSUPPORTED=0`）。落法已对齐 `sa_plugin_sla`（`@extern` 闭包、`&`/`^`
 > 前缀、`!` 释放、`alloc`+`store` 数组/Adt、`sa_mem_set` 复写）。
 
@@ -78,10 +78,11 @@ targets 的 bug，Rust 版已修正；另 `(_4.0: T)` 投影归一到基 local�
 - 未知 stmt kind → `bad mir.json: unknown variant …`，`RC=2`。
 - `--strict` 下有 UNSUPPORTED → `RC=1`。
 - `hi.mir.json → hi.sa`：`UNSUPPORTED=0`。
-- `cargo test` 7/7：`scalar_hex_driver_form`、`const_elem_both_forms`、
+- `cargo test` 8/8：`scalar_hex_driver_form`、`const_elem_both_forms`、
   `array_init_bb30_shape`（array-init 回归锁）、`repeat_forms`（repeat lowering 锁）、
   `adt_range_two_i32`（Range 2×i32）、`adt_mixed_move_const_bool`（move 混排对齐）、
-  `adt_generic_two_moves`（泛型元组双 move 可见）。
+  `adt_generic_two_moves`（泛型元组双 move 可见）、
+  `thread_local_registry_call`（FNV-1a 键稳定 + 注册表调用形状）。
 
 ## T7 p_layout v1（本轮：sala/sla 对齐的通用 Adt 落法）
 
@@ -104,6 +105,25 @@ targets 的 bug，Rust 版已修正；另 `(_4.0: T)` 投影归一到基 local�
   `place.ty()` + `tcx.layout_of()` 下发真 `layout/offsets/tys`，泛型单态
   与 niche 布局不再启发式。rosetta 320 文件的 Aggregate-Adt×130 +
   SetDisc×6 届时重跑验证（本轮未重跑，如实）。
+
+## T8 TLS 注册表（本轮：用户约束落地——缺口补在 sci/sa_std，rsc 只做映射）
+
+- 约束：所有未有的 std 必须在 `sci/sa_std` 补充，rsc 禁止原创实现。
+  `sci` 侧 `d7c5c812`（cross-platform）：`src/runtime/sa_thread_local.zig`
+  （(tid, key) 注册表，零初始化，永不释放；4/4 Zig 单测含跨线程隔离）、
+  `sa_std/thread_local.sai`（`@extern sa_thread_local_slot`）+
+  `thread_local.sa`（`THREAD_LOCAL_SLOT/U32/U64` 宏，复用既有 `alloc`/
+  `load`/`store` + Cell 宽度约定）+ `thread/prelude.sa` 接线 +
+  `libsa_std.a` 重建（`nm` 验证符号在档）；`runtime-abi-check` PASS。
+- rsc 侧：`Rvalue::ThreadLocal { def }` → 
+  `dest = call @sa_thread_local_slot(FNV1a64(DefPath))`（`.sa` 保持无字符串
+  字面量；key 即 `TLS_N::{constant#0}…__RUST_STD_INTERNAL_VAL` 的哈希），
+  `@extern` 自动补（`sa_mem_set` 同款模式），`cargo test` 新增
+  `thread_local_registry_call` 锁定键稳定与调用形状。
+- 实测：`mir2sa coverage` 3 → 1 缺口（仅剩 InlineAsm×1），**99.9%**；
+  保真 `^`245 / `&`70（含既有合成借用）/ `!`29 不变；`hi.sa` 零改动。
+- 下一步唯一缺口只剩 InlineAsm×1（策略 TBD）；p_layout v2（driver 真布局
+  下发）与 rosetta 320 文件重跑仍在 backlog（需 nightly `rustc-dev`）。
 
 ## T6 rosetta 全量（sci 334 demos，rsc 管线实测）
 

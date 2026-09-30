@@ -100,6 +100,7 @@ L_sw_bb0_0:
     br _sw_bb0_eq_1 -> L_bb3, L_sw_bb0_1
 L_sw_bb0_1:
     _sw_bb0_eq_2 = eq _sw_bb0, 2
+    !_sw_bb0
     br _sw_bb0_eq_2 -> L_bb2, L_bb1
 L_bb1:
     // MIR unreachable (diverging path)
@@ -119,6 +120,7 @@ L_bb2:
     _10 = 0
     _sw_bb2 = _10
     _sw_bb2_eq_0 = eq _sw_bb2, 0
+    !_sw_bb2
     br _sw_bb2_eq_0 -> L_bb7, L_bb6
 L_bb6:
     _6 = _1
@@ -152,7 +154,6 @@ L_bb4:
     jmp L_bb10
 L_bb10:
     // UNSUPPORTED return-value: version conflict at join (multiple reaching defs)
-    !_sw_bb0
     !_sw_bb0_eq_0
     return 0
 
@@ -264,6 +265,7 @@ L_bb1:
     _6 = 0
     _sw_bb1 = _6
     _sw_bb1_eq_0 = eq _sw_bb1, 0
+    !_sw_bb1
     br _sw_bb1_eq_0 -> L_bb8, L_bb2
 L_bb2:
     // UNSUPPORTED const-value -> _8: version conflict at join (multiple reaching defs of _5)
@@ -278,6 +280,7 @@ L_bb2:
     br _as_bb2_eq -> L_bb3, L_as_bb2_fail
 L_as_bb2_fail:
     // assert failed: BoundsCheck { len: move _10, index: copy _8 }
+    !_as_bb2
     panic(1502)
 L_bb3:
     _12 = call @sa_num_add_checked(_1, 1)
@@ -297,6 +300,7 @@ L_bb4:
     br _as_bb4_eq -> L_bb5, L_as_bb4_fail
 L_as_bb4_fail:
     // assert failed: BoundsCheck { len: move _16, index: copy _14 }
+    !_as_bb4
     panic(1504)
 L_bb5:
     _13 = _1
@@ -321,7 +325,6 @@ L_bb8:
     !_5_v0
     !_7
     !_mv_bb0_0
-    !_sw_bb1
     !_sw_bb1_eq_0
     return _0
 
@@ -374,6 +377,7 @@ L_bb4:
     br _sw_bb4_eq_0 -> L_bb7, L_sw_bb4_0
 L_sw_bb4_0:
     _sw_bb4_eq_1 = eq _sw_bb4, 1
+    !_sw_bb4
     br _sw_bb4_eq_1 -> L_bb6, L_bb5
 L_bb6:
     _9 = load _6_spill+0 as ptr
@@ -395,6 +399,7 @@ L_bb9:
     _13 = 0
     _sw_bb9 = _13
     _sw_bb9_eq_0 = eq _sw_bb9, 0
+    !_sw_bb9
     br _sw_bb9_eq_0 -> L_bb11, L_bb10
 L_bb10:
     // aggregate Adt init @ _19 (p_layout v2: rustc layout)
@@ -423,6 +428,7 @@ L_bb16:
     br _sw_bb16_eq_0 -> L_bb25, L_sw_bb16_0
 L_sw_bb16_0:
     _sw_bb16_eq_1 = eq _sw_bb16, 1
+    !_sw_bb16
     br _sw_bb16_eq_1 -> L_bb17, L_bb5
 L_bb17:
     _24 = load _21_spill+0 as ptr
@@ -452,6 +458,7 @@ L_bb20:
     br _sw_bb20_eq_0 -> L_bb15, L_sw_bb20_0
 L_sw_bb20_0:
     _sw_bb20_eq_1 = eq _sw_bb20, 1
+    !_sw_bb20
     br _sw_bb20_eq_1 -> L_bb21, L_bb5
 L_bb5:
     // MIR unreachable (diverging path)
@@ -467,6 +474,7 @@ L_bb22:
     _32 = 0
     _sw_bb22 = _32
     _sw_bb22_eq_0 = eq _sw_bb22, 0
+    !_sw_bb22
     br _sw_bb22_eq_0 -> L_bb23, L_bb25
 L_bb23:
     // UNSUPPORTED const-value -> _35: version conflict at join (multiple reaching defs of _2)
@@ -491,11 +499,8 @@ L_bb25:
     !_6
     !_6_spill
     !_7
-    !_sw_bb16
     !_sw_bb16_eq_0
-    !_sw_bb4
     !_sw_bb4_eq_0
-    !_sw_bb9
     !_sw_bb9_eq_0
     !_20
     !_5
@@ -761,6 +766,7 @@ L_bb3:
     br _sw_bb3_eq_0 -> L_bb5, L_sw_bb3_0
 L_sw_bb3_0:
     _sw_bb3_eq_1 = eq _sw_bb3, 1
+    !_sw_bb3
     br _sw_bb3_eq_1 -> L_bb6, L_bb4
 L_bb4:
     // MIR unreachable (diverging path)
@@ -787,7 +793,6 @@ L_bb8:
     !_2_spill
     !_3
     !_4
-    !_sw_bb3
     !_sw_bb3_eq_0
     return 0
 
@@ -981,6 +986,7 @@ L_bb4:
     br _sw_bb4_eq_0 -> L_bb7, L_sw_bb4_0
 L_sw_bb4_0:
     _sw_bb4_eq_1 = eq _sw_bb4, 1
+    !_sw_bb4
     br _sw_bb4_eq_1 -> L_bb6, L_bb5
 L_bb5:
     // MIR unreachable (diverging path)
@@ -994,6 +1000,7 @@ L_bb6:
 L_bb8:
     _sw_bb8 = _10
     _sw_bb8_eq_0 = eq _sw_bb8, 0
+    !_sw_bb8
     br _sw_bb8_eq_0 -> L_bb3, L_bb9
 L_bb9:
     // UNSUPPORTED const-value -> _12: version conflict at join (multiple reaching defs of _2)
@@ -1012,7 +1019,6 @@ L_bb7:
     !_6
     !_6_spill
     !_7
-    !_sw_bb4
     !_sw_bb4_eq_0
     !_5
     return _0
@@ -1105,6 +1111,7 @@ L_bb0:
 L_bb1:
     _sw_bb1 = _1
     _sw_bb1_eq_0 = eq _sw_bb1, 0
+    !_sw_bb1
     br _sw_bb1_eq_0 -> L_bb3, L_bb2
 L_bb2:
     // StorageLive _2
@@ -1125,7 +1132,6 @@ L_bb3:
 L_bb4:
     // StorageDead _1
     // UNSUPPORTED return-value: version conflict at join (multiple reaching defs)
-    !_sw_bb1
     !_sw_bb1_eq_0
     return 0
 
@@ -1554,6 +1560,7 @@ L_sw_bb0_0:
     br _sw_bb0_eq_1 -> L_bb5, L_sw_bb0_1
 L_sw_bb0_1:
     _sw_bb0_eq_2 = eq _sw_bb0, 2
+    !_sw_bb0
     br _sw_bb0_eq_2 -> L_bb4, L_bb6
 L_bb6:
     // MIR unreachable (diverging path)
@@ -1590,7 +1597,6 @@ L_bb2:
     !_10
     !_3
     !_4
-    !_sw_bb0
     !_sw_bb0_eq_0
     return 0
 L_bb3:

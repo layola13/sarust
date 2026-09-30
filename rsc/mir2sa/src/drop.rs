@@ -123,6 +123,103 @@ fn classify(line: &str) -> LineUse {
     u
 }
 
+/// Register-like tokens mentioned on a line.
+fn regs_in(line: &str) -> BTreeSet<String> {
+    let mut out = BTreeSet::new();
+    for tok in line.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_')) {
+        let t = tok.trim();
+        if t.is_empty() || t.chars().next().is_some_and(|c| c.is_ascii_digit()) {
+            continue;
+        }
+        if (t.starts_with('_') || t.chars().next().is_some_and(|c| c.is_ascii_alphabetic()))
+            && t.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+        {
+            out.insert(t.to_string());
+        }
+    }
+    out
+}
+
+/// Per-block frees for the backend's OWN comparison temps (`_as_*`, `_sw_*`).
+///
+/// These are synthetic: an `Assert`/`SwitchInt` binds a cond temp, compares it,
+/// and branches. Their liveness is provably block-local — nothing after the
+/// block reads them — so they are released at the block's own end instead of
+/// waiting for an exit, where the dominance gate skips them (a `SwitchInt` temp
+/// lives in a block that need not dominate the exit, which is why
+/// `129_seqlock_optimistic` and friends leaked exactly one `_as_*`/`_sw_*`).
+///
+/// Deliberately narrow: value registers are NOT touched. T24a measured that
+/// freeing those on a branch trades ~5 leaks for ~10 UseAfterMove, because a
+/// text-level "dead after the join" gate cannot see every path. Comparison
+/// temps have no such reads by construction.
+pub fn temp_frees(body_lines: &[Vec<String>]) -> BTreeMap<usize, Vec<String>> {
+    // Where each compare temp is mentioned, per block.
+    let mut where_: BTreeMap<String, BTreeSet<usize>> = BTreeMap::new();
+    for (bi, ls) in body_lines.iter().enumerate() {
+        for l in ls {
+            for r in regs_in(l.as_str()) {
+                if is_compare_temp(&r) {
+                    where_.entry(r).or_default().insert(bi);
+                }
+            }
+        }
+    }
+    let mut out: BTreeMap<usize, Vec<String>> = BTreeMap::new();
+    for (bi, ls) in body_lines.iter().enumerate() {
+        let mut defined: Vec<String> = vec![];
+        let mut freed: BTreeSet<String> = BTreeSet::new();
+        let mut moved: BTreeSet<String> = BTreeSet::new();
+        for l in ls {
+            let u = classify(l);
+            if let Some(d) = &u.def {
+                if is_compare_temp(d) {
+                    defined.push(d.clone());
+                }
+            }
+            for m in &u.move_srcs {
+                moved.insert(m.clone());
+            }
+            for f in &u.freed {
+                freed.insert(f.clone());
+            }
+        }
+        // A compare temp is READ by its own `eq`/`br` — that is its intended
+        // use, not liveness. What matters is that no OTHER block mentions it
+        // (then it is dead once this block ends) and that it was never moved
+        // (a compare temp is never the RHS of a plain assign).
+        let keep: Vec<String> = defined
+            .into_iter()
+            .filter(|r| !freed.contains(r))
+            .filter(|r| where_.get(r).is_some_and(|bs| bs.len() == 1 && bs.contains(&bi)))
+            // A temp consumed by a BRANCH must outlive the block: in an
+            // `Assert` block the `br cond -> ..` sits mid-block (the fail arm
+            // follows as a label), so "not on the last line" is not enough.
+            // Nothing may follow the terminator, so such temps are skipped.
+            .filter(|r| {
+                !ls.iter().any(|l| {
+                    let t = l.trim_start();
+                    (t.starts_with("br ") || t.starts_with("return "))
+                        && regs_in(l.as_str()).contains(r)
+                })
+            })
+            .collect();
+        if !keep.is_empty() {
+            out.insert(bi, keep);
+        }
+    }
+    out
+}
+
+/// The backend's own synthetic, block-local temporaries:
+/// `_as_*` (assert cond) and `_sw_*` (switch-int cond) plus their `_eq*`
+/// compare temps. `_mv_*` is deliberately EXCLUDED: extending the class to it
+/// was measured to introduce UseAfterMove (a move-binding temp is consumed by
+/// a statement whose operands interleave with the free).
+fn is_compare_temp(reg: &str) -> bool {
+    reg.starts_with("_as_") || reg.starts_with("_sw_")
+}
+
 /// Compute per-Return-block free lists. `dom_sets` holds raw dominator sets
 /// (each incl. self) keyed by original block index; `body_lines` aligns by
 /// the same index. `param_count` seeds params as pre-bound.
@@ -255,6 +352,49 @@ mod drop_tests {
 
     fn lines(ls: &[&str]) -> Vec<String> {
         ls.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn temp_frees_block_local_only() {
+        // A compare temp is read by its own eq/br — that is its use, not
+        // liveness. It is released at its block's end only when no other block
+        // mentions it, and never when a branch consumes it.
+        let body = vec![
+            lines(&[
+                "L_bb0:",
+                "_c = eq _1, 0",
+                "_sw_bb0 = _c",
+                "_sw_bb0_eq_0 = eq _sw_bb0, 0",
+                "br _sw_bb0_eq_0 -> L_bb1, L_bb2",
+            ]),
+            lines(&["L_bb1:", "_x = 1", "jmp L_bb3"]),
+            lines(&["L_bb2:", "_y = 2", "jmp L_bb3"]),
+            lines(&["L_bb3:", "return 0"]),
+        ];
+        let out = temp_frees(&body);
+        // The `br` consumes `_sw_bb0_eq_0`, so only the base temp is freed.
+        assert_eq!(out.get(&0), Some(&vec!["_sw_bb0".to_string()]), "{:?}", out);
+        assert!(!out.contains_key(&3), "{:?}", out);
+    }
+
+    #[test]
+    fn temp_frees_skips_cross_block_and_branch_reads() {
+        let body = vec![
+            lines(&[
+                "L_bb0:",
+                "_as_bb0 = _1",
+                "_as_bb0_eq = eq _as_bb0, 0",
+                "br _as_bb0_eq -> L_bb1, L_as_bb0_fail",
+                "L_as_bb0_fail:",
+                "panic(1)",
+            ]),
+            lines(&["L_bb1:", "_as_bb0_eq = 3", "jmp L_bb2"]),
+            lines(&["L_bb2:", "return 0"]),
+        ];
+        let out = temp_frees(&body);
+        // `_as_bb0_eq` is redefined in bb1 (two blocks mention it) and is read
+        // by the branch in bb0: both veto a release.
+        assert_eq!(out.get(&0), Some(&vec!["_as_bb0".to_string()]), "{:?}", out);
     }
 
     #[test]

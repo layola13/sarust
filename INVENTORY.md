@@ -119,7 +119,7 @@ rosetta 两列为 **T20 起逐函数普查**（同 harness、同文件集、同 
 |---|---|---|---|---|
 | PhiStateConflict | 2 | 23（23→23） | 23（23→23） | 合流/循环携带 Conflict，需 phi/merge-slot 范式 |
 | UnknownRegister | 0 | 0 | 0 | T19 揭出「被移动 reg 上 `!r`」根因并修（借用 dest 保活）；T20 修「转换操作数内嵌 load」 |
-| MemoryLeak | 1 | 6（5→6） | 8（20→21→8，T23 块范围修复） | `drop.rs` 出口释放（T17）+ 块范围记账修复（T23）；残量需 use-analysis + 合流版本释放 |
+| MemoryLeak | 1 | 5（5→6→5，T23/T27） | 9（20→21→8→9，T23/T27） | `drop.rs` 出口释放（T17）+ 块范围记账修复（T23）+ 比较临时量块内释放（T27）；残量是合流版本局部（需 phi） |
 | UseAfterMove | 6 | 46（63→46） | 61（73→61） | const-prop + spill（T17）+ cast/借用/字节常量 dest reload（T19/T21a）；残留需 borrow-copy/use-analysis |
 | BorrowConflict | 0 | 2（21→2） | 5（27→5） | borrow-end + cleanup 去重（T18/T18b） |
 | RegisterRedefinition | 0 | 0 | 0 | 版本化+支配集重绑定检测已覆盖 |

@@ -450,17 +450,43 @@ pub fn lower_function(f: &Function, unsup: &mut Vec<String>) -> String {    // T
             lines_by_orig[*bi] = out[*s..*e].to_vec();
             range_by_orig[*bi] = (*s, *e);
         }
-        let frees = crate::drop::exit_frees(&lines_by_orig, &doms, f.params.len());
+        let mut frees = crate::drop::exit_frees(&lines_by_orig, &doms, f.params.len());
+        let mut tfrees = crate::drop::temp_frees(&lines_by_orig);
+        // A temp already released at an exit keeps that release (the exit list
+        // is dominance-verified, the block-local one is heuristic). Filter in
+        // ONE direction only: cross-filtering both ways would drop a register
+        // that appears in both lists from both.
+        let temp_freed: std::collections::BTreeSet<String> =
+            tfrees.values().flatten().cloned().collect();
+        for v in frees.values_mut() {
+            v.retain(|r| !temp_freed.contains(r));
+        }
+        let exit_freed: std::collections::BTreeSet<String> =
+            frees.values().flatten().cloned().collect();
+        for v in tfrees.values_mut() {
+            v.retain(|r| !exit_freed.contains(r));
+        }
         let mut order_desc: Vec<usize> = (0..n).collect();
         order_desc.sort_by_key(|b| std::cmp::Reverse(range_by_orig[*b].0));
+        // Descending by block start: an insertion shifts later positions, so
+        // sweeping from the end keeps the remaining `range_by_orig` valid.
         for bi in order_desc {
-            if let Some(fs) = frees.get(&bi) {
-                let (s, e) = range_by_orig[bi];
-                // Return line is last in exit blocks; insert before it.
-                let pos = e.saturating_sub(1).max(s);
-                for (k, r) in fs.iter().enumerate() {
-                    out.insert(pos + k, format!("    !{}", r));
-                }
+            let mut fs: Vec<&String> = vec![];
+            if let Some(v) = frees.get(&bi) {
+                fs.extend(v.iter());
+            }
+            if let Some(v) = tfrees.get(&bi) {
+                fs.extend(v.iter());
+            }
+            if fs.is_empty() {
+                continue;
+            }
+            let (s, e) = range_by_orig[bi];
+            // The jump/return is the block's last line: insert before it (a
+            // label-less line may not follow a terminator).
+            let pos = e.saturating_sub(1).max(s);
+            for (k, r) in fs.iter().enumerate() {
+                out.insert(pos + k, format!("    !{}", r));
             }
         }
     }

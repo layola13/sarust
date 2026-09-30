@@ -10,6 +10,7 @@
 //!   Rvalue::Ref       -> &p        Terminator::Drop(p) -> !p
 
 mod asm;
+mod borrow_end;
 mod const_util;
 mod drop;
 mod layout;
@@ -64,6 +65,8 @@ fn cmd_coverage(args: &[String]) -> ExitCode {
         }
         // Mirror lower()'s bound seeding (dominator defs + params).
         let seeds = crate::order::dom_seeds(&f.blocks, f.params.len());
+        // Mirror lower()'s borrow-end plan (same versioned input).
+        let bend = crate::borrow_end::plan_drops(&f.blocks, &crate::order::dom_sets(&f.blocks));
         for (bi, b) in f.blocks.iter().enumerate() {
             // NOTE: seeding above runs once; keep it outside the loop.
             let mut bound = seeds[bi].clone();
@@ -137,10 +140,14 @@ fn cmd_coverage(args: &[String]) -> ExitCode {
                 unsup.push(format!("{}: T/Unsupported({})", b.id, text.chars().take(60).collect::<String>()));
             }
             // Conflict-marked drops (see version.rs) go loud like lower().
+            // Borrow-live drops lower() cannot provably end go loud too.
             if let Term::Drop { place, .. } = &b.terminator {
                 if place == "__VERSION_CONFLICT__" {
                     tot_unsup += 1;
                     unsup.push(format!("{}: T/DropConflict", b.id));
+                } else if bend.loud.contains(&bi) {
+                    tot_unsup += 1;
+                    unsup.push(format!("{}: T/DropBorrowLive", b.id));
                 }
             }
             // Scalar-position consts mirror lower()'s loud pre-checks.

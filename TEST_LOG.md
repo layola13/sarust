@@ -374,3 +374,25 @@ targets 的 bug，Rust 版已修正；另 `(_4.0: T)` 投影归一到基 local�
   parse-trap 保持归零；`cargo test` 44/44（含 version 5 锁）。
 - 残留：合流/循环携带的 Conflict 大声（需 phi，sla merge-slot 范式为远期
   答案）；UAM 余量为 borrow-copy 与计算值复用类。
+
+## T18 borrow-end（WIP：可达 Drop 点借用终结落地，cleanup 去重待续）
+
+- 新模块 `borrow_end.rs`（`plan_drops`，6 单测）：MIR `Drop(p)` 处，若全部
+  借用者 `b = &p` 满足单定义 + 定义块支配 Drop 块 + Drop 后无使用 +
+  无重借用链 + 无 MIR-Drop(b) + 无 Conflict 标记 + Drop 块 entry 可达，
+  则先释借用者（`!b` 再 `!p`）；任一不满足则整站保持原形并记
+  `DropBorrowLive` 大声（lower/coverage 同构消费版本化 MIR，parity 成立）。
+  drop.rs 出口逻辑把已插入 `!b` 视为已释放，自动跳过（无双释）。
+- 实测（corpus 40fn，逐函数 `sa check` 普查）：BorrowConflict **5→0**；
+  `cargo test` **50/50**（+6 borrow_end 锁）；coverage loud 104→116
+  （+12 DropBorrowLive，lower/coverage 双口径一致）。
+- 诚实记录（回归表象，非回归实质）：UAM 9→14。新增 5 例全是 cleanup
+  路径重复 `Drop`（如 f_generic bb5 `!_1`）：此前被 BorrowConflict 掩盖
+  （Referee 按文本序首 trap 即停）。探针取证 Referee 模型：return 后仍
+  fallthrough 扫描（`ft` 探针：return 后 `!_1` 报 UAM；`fu` 新定义则过），
+  panic 路径不查泄漏（`pl` 探针 OK），菱形双臂各释一次合法（`dd` 探针）。
+  推论：cleanup 块运行时不可达（panic 中止，无 unwinding），其重复 `!p`
+  注定与主路径释放冲突——下期做 cleanup 去重（不可达 Drop 站省略 `!p`），
+  届时 UAM 回落、Borrow 保持 0。停工前未做，保持树为诚实 WIP。
+- `examples/corpus.{sa,coverage.txt}` 已重落（锁定产物含新 `!b` 行与
+  drop-borrow-live 注释）；`hi.sa` 零改动。

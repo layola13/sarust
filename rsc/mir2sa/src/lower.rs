@@ -60,6 +60,10 @@ pub fn lower_function(f: &Function, unsup: &mut Vec<String>) -> String {    // T
     // Bound seeds come from dominators (see order::dom_seeds): a rebind of
     // a seeded dest is a same-path redefinition and goes loud.
     let seeds = crate::order::dom_seeds(&f.blocks, f.params.len());
+    // Borrow-end plan (see borrow_end.rs): NLL-dead borrowers end just
+    // before their source is dropped. Pure MIR-level, shared with coverage.
+    let doms = crate::order::dom_sets(&f.blocks);
+    let borrow_plan = crate::borrow_end::plan_drops(&f.blocks, &doms);
     // Block line ranges (for drop-glue insertion afterwards).
     let mut block_ranges: Vec<(usize, usize, usize)> = vec![];
     // Const-propagation map (RPO order: defs precede dominated uses).
@@ -216,6 +220,18 @@ pub fn lower_function(f: &Function, unsup: &mut Vec<String>) -> String {    // T
                     unsup.push(format!("{}: DropConflict", b.id));
                     out.push("    // UNSUPPORTED drop: version conflict at join (multiple reaching defs)".to_string());
                 } else {
+                    // Borrow-end (see borrow_end.rs): NLL-dead borrowers end
+                    // here so `!p` doesn't trap BorrowConflict. Unresolvable
+                    // sites stay loud (old shape, honest count).
+                    if borrow_plan.loud.contains(&bi) {
+                        unsup.push(format!("{}: DropBorrowLive", b.id));
+                        out.push(format!("    // UNSUPPORTED drop-borrow-live -> {} (borrow outlives; not provably endable)", place));
+                    }
+                    if let Some(ends) = borrow_plan.ends.get(&bi) {
+                        for r in ends {
+                            out.push(format!("    !{}", r));
+                        }
+                    }
                     out.push(format!("    !{}", place));
                 }
                 out.push(format!("    jmp {}", sa_label(target)));
@@ -366,7 +382,6 @@ pub fn lower_function(f: &Function, unsup: &mut Vec<String>) -> String {    // T
             lines_by_orig[*bi] = out[*s..*e].to_vec();
             range_by_orig[*bi] = (*s, *e);
         }
-        let doms = crate::order::dom_sets(&f.blocks);
         let frees = crate::drop::exit_frees(&lines_by_orig, &doms, f.params.len());
         let mut order_desc: Vec<usize> = (0..n).collect();
         order_desc.sort_by_key(|b| std::cmp::Reverse(range_by_orig[*b].0));

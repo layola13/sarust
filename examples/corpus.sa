@@ -269,13 +269,13 @@ L_as_bb2_fail:
     panic(1502)
 L_bb3:
     _0 = 0
+    !_4
     !_1
     jmp L_bb4
 L_bb4:
     !_0
     !_2
     !_3
-    !_4
     !_5
     !_8
     !_as_bb1
@@ -286,6 +286,7 @@ L_bb4:
     !_mv_bb2_0
     return 0
 L_bb5:
+    // UNSUPPORTED drop-borrow-live -> _1 (borrow outlives; not provably endable)
     !_1
     jmp L_bb6
 L_bb6:
@@ -669,6 +670,7 @@ L_bb7:
     !_8
     return 0
 L_bb8:
+    // UNSUPPORTED drop-borrow-live -> _5 (borrow outlives; not provably endable)
     !_5
     jmp L_bb9
 L_bb9:
@@ -731,17 +733,18 @@ L_bb2:
     store _agg_bb2+0, ^_2 as u64
     store _agg_bb2+8, ^_4 as u64
     _0 = _agg_bb2
+    !_3
     !_1
     jmp L_bb3
 L_bb3:
     !_0
-    !_3
     !_4
     return 0
 L_bb4:
     !_2
     jmp L_bb5
 L_bb5:
+    // UNSUPPORTED drop-borrow-live -> _1 (borrow outlives; not provably endable)
     !_1
     jmp L_bb6
 L_bb6:
@@ -779,14 +782,15 @@ L_bb1:
     _0 = call @std_string_String_len(_2)
     jmp L_bb2
 L_bb2:
+    !_2
     !_3
     jmp L_bb3
 L_bb3:
     !_0
     !_1
-    !_2
     return 0
 L_bb4:
+    // UNSUPPORTED drop-borrow-live -> _3 (borrow outlives; not provably endable)
     !_3
     jmp L_bb5
 L_bb5:
@@ -805,20 +809,22 @@ L_bb1:
     _0 = call @std_string_String_len(_2)
     jmp L_bb2
 L_bb2:
+    !_2
     !_3
     jmp L_bb3
 L_bb3:
+    !_4
     !_1
     jmp L_bb4
 L_bb4:
     !_0
-    !_2
-    !_4
     return 0
 L_bb5:
+    // UNSUPPORTED drop-borrow-live -> _3 (borrow outlives; not provably endable)
     !_3
     jmp L_bb6
 L_bb6:
+    // UNSUPPORTED drop-borrow-live -> _1 (borrow outlives; not provably endable)
     !_1
     jmp L_bb7
 L_bb7:
@@ -1004,29 +1010,31 @@ L_as_bb7_fail:
     panic(1507)
 L_bb8:
     _0 = 0
+    !_11
     !_4
     jmp L_bb9
 L_bb9:
+    !_5
+    !_8
     !_2
     jmp L_bb10
 L_bb10:
     !_0
     !_1
     !_10
-    !_11
     !_3
-    !_5
     !_6
     !_7
-    !_8
     !_9
     !_as_bb7
     !_as_bb7_eq
     return 0
 L_bb11:
+    // UNSUPPORTED drop-borrow-live -> _4 (borrow outlives; not provably endable)
     !_4
     jmp L_bb12
 L_bb12:
+    // UNSUPPORTED drop-borrow-live -> _2 (borrow outlives; not provably endable)
     !_2
     jmp L_bb13
 L_bb13:
@@ -1454,6 +1462,7 @@ L_bb8:
     !_4
     jmp L_bb3
 L_bb3:
+    !_3
     !_1
     jmp L_bb4
 L_bb4:
@@ -1466,7 +1475,6 @@ L_bb4:
     !_16
     !_17
     !_2
-    !_3
     !_5
     !_8
     !_9
@@ -1474,6 +1482,7 @@ L_bb4:
     !_as_bb7_eq
     return 0
 L_bb5:
+    // UNSUPPORTED drop-borrow-live -> _1 (borrow outlives; not provably endable)
     !_1
     jmp L_bb6
 L_bb6:
@@ -1551,6 +1560,9 @@ L_bb11:
     _0 = call @std_collections_hash_map_Values___std_string_String_usize_as_std_iter_Iterator_s(_14)
     jmp L_bb12
 L_bb12:
+    !_11
+    !_15
+    !_4
     !_2
     jmp L_bb13
 L_bb13:
@@ -1558,7 +1570,6 @@ L_bb13:
     !_0
     !_10
     !_14
-    !_15
     !_16_v0
     !_16_v1
     !_16_v2
@@ -1576,6 +1587,7 @@ L_bb13:
     !_as_bb9_eq
     return 0
 L_bb14:
+    // UNSUPPORTED drop-borrow-live -> _2 (borrow outlives; not provably endable)
     !_2
     jmp L_bb19
 L_bb15:
@@ -1987,6 +1999,7 @@ L_bb34:
     _75 = 0
     jmp L_bb35
 L_bb35:
+    !_78
     !_79
     jmp L_bb36
 L_bb36:
@@ -2081,6 +2094,7 @@ L_bb48:
     _107 = 0
     jmp L_bb49
 L_bb49:
+    !_110
     !_111
     jmp L_bb50
 L_bb50:
@@ -2561,9 +2575,11 @@ L_bb89:
     !_94
     return 0
 L_bb90:
+    // UNSUPPORTED drop-borrow-live -> _111 (borrow outlives; not provably endable)
     !_111
     jmp L_bb92
 L_bb91:
+    // UNSUPPORTED drop-borrow-live -> _79 (borrow outlives; not provably endable)
     !_79
     jmp L_bb92
 L_bb92:

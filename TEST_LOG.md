@@ -1,8 +1,8 @@
 # sa_plugin_rsc 验证记录 (2026-09-30, 容器实跑, 100% Rust / 0 Python)
 
 > 全支持路线：`INVENTORY.md` 为总表；语料库 `corpus/`（24 fns + closures +
-> consts + statics）`mir2sa coverage` **99.9%**（p_layout v1 + TLS 注册表后；
-> 仅剩 InlineAsm×1），demo 工程 `--strict` 全绿
+> consts + statics）`mir2sa coverage` **100.0%**（零缺口），demo 工程
+> `--strict` 全绿
 > （`UNSUPPORTED=0`）。落法已对齐 `sa_plugin_sla`（`@extern` 闭包、`&`/`^`
 > 前缀、`!` 释放、`alloc`+`store` 数组/Adt、`sa_mem_set` 复写）。
 
@@ -78,11 +78,13 @@ targets 的 bug，Rust 版已修正；另 `(_4.0: T)` 投影归一到基 local�
 - 未知 stmt kind → `bad mir.json: unknown variant …`，`RC=2`。
 - `--strict` 下有 UNSUPPORTED → `RC=1`。
 - `hi.mir.json → hi.sa`：`UNSUPPORTED=0`。
-- `cargo test` 8/8：`scalar_hex_driver_form`、`const_elem_both_forms`、
+- `cargo test` 11/11：`scalar_hex_driver_form`、`const_elem_both_forms`、
   `array_init_bb30_shape`（array-init 回归锁）、`repeat_forms`（repeat lowering 锁）、
   `adt_range_two_i32`（Range 2×i32）、`adt_mixed_move_const_bool`（move 混排对齐）、
   `adt_generic_two_moves`（泛型元组双 move 可见）、
-  `thread_local_registry_call`（FNV-1a 键稳定 + 注册表调用形状）。
+  `thread_local_registry_call`（FNV-1a 键稳定 + 注册表调用形状）、
+  `asm_mov_copy_exact` / `asm_mov_keeps_move_visible` /
+  `asm_non_mov_stays_loud`（asm 精确门控三锁：exact 形、move 可见、他形大声）。
 
 ## T7 p_layout v1（本轮：sala/sla 对齐的通用 Adt 落法）
 
@@ -124,6 +126,30 @@ targets 的 bug，Rust 版已修正；另 `(_4.0: T)` 投影归一到基 local�
   保真 `^`245 / `&`70（含既有合成借用）/ `!`29 不变；`hi.sa` 零改动。
 - 下一步唯一缺口只剩 InlineAsm×1（策略 TBD）；p_layout v2（driver 真布局
   下发）与 rosetta 320 文件重跑仍在 backlog（需 nightly `rustc-dev`）。
+
+## T9 asm 精确门控（本轮：最后一个缺口 → 100.0%，真驱动闭环验证）
+
+- 工具链 parity：本机 nightly-1.101 c1070d693 与 T0 记录完全一致；
+  `rsc/driver/build.sh` 一次编过。API 取证用编译器当裁判（类型揭示探针）：
+  template pieces 实为 `rustc_ast::ast::InlineAsmTemplatePiece`
+ （`String`/`Placeholder` 两变体与既有 fixture Debug 自洽），operands 元素
+  为 `rustc_middle::mir::InlineAsmOperand`（`Out{place}`/`In{value}` 一次编过）。
+- driver v2：`InlineAsm` 终结符增发 `template`（String-piece 拼接，
+  `modifier` 置位即记；span 全剥离保 fixture 可移植）、`options` Debug、
+  `outs`（首个 Out place 基 local）、`ins`（In 操作数 JSON）。
+  控制流行为零改动（沿用既有直落）。
+- mir2sa：`asm_mov_copy` 四重门（模板归一 == `mov {0}, {1}`；无修饰符；
+  options 为空；单 plain-local out + 单 Copy/Move/Const in）→
+  `dest = src // inline-asm mov (exact reg copy)`（x86 mov 不碰 flags，
+  Copy/Move 原样透传保 `^` 可见）；他形（含旧 schema 无字段）仍大声
+  UNSUPPORTED 并计数。`coverage` 口径同门。
+- 实测：`build.sh` 重编驱动 → 重提 `examples/corpus.mir.json`
+  （APPROX=0；旧 `sa_plugin_rsc` 路径残留洗净，闭包修饰名重截断，
+  stmt/term 总数 428/317 不变，无语义漂移）→ `lower` UNSUPPORTED=0，
+  `coverage` **100.0%**；保真 `^`245 / `&`70（含既有合成借用）/ `!`29；
+  `hi.sa` 零改动；`cargo test` 11/11。
+- backlog 更新：corpus 零缺口；剩余 p_layout v2（真布局）与 rosetta 重跑
+  （T6 的 Adt×130/SetDisc×6 在新驱动下可量化关闭，待排期）。
 
 ## T6 rosetta 全量（sci 334 demos，rsc 管线实测）
 

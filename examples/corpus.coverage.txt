@@ -220,11 +220,10 @@ fn f_raw: blocks=6 stmts+terms=34 unsupported=0
        3 Assign/Use
        5 T/Assert
        1 T/Return
-fn f_asm: blocks=2 stmts+terms=3 unsupported=1
+fn f_asm: blocks=2 stmts+terms=3 unsupported=0
        1 Assign/Use
        1 T/InlineAsm
        1 T/Return
-    ?? bb0: T/InlineAsm(asm [String("mov "), Placeholder { operand_idx: 0, modifier:)
 fn f_underscore: blocks=9 stmts+terms=24 unsupported=0
        2 Assign/BinOp/BitAnd
        2 Assign/BinOp/Eq
@@ -285,4 +284,4 @@ fn main: blocks=97 stmts+terms=260 unsupported=0
        4 T/Drop
        1 T/Resume
        1 T/Return
-TOTAL stmts=428 terms=317 unsupported=1 coverage=99.9%
+TOTAL stmts=428 terms=317 unsupported=0 coverage=100.0%

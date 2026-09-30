@@ -1,7 +1,7 @@
-# MIR 全 kind 清单与支持状态 (inst nightly-1.101 + /content/rust checkout)
+# MIR 全 kind 清单与支持状态 (nightly-1.101 c1070d693 + driver 实测闭环)
 
 > 基线：语料库 `corpus/`（24 fns + closures + consts + statics，428 stmts + 317 terms）
-> `mir2sa coverage` = **99.9%**，1 项具名缺口（见末尾）。driver 见到即命名，
+> `mir2sa coverage` = **100.0%**，零缺口。driver 见到即命名，
 > 绝不静默吞掉。
 
 ## StatementKind
@@ -61,7 +61,8 @@
 | TailCall | ➖ | 未出现（需 `become` nightly feature）；出现即 Unsupported |
 | Yield / CoroutineDrop | ➖ | 语料库 async fn 未产生（被降解）；出现即 Unsupported，目标对接 `sa_std/libsa_async.sa` |
 | UnwindTerminate | ➖ | 出现即 Unsupported |
-| InlineAsm | 🔶 | `InlineAsm` 具名 + 计数（SA 无内联汇编；extern/intrinsic 策略 TBD） |
+| InlineAsm（纯 `mov` 拷贝形） | ✅ | driver 下发 `template/options/outs/ins`（span 已剥离）；`mov {0},{1}` + 空 options + 单 out/in → `dest = src` exact（Copy/Move 保持原样，`cargo test` 3 用例锁定） |
+| InlineAsm（其他） | 🔶 | 具名 + 计数，大声 UNSUPPORTED（SA 无内联汇编；extern/intrinsic 策略 TBD；语料库零残留） |
 
 ## Place ProjectionElem（p_layout 主战场）
 
@@ -74,15 +75,21 @@ p_layout v2（真布局）：driver 内 `place.ty()` +
 Adt 构造逐字段 `store`（Move 元素保持
 `^` 可见），Downcast/niche 布局按真实 Layout 不猜。
 
-## 当前 1 项缺口（corpus 基线，具名可复现）
+## 当前缺口（corpus 基线）
 
-- InlineAsm ×1（f_asm）：SA 无等价物，策略 TBD
+无。`mir2sa coverage` **100.0%**（428 stmts + 317 terms，UNSUPPORTED=0）。
 
 已关闭（p_layout v1）：Aggregate struct/tuple/range ×7 + SetDisc ×2，另
 0-elem Aggregate（unit/niche）3 处一并 exact 化。
-已关闭（TLS 注册表，本轮）：ThreadLocal ×2 → `sa_thread_local_slot`
+已关闭（TLS 注册表）：ThreadLocal ×2 → `sa_thread_local_slot`
 （`sci` 侧 `d7c5c812` 真 per-thread 注册表 + `thread_local.sai/.sa`）。
-`cargo test` 8/8；`mir2sa coverage` 99.9%（428 stmts + 317 terms）。
+已关闭（asm 精确门控，本轮）：InlineAsm ×1 → driver v2 结构化下发
+（`template/options/outs/ins`，span 剥离保可移植）+ mir2sa `mov {0},{1}`
+exact 拷贝（空 options/无修饰符/单 out/单 Copy-Move-Const in 四重门；
+他形仍大声 UNSUPPORTED 并计数）。
+`cargo test` 11/11；`examples/corpus.{mir.json,sa,coverage.txt}` 为锁定产物
+（本轮由 nightly-1.101 c1070d693 真驱动重提：顺带洗掉旧 `sa_plugin_rsc`
+路径残留，闭包修饰名按现路径重截断，无 MIR 语义漂移，stmt/term 总数不变）。
 
 ## 保真（corpus 全量对账）
 

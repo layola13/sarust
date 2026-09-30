@@ -18,13 +18,16 @@ extern crate rustc_driver;
 extern crate rustc_hir;
 extern crate rustc_interface;
 extern crate rustc_middle;
+extern crate rustc_ast;
+
+use rustc_ast::ast::InlineAsmTemplatePiece;
 
 use rustc_driver::{Callbacks, Compilation, run_compiler};
 use rustc_hir::def::DefKind;
 use rustc_interface::interface::Compiler;
 use rustc_middle::mir::{
-    BasicBlock, Body, BorrowKind, Const, ConstOperand, Local, Operand,
-    Place, Rvalue, StatementKind, TerminatorKind,
+    BasicBlock, Body, BorrowKind, Const, ConstOperand, InlineAsmOperand, Local,
+    Operand, Place, Rvalue, StatementKind, TerminatorKind,
 };
 use rustc_middle::ty::{ConstKind, TyCtxt, TyKind};
 use std::fmt::Write as _;
@@ -399,10 +402,64 @@ fn body_json(tcx: TyCtxt<'_>, name: &str, body: &Body<'_>, into: &mut String) {
                 esc(&trunc(format!("{:?}", msg), 80), into);
                 into.push_str("\"}");
             }
-            TerminatorKind::InlineAsm { template, operands, .. } => {
+            TerminatorKind::InlineAsm { template, operands, options, .. } => {
+                // v2 structured capture (spans stripped for hermetic fixtures).
+                // mir2sa gates exactly one exact pattern on these fields
+                // (`mov {0}, {1}` reg-copy); everything else stays loud.
+                let mut joined = String::new();
+                let mut modifiers = false;
+                for p in template.iter() {
+                    match p {
+                        InlineAsmTemplatePiece::String(s) => joined.push_str(s),
+                        InlineAsmTemplatePiece::Placeholder { operand_idx, modifier, .. } => {
+                            if modifier.is_some() {
+                                modifiers = true;
+                            }
+                            write!(joined, "{{{}}}", operand_idx).unwrap();
+                        }
+                    }
+                }
+                let mut outs: Vec<String> = vec![];
+                let mut ins: Vec<String> = vec![];
+                for op in operands.iter() {
+                    match op {
+                        InlineAsmOperand::Out { place: Some(p), .. } => {
+                            outs.push(place_name(p).0);
+                        }
+                        InlineAsmOperand::Out { place: None, .. } => {
+                            outs.push("_proj".to_string());
+                        }
+                        InlineAsmOperand::In { value, .. } => {
+                            let mut tmp = String::new();
+                            operand_json(value, &mut tmp);
+                            ins.push(tmp);
+                        }
+                        _ => {
+                            ins.push("{\"kind\": \"Const\", \"value\": \"asm-operand-unsupported\"}".to_string());
+                        }
+                    }
+                }
                 into.push_str("{\"kind\": \"InlineAsm\", \"text\": \"");
                 esc(&trunc(format!("asm {:?} operands={}", template, operands.len()), 120), into);
-                into.push_str("\"}");
+                into.push_str("\", \"template\": \"");
+                esc(&trunc(joined, 120), into);
+                into.push_str("\", \"options\": \"");
+                esc(&trunc(format!("{:?}", options), 80), into);
+                into.push_str(&format!("\", \"modifiers\": {}, \"outs\": [", modifiers));
+                for (i, o) in outs.iter().enumerate() {
+                    if i > 0 {
+                        into.push_str(", ");
+                    }
+                    write!(into, "\"{}\"", o).unwrap();
+                }
+                into.push_str("], \"ins\": [");
+                for (i, s) in ins.iter().enumerate() {
+                    if i > 0 {
+                        into.push_str(", ");
+                    }
+                    into.push_str(s);
+                }
+                into.push_str("]}");
             }
             other => {
                 into.push_str("{\"kind\": \"Unsupported\", \"text\": \"");

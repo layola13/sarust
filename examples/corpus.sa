@@ -4,7 +4,7 @@
 @extern T_as_Shout_shout()
 @extern T_as_std_clone_Clone_clone()
 @extern T_as_std_default_Default_default()
-@extern closure_content_sa_all_sa_plugin_rsc_corpus_src_main_rs_93_20_93_33_as_std_ops_F()
+@extern closure_content_sa_all_sarust_corpus_src_main_rs_93_20_93_33_as_std_ops_FnMut_i3()
 @extern core_fmt_rt_Argument___new_debug_std_result_Result_i32_std_string_String()
 @extern core_fmt_rt_Argument___new_debug_std_vec_Vec_i32()
 @extern core_fmt_rt_Argument___new_debug_u8_8()
@@ -58,7 +58,7 @@
 @extern std_collections_hash_map_Values___std_string_String_usize_as_std_iter_Iterator_s()
 @extern std_fmt_Arguments___new_4_1()
 @extern std_io__print()
-@extern std_iter_Map_std_vec_IntoIter_i32_closure_content_sa_all_sa_plugin_rsc_corpus_sr()
+@extern std_iter_Map_std_vec_IntoIter_i32_closure_content_sa_all_sarust_corpus_src_main_()
 @extern std_mem_needs_drop_std_cell_Cell_u32()
 @extern std_ops_Range_i32_as_std_iter_IntoIterator_into_iter()
 @extern std_ops_Range_i32_as_std_iter_Iterator_next()
@@ -79,11 +79,11 @@
 @extern std_string_String_len()
 @extern std_thread_JoinHandle_usize_join()
 @extern std_thread_LocalKey_std_cell_Cell_u32_new()
-@extern std_thread_LocalKey_std_cell_Cell_u32_with_closure_content_sa_all_sa_plugin_rsc_()
+@extern std_thread_LocalKey_std_cell_Cell_u32_with_closure_content_sa_all_sarust_corpus_()
 @extern std_thread_local_impl_EagerStorage_std_cell_Cell_u32_get()
 @extern std_thread_local_impl_EagerStorage_std_cell_Cell_u32_new()
-@extern std_thread_spawn_closure_content_sa_all_sa_plugin_rsc_corpus_src_main_rs_205_32_()
-@extern std_vec_IntoIter_i32_as_std_iter_Iterator_map_i32_closure_content_sa_all_sa_plug()
+@extern std_thread_spawn_closure_content_sa_all_sarust_corpus_src_main_rs_205_32_205_34_()
+@extern std_vec_IntoIter_i32_as_std_iter_Iterator_map_i32_closure_content_sa_all_sarust_()
 @extern std_vec_Vec_i32_as_std_iter_IntoIterator_into_iter()
 @extern std_vec_Vec_i32_as_std_ops_Deref_deref()
 @extern std_vec_Vec_i32_push()
@@ -408,20 +408,20 @@ bb0:
     _7 = call @std_vec_Vec_i32_as_std_iter_IntoIterator_into_iter(_1)
     jmp bb1
 bb1:
-    // MIR: <std::vec::IntoIter<i32> as std::iter::Iterator>::map::<i32, {closure@/content/sa_all/sa_plugin_rsc/
-    _6 = call @std_vec_IntoIter_i32_as_std_iter_Iterator_map_i32_closure_content_sa_all_sa_plug(^_7, _3)
+    // MIR: <std::vec::IntoIter<i32> as std::iter::Iterator>::map::<i32, {closure@/content/sa_all/sarust/corpus/
+    _6 = call @std_vec_IntoIter_i32_as_std_iter_Iterator_map_i32_closure_content_sa_all_sarust_(^_7, _3)
     jmp bb2
 bb2:
-    // MIR: <std::iter::Map<std::vec::IntoIter<i32>, {closure@/content/sa_all/sa_plugin_rsc/corpus/src/main.rs:9
-    _5 = call @std_iter_Map_std_vec_IntoIter_i32_closure_content_sa_all_sa_plugin_rsc_corpus_sr(^_6)
+    // MIR: <std::iter::Map<std::vec::IntoIter<i32>, {closure@/content/sa_all/sarust/corpus/src/main.rs:90:15: 9
+    _5 = call @std_iter_Map_std_vec_IntoIter_i32_closure_content_sa_all_sarust_corpus_src_main_(^_6)
     jmp bb3
 bb3:
     _8 = Val(Scalar(0x00000000), i32) // single-elem aggregate (exact)
     _10 = &_5 // mut-borrow (Phase1: & + Referee)
     _12 = &_8 // mut-borrow (Phase1: & + Referee)
     _13 = Val(Scalar(0x00000001), i32) // single-elem aggregate (exact)
-    // MIR: <{closure@/content/sa_all/sa_plugin_rsc/corpus/src/main.rs:93:20: 93:33} as std::ops::FnMut<(i32,)>>
-    _11 = call @closure_content_sa_all_sa_plugin_rsc_corpus_src_main_rs_93_20_93_33_as_std_ops_F(^_12, ^_13)
+    // MIR: <{closure@/content/sa_all/sarust/corpus/src/main.rs:93:20: 93:33} as std::ops::FnMut<(i32,)>>::call_
+    _11 = call @closure_content_sa_all_sarust_corpus_src_main_rs_93_20_93_33_as_std_ops_FnMut_i3(^_12, ^_13)
     jmp bb4
 bb4:
     // MIR: std::vec::Vec::<i32>::push
@@ -431,8 +431,8 @@ bb5:
     _15 = &_5 // mut-borrow (Phase1: & + Referee)
     _17 = &_8 // mut-borrow (Phase1: & + Referee)
     _18 = Val(Scalar(0x00000002), i32) // single-elem aggregate (exact)
-    // MIR: <{closure@/content/sa_all/sa_plugin_rsc/corpus/src/main.rs:93:20: 93:33} as std::ops::FnMut<(i32,)>>
-    _16 = call @closure_content_sa_all_sa_plugin_rsc_corpus_src_main_rs_93_20_93_33_as_std_ops_F(^_17, ^_18)
+    // MIR: <{closure@/content/sa_all/sarust/corpus/src/main.rs:93:20: 93:33} as std::ops::FnMut<(i32,)>>::call_
+    _16 = call @closure_content_sa_all_sarust_corpus_src_main_rs_93_20_93_33_as_std_ops_FnMut_i3(^_17, ^_18)
     jmp bb6
 bb6:
     // MIR: std::vec::Vec::<i32>::push
@@ -858,8 +858,8 @@ bb0:
 @f_tls() -> i32:
 bb0:
     _1 = Unevaluated(UnevaluatedConst { def: DefId(0:51 ~ main[a064]:
-    // MIR: std::thread::LocalKey::<std::cell::Cell<u32>>::with::<{closure@/content/sa_all/sa_plugin_rsc/corpus/
-    _0 = call @std_thread_LocalKey_std_cell_Cell_u32_with_closure_content_sa_all_sa_plugin_rsc_(^_1, Val(ZeroSized, Closure(DefId(0:52 ~ main[a064]::f_tls::{clos)
+    // MIR: std::thread::LocalKey::<std::cell::Cell<u32>>::with::<{closure@/content/sa_all/sarust/corpus/src/mai
+    _0 = call @std_thread_LocalKey_std_cell_Cell_u32_with_closure_content_sa_all_sarust_corpus_(^_1, Val(ZeroSized, Closure(DefId(0:52 ~ main[a064]::f_tls::{clos)
     jmp bb1
 bb1:
     return 0
@@ -934,7 +934,7 @@ bb5:
 
 @f_asm() -> i32:
 bb0:
-    // UNSUPPORTED inline-asm: asm [String("mov "), Placeholder { operand_idx: 0, modifier: None, span: /content/sa_all/sa_plugin_rsc/corpus/src/main.r (no SA equivalent; extern/intrinsic TBD)
+    _2 = _1 // inline-asm mov (exact reg copy)
 bb1:
     _0 = _2
     return 0
@@ -988,8 +988,8 @@ bb0:
     _17 = Val(Scalar(0x00), bool)
     _16 = Val(Scalar(0x00), bool)
     _17 = Val(Scalar(0x01), bool)
-    // MIR: std::thread::spawn::<{closure@/content/sa_all/sa_plugin_rsc/corpus/src/main.rs:205:32: 205:34}, usiz
-    _1 = call @std_thread_spawn_closure_content_sa_all_sa_plugin_rsc_corpus_src_main_rs_205_32_(Val(ZeroSized, Closure(DefId(0:57 ~ main[a064]::f_thread_map)
+    // MIR: std::thread::spawn::<{closure@/content/sa_all/sarust/corpus/src/main.rs:205:32: 205:34}, usize>
+    _1 = call @std_thread_spawn_closure_content_sa_all_sarust_corpus_src_main_rs_205_32_205_34_(Val(ZeroSized, Closure(DefId(0:57 ~ main[a064]::f_thread_map)
     jmp bb1
 bb1:
     // MIR: std::collections::HashMap::<std::string::String, usize>::new

@@ -100,7 +100,19 @@ enum Term {
     SwitchInt { discr: Box<Operand>, #[serde(default)] targets: Vec<(String, String)>, otherwise: String },
     Assert { cond: Box<Operand>, target: String, #[serde(default, skip_serializing_if = "Option::is_none")] msg: Option<String> },
     Unreachable,
-    InlineAsm { text: String },
+    InlineAsm {
+        text: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        template: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        options: Option<String>,
+        #[serde(default)]
+        modifiers: bool,
+        #[serde(default)]
+        outs: Vec<String>,
+        #[serde(default)]
+        ins: Vec<Operand>,
+    },
     Unsupported { text: String },
 }
 
@@ -417,6 +429,49 @@ fn tls_key(def: &str) -> u64 {
     h
 }
 
+/// Exact-gate for a terminator-level `asm!` that is provably a pure
+/// register copy: template `mov {0}, {1}` (no operand modifiers), empty
+/// options (no noreturn/nomem-style flags that change control or memory
+/// semantics), exactly one plain-local out and one Copy/Move/Const in.
+/// x86 `mov` affects no flags, so `out = in` is exact; the MIR operand kind
+/// (Copy vs Move) is preserved via render_operand, keeping `^` visible.
+/// Anything else returns None (caller stays loud UNSUPPORTED, counted).
+fn asm_mov_copy(
+    template: Option<&str>,
+    options: Option<&str>,
+    modifiers: bool,
+    outs: &[String],
+    ins: &[Operand],
+) -> Option<(String, String)> {
+    let t = template?.trim().to_lowercase();
+    if t != "mov {0}, {1}" {
+        return None;
+    }
+    if modifiers {
+        return None;
+    }
+    if options.map(|o| !o.trim().is_empty()).unwrap_or(false) {
+        return None;
+    }
+    if outs.len() != 1 || ins.len() != 1 {
+        return None;
+    }
+    let dest = outs[0].trim();
+    if !is_plain_local(dest) {
+        return None;
+    }
+    if !matches!(ins[0], Operand::Copy { .. } | Operand::Move { .. } | Operand::Const { .. }) {
+        return None;
+    }
+    Some((dest.to_string(), render_operand(&ins[0])))
+}
+
+/// Plain `_N` local (matches mir2sa parse's base_local contract).
+fn is_plain_local(s: &str) -> bool {
+    let s = s.strip_prefix('_').unwrap_or("");
+    !s.is_empty() && s.chars().all(|c| c.is_ascii_digit())
+}
+
 fn render_rvalue(
     rv: &Rvalue,
     dest: &str,
@@ -589,9 +644,16 @@ fn lower_function(f: &Function, unsup: &mut Vec<String>) -> String {
                 out.push(format!("    jmp {}", target));
             }
             Term::Unreachable => out.push("    unreachable".to_string()),
-            Term::InlineAsm { text } => {
-                unsup.push(format!("{}: InlineAsm", b.id));
-                out.push(format!("    // UNSUPPORTED inline-asm: {} (no SA equivalent; extern/intrinsic TBD)", text));
+            Term::InlineAsm { text, template, options, modifiers, outs, ins } => {
+                match asm_mov_copy(template.as_deref(), options.as_deref(), *modifiers, outs, ins) {
+                    Some((dest, src)) => {
+                        out.push(format!("    {} = {} // inline-asm mov (exact reg copy)", dest, src));
+                    }
+                    None => {
+                        unsup.push(format!("{}: InlineAsm", b.id));
+                        out.push(format!("    // UNSUPPORTED inline-asm: {} (no SA equivalent; extern/intrinsic TBD)", text));
+                    }
+                }
             }
             Term::Unsupported { text } => {
                 unsup.push(format!("{}: UnsupportedTerm", b.id));
@@ -1163,9 +1225,12 @@ fn cmd_coverage(args: &[String]) -> ExitCode {
                 tot_unsup += 1;
                 unsup.push(format!("{}: T/Unsupported({})", b.id, text.chars().take(60).collect::<String>()));
             }
-            if let Term::InlineAsm { text } = &b.terminator {
-                tot_unsup += 1;
-                unsup.push(format!("{}: T/InlineAsm({})", b.id, text.chars().take(60).collect::<String>()));
+            if let Term::InlineAsm { text, template, options, modifiers, outs, ins } = &b.terminator {
+                // Mirror lower(): the exact-mov pattern is emitted, the rest is counted.
+                if asm_mov_copy(template.as_deref(), options.as_deref(), *modifiers, outs, ins).is_none() {
+                    tot_unsup += 1;
+                    unsup.push(format!("{}: T/InlineAsm({})", b.id, text.chars().take(60).collect::<String>()));
+                }
             }
         }
         println!("fn {}: blocks={} stmts+terms={} unsupported={}", f.name, f.blocks.len(),
@@ -1343,8 +1408,7 @@ mod tests {
     }
 
     #[test]
-    fn thread_local_registry_call() {
-        // ThreadLocal rvalue -> registry call with stable FNV-1a key, no UNSUPPORTED.
+    fn thread_local_registry_call() {        // ThreadLocal rvalue -> registry call with stable FNV-1a key, no UNSUPPORTED.
         let def = "TLS_N::{constant#0}::{closure#0}::__RUST_STD_INTERNAL_VAL";
         assert_eq!(tls_key(def), tls_key(def));
         assert_ne!(tls_key(def), tls_key("TLS_N::{constant#0}::{closure#1}::__RUST_STD_INTERNAL_VAL"));
@@ -1353,5 +1417,46 @@ mod tests {
         let line = render_rvalue(&rv, "_3", Some("_3"), &mut unsup, "bb0");
         assert!(unsup.is_empty());
         assert_eq!(line, format!("_3 = call @sa_thread_local_slot({}) // thread-local: {}", tls_key(def), def));
+    }
+
+    fn asm_mov(
+        template: Option<&str>,
+        options: Option<&str>,
+        modifiers: bool,
+        outs: &[&str],
+        ins: &[Operand],
+    ) -> Option<(String, String)> {
+        let outs: Vec<String> = outs.iter().map(|s| s.to_string()).collect();
+        asm_mov_copy(template, options, modifiers, &outs, ins)
+    }
+
+    #[test]
+    fn asm_mov_copy_exact() {
+        // f_asm bb0 shape: mov {0}, {1}, out _2, in copy _1, no options.
+        let ins = vec![Operand::Copy { place: "_1".to_string() }];
+        let (d, s) = asm_mov(Some("mov {0}, {1}"), Some(""), false, &["_2"], &ins)
+            .expect("corpus mov must lower");
+        assert_eq!(d, "_2");
+        assert_eq!(s, "_1");
+    }
+
+    #[test]
+    fn asm_mov_keeps_move_visible() {
+        let ins = vec![Operand::Move { place: "_1".to_string() }];
+        let (_, s) = asm_mov(Some("mov {0}, {1}"), Some(""), false, &["_2"], &ins)
+            .expect("move input must lower");
+        assert_eq!(s, "^_1");
+    }
+
+    #[test]
+    fn asm_non_mov_stays_loud() {
+        let ins = vec![Operand::Copy { place: "_1".to_string() }];
+        // Old-schema fixture (no structured fields) -> None -> UNSUPPORTED, counted.
+        assert!(asm_mov(None, None, false, &[], &[]).is_none());
+        assert!(asm_mov(Some("add {0}, {1}"), Some(""), false, &["_2"], &ins).is_none());
+        assert!(asm_mov(Some("mov {0}, {1}"), Some("PURE"), false, &["_2"], &ins).is_none());
+        assert!(asm_mov(Some("mov {0}, {1}"), Some(""), true, &["_2"], &ins).is_none());
+        assert!(asm_mov(Some("mov {0}, {1}"), Some(""), false, &["_proj"], &ins).is_none());
+        assert!(asm_mov(Some("mov {0}, {1}"), Some(""), false, &["_2", "_3"], &ins).is_none());
     }
 }

@@ -11,16 +11,16 @@ fn f_match: blocks=11 stmts+terms=30 unsupported=5
        2 T/SwitchInt
        1 T/Unreachable
     ?? bb2:_10 BinOp/Gt()
-    ?? bb3:_5 BinOp/AddWithOverflow()
-    ?? bb6:_13 BinOp/SubWithOverflow()
-    ?? bb7:_16 BinOp/AddWithOverflow()
+    ?? bb3: T/OverflowAssertFolded
+    ?? bb6: T/OverflowAssertFolded
+    ?? bb7: T/OverflowAssertFolded
     ?? bb10: T/ReturnConflict
 fn f_opt_mutate: blocks=2 stmts+terms=9 unsupported=0
        3 Assign/Aggregate
        4 Assign/Use
        1 T/Call
        1 T/Return
-fn f_struct: blocks=4 stmts+terms=12 unsupported=3
+fn f_struct: blocks=4 stmts+terms=12 unsupported=4
        1 Assign/BinOp/AddWithOverflow
        1 Assign/BinOp/MulWithOverflow
        1 Assign/BinOp/SubWithOverflow
@@ -28,8 +28,9 @@ fn f_struct: blocks=4 stmts+terms=12 unsupported=3
        3 T/Assert
        1 T/Return
     ?? bb0:_2 BinOp/AddWithOverflow()
-    ?? bb1:_3 BinOp/MulWithOverflow()
-    ?? bb2:_6 BinOp/SubWithOverflow()
+    ?? bb0: T/OverflowAssertFolded
+    ?? bb1: T/OverflowAssertFolded
+    ?? bb2: T/OverflowAssertFolded
 fn f_tuple: blocks=7 stmts+terms=16 unsupported=2
        2 Assign/BinOp/AddWithOverflow
        2 Assign/Cast
@@ -40,9 +41,9 @@ fn f_tuple: blocks=7 stmts+terms=16 unsupported=2
        2 T/Drop
        1 T/Resume
        1 T/Return
-    ?? bb1:_7 BinOp/AddWithOverflow()
-    ?? bb2:_10 BinOp/AddWithOverflow()
-fn f_slice: blocks=9 stmts+terms=31 unsupported=11
+    ?? bb1: T/OverflowAssertFolded
+    ?? bb2: T/OverflowAssertFolded
+fn f_slice: blocks=9 stmts+terms=31 unsupported=13
        3 Assign/BinOp/AddWithOverflow
        3 Assign/BinOp/Lt
        2 Assign/RawPtr
@@ -57,12 +58,14 @@ fn f_slice: blocks=9 stmts+terms=31 unsupported=11
     ?? bb1:_6 BinOp/Lt()
     ?? bb2:_8 Use()
     ?? bb2:_11 BinOp/Lt()
-    ?? bb3:_12 BinOp/AddWithOverflow()
+    ?? bb3: T/OverflowAssertFolded
     ?? bb4:_1 Rebind
     ?? bb4:_14 Use()
     ?? bb4:_17 BinOp/Lt()
     ?? bb5:_18 BinOp/AddWithOverflow()
+    ?? bb5: T/OverflowAssertFolded
     ?? bb6:_19 BinOp/AddWithOverflow()
+    ?? bb6: T/OverflowAssertFolded
     ?? bb8:_0 Use()
 fn f_repeat: blocks=1 stmts+terms=2 unsupported=0
        1 Assign/Repeat
@@ -73,7 +76,7 @@ fn {constant#0}: blocks=1 stmts+terms=2 unsupported=0
 fn {constant#1}: blocks=1 stmts+terms=2 unsupported=0
        1 Assign/Use
        1 T/Return
-fn f_loops: blocks=26 stmts+terms=58 unsupported=10
+fn f_loops: blocks=26 stmts+terms=58 unsupported=14
        2 Assign/Aggregate
        5 Assign/BinOp/AddWithOverflow
        1 Assign/BinOp/Ge
@@ -88,14 +91,18 @@ fn f_loops: blocks=26 stmts+terms=58 unsupported=10
        5 T/SwitchInt
        1 T/Unreachable
     ?? bb6:_11 BinOp/AddWithOverflow()
+    ?? bb6: T/OverflowAssertFolded
     ?? bb9:_14 Use()
     ?? bb9:_13 BinOp/Ge()
     ?? bb11:_15 Use()
     ?? bb11:_16 BinOp/AddWithOverflow()
+    ?? bb11: T/OverflowAssertFolded
     ?? bb12:_17 BinOp/AddWithOverflow()
-    ?? bb21:_34 BinOp/AddWithOverflow()
+    ?? bb12: T/OverflowAssertFolded
+    ?? bb21: T/OverflowAssertFolded
     ?? bb22:_32 BinOp/Gt()
     ?? bb23:_35 BinOp/AddWithOverflow()
+    ?? bb23: T/OverflowAssertFolded
     ?? bb25:_0 Use()
 fn f_closure: blocks=10 stmts+terms=21 unsupported=0
        4 Assign/Aggregate
@@ -110,13 +117,13 @@ fn {closure#0}: blocks=2 stmts+terms=6 unsupported=1
        3 Assign/Use
        1 T/Assert
        1 T/Return
-    ?? bb0:_4 BinOp/AddWithOverflow()
+    ?? bb0: T/OverflowAssertFolded
 fn {closure#1}: blocks=2 stmts+terms=5 unsupported=2
        1 Assign/BinOp/AddWithOverflow
        2 Assign/Use
        1 T/Assert
        1 T/Return
-    ?? bb0:_3 BinOp/AddWithOverflow()
+    ?? bb0: T/OverflowAssertFolded
     ?? bb1:_1 Rebind
 fn f_generic: blocks=7 stmts+terms=9 unsupported=0
        1 Assign/Aggregate
@@ -156,7 +163,7 @@ fn f_parse: blocks=9 stmts+terms=15 unsupported=2
        1 T/Return
        1 T/SwitchInt
        1 T/Unreachable
-    ?? bb5:_9 BinOp/MulWithOverflow()
+    ?? bb5: T/OverflowAssertFolded
     ?? bb8: T/ReturnConflict
 fn {closure#0}: blocks=2 stmts+terms=2 unsupported=1
        1 T/Call
@@ -184,8 +191,8 @@ fn f_rc: blocks=14 stmts+terms=19 unsupported=1
        4 T/Drop
        1 T/Resume
        1 T/Return
-    ?? bb7:_12 BinOp/AddWithOverflow()
-fn f_str: blocks=11 stmts+terms=20 unsupported=2
+    ?? bb7: T/OverflowAssertFolded
+fn f_str: blocks=11 stmts+terms=20 unsupported=3
        1 Assign/BinOp/AddWithOverflow
        1 Assign/Discriminant
        2 Assign/Ref
@@ -198,7 +205,8 @@ fn f_str: blocks=11 stmts+terms=20 unsupported=2
        1 T/Unreachable
     ?? bb7:_0 Use()
     ?? bb9:_12 BinOp/AddWithOverflow()
-fn f_cast: blocks=3 stmts+terms=19 unsupported=3
+    ?? bb9: T/OverflowAssertFolded
+fn f_cast: blocks=3 stmts+terms=19 unsupported=5
        1 Assign/BinOp/BitAnd
        2 Assign/BinOp/BitOr
        1 Assign/BinOp/BitXor
@@ -209,7 +217,9 @@ fn f_cast: blocks=3 stmts+terms=19 unsupported=3
        2 T/Assert
        1 T/Return
     ?? bb0:_12 BinOp/Lt()
+    ?? bb0: T/OverflowAssertFolded
     ?? bb1:_17 BinOp/Lt()
+    ?? bb1: T/OverflowAssertFolded
     ?? bb2:_14 BinOp/Shr()
 fn TLS_N: blocks=2 stmts+terms=3 unsupported=1
        1 Nop
@@ -261,7 +271,7 @@ fn {closure#0}: blocks=5 stmts+terms=7 unsupported=1
        1 T/Assert
        3 T/Call
        1 T/Return
-    ?? bb1:_6 BinOp/AddWithOverflow()
+    ?? bb1: T/OverflowAssertFolded
 fn f_raw: blocks=6 stmts+terms=34 unsupported=5
        1 Assign/BinOp/AddWithOverflow
        4 Assign/BinOp/BitAnd
@@ -278,7 +288,7 @@ fn f_raw: blocks=6 stmts+terms=34 unsupported=5
     ?? bb2:_25 BinOp/Ne()
     ?? bb3:_19 BinOp/Ne()
     ?? bb4:_9 BinOp/Sub()
-    ?? bb5:_6 BinOp/AddWithOverflow()
+    ?? bb5: T/OverflowAssertFolded
 fn f_asm: blocks=2 stmts+terms=3 unsupported=0
        1 Assign/Use
        1 T/InlineAsm
@@ -311,7 +321,7 @@ fn f_thread_map: blocks=20 stmts+terms=34 unsupported=5
        2 T/SwitchInt
     ?? bb2: T/CallConstValue
     ?? bb6: T/CallConstValue
-    ?? bb9:_13 BinOp/AddWithOverflow()
+    ?? bb9: T/OverflowAssertFolded
     ?? bb17: T/SwitchConstValue
     ?? bb19: T/SwitchConstValue
 fn {closure#0}: blocks=2 stmts+terms=4 unsupported=1
@@ -319,7 +329,7 @@ fn {closure#0}: blocks=2 stmts+terms=4 unsupported=1
        1 Assign/Use
        1 T/Assert
        1 T/Return
-    ?? bb0:_2 BinOp/AddWithOverflow()
+    ?? bb0: T/OverflowAssertFolded
 fn f_async: blocks=1 stmts+terms=2 unsupported=0
        1 Assign/Aggregate
        1 T/Return
@@ -336,8 +346,8 @@ fn {closure#0}: blocks=8 stmts+terms=20 unsupported=2
        1 T/Return
        1 T/SwitchInt
        1 T/Unreachable
-    ?? bb1:_6 BinOp/MulWithOverflow()
-    ?? bb7:_5 BinOp/AddWithOverflow()
+    ?? bb1: T/OverflowAssertFolded
+    ?? bb7: T/OverflowAssertFolded
 fn main: blocks=97 stmts+terms=260 unsupported=35
       47 Assign/Aggregate
        4 Assign/BinOp/BitAnd
@@ -388,4 +398,4 @@ fn main: blocks=97 stmts+terms=260 unsupported=35
     ?? bb87:_203 Use()
     ?? bb93:_245 BinOp/Ne()
     ?? bb94:_239 BinOp/Ne()
-TOTAL stmts=428 terms=317 unsupported=104 coverage=86.0%
+TOTAL stmts=428 terms=317 unsupported=114 coverage=84.7%

@@ -1,4 +1,5 @@
 @import "sa_std/io/print.sai"
+@import "sa_std/num.sai"
 
 // MIR callees (map to sci/sa_std per STD_MAP.md):
 @extern T_as_Shout_shout(_a0: ptr) -> ptr
@@ -122,44 +123,29 @@ L_bb2:
 L_bb6:
     _6 = _1
     _8 = _1
-    // UNSUPPORTED binop -> _13: SubWithOverflow(_6, _8)
-    _13 = 0
-    _as_bb6 = _13
-    _as_bb6_eq = eq _as_bb6, 0
-    br _as_bb6_eq -> L_bb8, L_as_bb6_fail
-L_as_bb6_fail:
-    // assert failed: Overflow(Sub, copy _6, copy _8)
-    panic(1506)
+    _13 = call @sa_num_sub_checked(_6, _8)
+    // overflow assert folded: L_bb8 traps inside sa_std/num.sai (Overflow(Sub, copy _6, copy _8) )
+    jmp L_bb8
 L_bb8:
-    _0_v0 = 0
+    _0_v0 = _13
     jmp L_bb10
 L_bb7:
     _14 = _1
     _15 = _1
-    // UNSUPPORTED binop -> _16: AddWithOverflow(_14, _15)
-    _16 = 0
-    _as_bb7 = _16
-    _as_bb7_eq = eq _as_bb7, 0
-    br _as_bb7_eq -> L_bb9, L_as_bb7_fail
-L_as_bb7_fail:
-    // assert failed: Overflow(Add, copy _14, copy _15)
-    panic(1507)
+    _16 = call @sa_num_add_checked(_14, _15)
+    // overflow assert folded: L_bb9 traps inside sa_std/num.sai (Overflow(Add, copy _14, copy _15) )
+    jmp L_bb9
 L_bb9:
-    _0_v1 = 0
+    _0_v1 = _16
     jmp L_bb10
 L_bb3:
     _3 = _1
     _4 = _1
-    // UNSUPPORTED binop -> _5: AddWithOverflow(_3, _4)
-    _5 = 0
-    _as_bb3 = _5
-    _as_bb3_eq = eq _as_bb3, 0
-    br _as_bb3_eq -> L_bb5, L_as_bb3_fail
-L_as_bb3_fail:
-    // assert failed: Overflow(Add, copy _3, copy _4)
-    panic(1503)
+    _5 = call @sa_num_add_checked(_3, _4)
+    // overflow assert folded: L_bb5 traps inside sa_std/num.sai (Overflow(Add, copy _3, copy _4) )
+    jmp L_bb5
 L_bb5:
-    _0_v2 = 0
+    _0_v2 = _5
     jmp L_bb10
 L_bb4:
     _0_v3 = 0
@@ -196,46 +182,27 @@ L_bb1:
 L_bb0:
     // UNSUPPORTED const-value -> _2: version conflict at join (multiple reaching defs of _1)
     _2 = 0
-    _as_bb0 = _2
-    _as_bb0_eq = eq _as_bb0, 0
-    br _as_bb0_eq -> L_bb1, L_as_bb0_fail
-L_as_bb0_fail:
-    // assert failed: Overflow(Add, copy (_1.0: i32), const 1_i32)
-    panic(1500)
+    // overflow assert folded: L_bb1 traps inside sa_std/num.sai (Overflow(Add, copy (_1.0: i32), const 1_i32) )
+    jmp L_bb1
 L_bb1:
     _1_v0 = 0
-    // UNSUPPORTED binop -> _3: MulWithOverflow(_1_v0, 2)
-    _3 = 0
-    _as_bb1 = _3
-    _as_bb1_eq = eq _as_bb1, 0
-    br _as_bb1_eq -> L_bb2, L_as_bb1_fail
-L_as_bb1_fail:
-    // assert failed: Overflow(Mul, copy (_1.1: i32), const 2_i32)
-    panic(1501)
+    _3 = call @sa_num_mul_checked(_1_v0, 2)
+    // overflow assert folded: L_bb2 traps inside sa_std/num.sai (Overflow(Mul, copy (_1.1: i32), const 2_i32) )
+    jmp L_bb2
 L_bb2:
-    _1_v1 = 0
+    _1_v1 = _3
     _4 = _1_v1
     _5 = _1_v1
-    // UNSUPPORTED binop -> _6: SubWithOverflow(_4, _5)
-    _6 = 0
-    _as_bb2 = _6
-    _as_bb2_eq = eq _as_bb2, 0
-    br _as_bb2_eq -> L_bb3, L_as_bb2_fail
-L_as_bb2_fail:
-    // assert failed: Overflow(Sub, move _4, move _5)
-    panic(1502)
+    _6 = call @sa_num_sub_checked(_4, _5)
+    // overflow assert folded: L_bb3 traps inside sa_std/num.sai (Overflow(Sub, move _4, move _5) )
+    jmp L_bb3
 L_bb3:
-    _0 = 0
+    _0 = _6
     !_1
     !_1_v0
+    !_2
     !_4
     !_5
-    !_as_bb0
-    !_as_bb0_eq
-    !_as_bb1
-    !_as_bb1_eq
-    !_as_bb2
-    !_as_bb2_eq
     return _0
 
 @f_tuple(_1: ptr) -> u64:
@@ -249,29 +216,19 @@ L_bb1:
     _6 = _1
     _mv_bb1_0 = _6
     _5 = sext _mv_bb1_0 as u64
-    // UNSUPPORTED binop -> _7: AddWithOverflow(_3, _5)
-    _7 = 0
-    _as_bb1 = _7
-    _as_bb1_eq = eq _as_bb1, 0
-    br _as_bb1_eq -> L_bb2, L_as_bb1_fail
-L_as_bb1_fail:
-    // assert failed: Overflow(Add, move _3, move _5)
-    panic(1501)
+    _7 = call @sa_num_add_checked(_3, _5)
+    // overflow assert folded: L_bb2 traps inside sa_std/num.sai (Overflow(Add, move _3, move _5) )
+    jmp L_bb2
 L_bb2:
-    _2 = 0
+    _2 = _7
     _9 = _1
     _mv_bb2_0 = _9
     _8 = zext _mv_bb2_0 as u64
-    // UNSUPPORTED binop -> _10: AddWithOverflow(_2, _8)
-    _10 = 0
-    _as_bb2 = _10
-    _as_bb2_eq = eq _as_bb2, 0
-    br _as_bb2_eq -> L_bb3, L_as_bb2_fail
-L_as_bb2_fail:
-    // assert failed: Overflow(Add, move _2, move _8)
-    panic(1502)
+    _10 = call @sa_num_add_checked(_2, _8)
+    // overflow assert folded: L_bb3 traps inside sa_std/num.sai (Overflow(Add, move _2, move _8) )
+    jmp L_bb3
 L_bb3:
-    _0 = 0
+    _0 = _10
     !_4
     !_1
     jmp L_bb4
@@ -281,10 +238,6 @@ L_bb4:
     !_3
     !_5
     !_8
-    !_as_bb1
-    !_as_bb1_eq
-    !_as_bb2
-    !_as_bb2_eq
     !_mv_bb1_0
     !_mv_bb2_0
     return 0
@@ -327,14 +280,9 @@ L_as_bb2_fail:
     // assert failed: BoundsCheck { len: move _10, index: copy _8 }
     panic(1502)
 L_bb3:
-    // UNSUPPORTED binop -> _12: AddWithOverflow(_1, 1)
-    _12 = 0
-    _as_bb3 = _12
-    _as_bb3_eq = eq _as_bb3, 0
-    br _as_bb3_eq -> L_bb4, L_as_bb3_fail
-L_as_bb3_fail:
-    // assert failed: Overflow(Add, copy (*_1)[_8], const 1_i32)
-    panic(1503)
+    _12 = call @sa_num_add_checked(_1, 1)
+    // overflow assert folded: L_bb4 traps inside sa_std/num.sai (Overflow(Add, copy (*_1)[_8], const 1_i32) )
+    jmp L_bb4
 L_bb4:
     // UNSUPPORTED rebind -> _1 (already bound; keeping first value)
     // UNSUPPORTED const-value -> _14: version conflict at join (multiple reaching defs of _5)
@@ -354,22 +302,14 @@ L_bb5:
     _13 = _1
     // UNSUPPORTED const-value -> _18: version conflict at join (multiple reaching defs of _2)
     _18 = 0
-    _as_bb5 = _18
-    _as_bb5_eq = eq _as_bb5, 0
-    br _as_bb5_eq -> L_bb6, L_as_bb5_fail
-L_as_bb5_fail:
-    // assert failed: Overflow(Add, copy _2, move _13)
-    panic(1505)
+    // overflow assert folded: L_bb6 traps inside sa_std/num.sai (Overflow(Add, copy _2, move _13) )
+    jmp L_bb6
 L_bb6:
     _2_v1 = 0
     // UNSUPPORTED const-value -> _19: version conflict at join (multiple reaching defs of _5)
     _19 = 0
-    _as_bb6 = _19
-    _as_bb6_eq = eq _as_bb6, 0
-    br _as_bb6_eq -> L_bb7, L_as_bb6_fail
-L_as_bb6_fail:
-    // assert failed: Overflow(Add, copy _5, const 1_usize)
-    panic(1506)
+    // overflow assert folded: L_bb7 traps inside sa_std/num.sai (Overflow(Add, copy _5, const 1_usize) )
+    jmp L_bb7
 L_bb7:
     _5_v1 = 0
     jmp L_bb1
@@ -440,12 +380,8 @@ L_bb6:
     _10 = _9
     // UNSUPPORTED const-value -> _11: version conflict at join (multiple reaching defs of _2)
     _11 = 0
-    _as_bb6 = _11
-    _as_bb6_eq = eq _as_bb6, 0
-    br _as_bb6_eq -> L_bb8, L_as_bb6_fail
-L_as_bb6_fail:
-    // assert failed: Overflow(Add, copy _2, move _10)
-    panic(1506)
+    // overflow assert folded: L_bb8 traps inside sa_std/num.sai (Overflow(Add, copy _2, move _10) )
+    jmp L_bb8
 L_bb8:
     _2_v1 = 0
     jmp L_bb3
@@ -522,16 +458,11 @@ L_bb5:
     panic(1605)
 L_bb21:
     _31 = load _28_spill+0 as ptr
-    // UNSUPPORTED binop -> _34: AddWithOverflow(_24, _31)
-    _34 = 0
-    _as_bb21 = _34
-    _as_bb21_eq = eq _as_bb21, 0
-    br _as_bb21_eq -> L_bb22, L_as_bb21_fail
-L_as_bb21_fail:
-    // assert failed: Overflow(Add, copy _24, copy _31)
-    panic(1521)
+    _34 = call @sa_num_add_checked(_24, _31)
+    // overflow assert folded: L_bb22 traps inside sa_std/num.sai (Overflow(Add, copy _24, copy _31) )
+    jmp L_bb22
 L_bb22:
-    _33 = 0
+    _33 = _34
     // UNSUPPORTED binop -> _32: Gt(_mv_bb22_0, 4)
     _32 = 0
     _sw_bb22 = _32
@@ -540,12 +471,8 @@ L_bb22:
 L_bb23:
     // UNSUPPORTED const-value -> _35: version conflict at join (multiple reaching defs of _2)
     _35 = 0
-    _as_bb23 = _35
-    _as_bb23_eq = eq _as_bb23, 0
-    br _as_bb23_eq -> L_bb24, L_as_bb23_fail
-L_as_bb23_fail:
-    // assert failed: Overflow(Add, copy _2, const 1_i32)
-    panic(1523)
+    // overflow assert folded: L_bb24 traps inside sa_std/num.sai (Overflow(Add, copy _2, const 1_i32) )
+    jmp L_bb24
 L_bb24:
     _2_v2 = 0
     jmp L_bb19
@@ -578,22 +505,14 @@ L_bb11:
     _15 = 0
     // UNSUPPORTED const-value -> _16: version conflict at join (multiple reaching defs of _2)
     _16 = 0
-    _as_bb11 = _16
-    _as_bb11_eq = eq _as_bb11, 0
-    br _as_bb11_eq -> L_bb12, L_as_bb11_fail
-L_as_bb11_fail:
-    // assert failed: Overflow(Add, copy _2, move _15)
-    panic(1511)
+    // overflow assert folded: L_bb12 traps inside sa_std/num.sai (Overflow(Add, copy _2, move _15) )
+    jmp L_bb12
 L_bb12:
     _2_v3 = 0
     // UNSUPPORTED const-value -> _17: version conflict at join (multiple reaching defs of _12)
     _17 = 0
-    _as_bb12 = _17
-    _as_bb12_eq = eq _as_bb12, 0
-    br _as_bb12_eq -> L_bb13, L_as_bb12_fail
-L_as_bb12_fail:
-    // assert failed: Overflow(Add, copy _12, const 1_i32)
-    panic(1512)
+    // overflow assert folded: L_bb13 traps inside sa_std/num.sai (Overflow(Add, copy _12, const 1_i32) )
+    jmp L_bb13
 L_bb13:
     _12_v1 = 0
     jmp L_bb9
@@ -684,40 +603,27 @@ L_bb9:
 L_bb0:
     _5 = _1
     _3 = _5
-    // UNSUPPORTED binop -> _4: AddWithOverflow(_2, _3)
-    _4 = 0
-    _as_bb0 = _4
-    _as_bb0_eq = eq _as_bb0, 0
-    br _as_bb0_eq -> L_bb1, L_as_bb0_fail
-L_as_bb0_fail:
-    // assert failed: Overflow(Add, copy _2, move _3)
-    panic(1500)
+    _4 = call @sa_num_add_checked(_2, _3)
+    // overflow assert folded: L_bb1 traps inside sa_std/num.sai (Overflow(Add, copy _2, move _3) )
+    jmp L_bb1
 L_bb1:
-    _0 = 0
+    _0 = _4
     !_0
     !_2
     !_3
-    !_as_bb0
-    !_as_bb0_eq
     return 0
 
 @_closure_1_(_1: ptr, _2: i32) -> i32:
 L_bb0:
-    // UNSUPPORTED binop -> _3: AddWithOverflow(_1, _2)
-    _3 = 0
-    _as_bb0 = _3
-    _as_bb0_eq = eq _as_bb0, 0
-    br _as_bb0_eq -> L_bb1, L_as_bb0_fail
-L_as_bb0_fail:
-    // assert failed: Overflow(Add, copy ((*_1).0: i32), copy _2)
-    panic(1500)
+    _3 = call @sa_num_add_checked(_1, _2)
+    // overflow assert folded: L_bb1 traps inside sa_std/num.sai (Overflow(Add, copy ((*_1).0: i32), copy _2) )
+    jmp L_bb1
 L_bb1:
     // UNSUPPORTED rebind -> _1 (already bound; keeping first value)
     _0 = _1
     !_0
     !_2
-    !_as_bb0
-    !_as_bb0_eq
+    !_3
     return 0
 
 @f_generic(_1: ptr) -> ptr:
@@ -866,16 +772,11 @@ L_bb6:
     jmp L_bb8
 L_bb5:
     _7 = load _2_spill+0 as ptr
-    // UNSUPPORTED binop -> _9: MulWithOverflow(_7, 2)
-    _9 = 0
-    _as_bb5 = _9
-    _as_bb5_eq = eq _as_bb5, 0
-    br _as_bb5_eq -> L_bb7, L_as_bb5_fail
-L_as_bb5_fail:
-    // assert failed: Overflow(Mul, copy _7, const 2_i32)
-    panic(1505)
+    _9 = call @sa_num_mul_checked(_7, 2)
+    // overflow assert folded: L_bb7 traps inside sa_std/num.sai (Overflow(Mul, copy _7, const 2_i32) )
+    jmp L_bb7
 L_bb7:
-    _8 = 0
+    _8 = _9
     // single-elem aggregate (exact)
     _0_v1 = _8
     jmp L_bb8
@@ -1020,16 +921,11 @@ L_bb6:
     _9 = call @std_string_String_len(_10)
     jmp L_bb7
 L_bb7:
-    // UNSUPPORTED binop -> _12: AddWithOverflow(_6, _9)
-    _12 = 0
-    _as_bb7 = _12
-    _as_bb7_eq = eq _as_bb7, 0
-    br _as_bb7_eq -> L_bb8, L_as_bb7_fail
-L_as_bb7_fail:
-    // assert failed: Overflow(Add, move _6, move _9)
-    panic(1507)
+    _12 = call @sa_num_add_checked(_6, _9)
+    // overflow assert folded: L_bb8 traps inside sa_std/num.sai (Overflow(Add, move _6, move _9) )
+    jmp L_bb8
 L_bb8:
-    _0 = 0
+    _0 = _12
     !_11
     !_4
     jmp L_bb9
@@ -1046,8 +942,6 @@ L_bb10:
     !_6
     !_7
     !_9
-    !_as_bb7
-    !_as_bb7_eq
     return 0
 L_bb11:
     // cleanup drop _4 (omitted: main path owns the release)
@@ -1104,12 +998,8 @@ L_bb8:
 L_bb9:
     // UNSUPPORTED const-value -> _12: version conflict at join (multiple reaching defs of _2)
     _12 = 0
-    _as_bb9 = _12
-    _as_bb9_eq = eq _as_bb9, 0
-    br _as_bb9_eq -> L_bb10, L_as_bb9_fail
-L_as_bb9_fail:
-    // assert failed: Overflow(Add, copy _2, const 1_usize)
-    panic(1509)
+    // overflow assert folded: L_bb10 traps inside sa_std/num.sai (Overflow(Add, copy _2, const 1_usize) )
+    jmp L_bb10
 L_bb10:
     _2_v1 = 0
     jmp L_bb3
@@ -1143,12 +1033,8 @@ L_bb0:
     _11 = 2
     // UNSUPPORTED binop -> _12: Lt(_mv_bb0_3, 64)
     _12 = 0
-    _as_bb0 = _12
-    _as_bb0_eq = eq _as_bb0, 1
-    br _as_bb0_eq -> L_bb1, L_as_bb0_fail
-L_as_bb0_fail:
-    // assert failed: Overflow(Shl, copy _3, const 2_i32)
-    panic(1500)
+    // overflow assert folded: L_bb1 traps inside sa_std/num.sai (Overflow(Shl, copy _3, const 2_i32) )
+    jmp L_bb1
 L_bb1:
     _10 = shl _3, 2
     _mv_bb1_0 = _8
@@ -1158,12 +1044,8 @@ L_bb1:
     _16 = 1
     // UNSUPPORTED binop -> _17: Lt(_mv_bb1_2, 64)
     _17 = 0
-    _as_bb1 = _17
-    _as_bb1_eq = eq _as_bb1, 1
-    br _as_bb1_eq -> L_bb2, L_as_bb1_fail
-L_as_bb1_fail:
-    // assert failed: Overflow(Shr, copy _15, const 1_i32)
-    panic(1501)
+    // overflow assert folded: L_bb2 traps inside sa_std/num.sai (Overflow(Shr, copy _15, const 1_i32) )
+    jmp L_bb2
 L_bb2:
     // UNSUPPORTED binop -> _14: Shr(_mv_bb2_0, 1)
     _14 = 0
@@ -1175,16 +1057,14 @@ L_bb2:
     !_0
     !_1
     !_11
+    !_12
     !_15
     !_16
+    !_17
     !_2
     !_3
     !_5
     !_5_spill
-    !_as_bb0
-    !_as_bb0_eq
-    !_as_bb1
-    !_as_bb1_eq
     !_mv_bb0_0
     !_mv_bb0_1
     !_mv_bb0_2
@@ -1309,16 +1189,11 @@ L_bb0:
     _5 = call @std_cell_Cell_u32_get(_2)
     jmp L_bb1
 L_bb1:
-    // UNSUPPORTED binop -> _6: AddWithOverflow(_5, 1)
-    _6 = 0
-    _as_bb1 = _6
-    _as_bb1_eq = eq _as_bb1, 0
-    br _as_bb1_eq -> L_bb2, L_as_bb1_fail
-L_as_bb1_fail:
-    // assert failed: Overflow(Add, move _5, const 1_u32)
-    panic(1501)
+    _6 = call @sa_num_add_checked(_5, 1)
+    // overflow assert folded: L_bb2 traps inside sa_std/num.sai (Overflow(Add, move _5, const 1_u32) )
+    jmp L_bb2
 L_bb2:
-    _4 = 0
+    _4 = _6
     // MIR: std::cell::Cell::<u32>::set
     call @std_cell_Cell_u32_set(_2, _4)
     // unit call result (exact: () carries no data)
@@ -1335,8 +1210,6 @@ L_bb4:
     !_3
     !_4
     !_5
-    !_as_bb1
-    !_as_bb1_eq
     return 0
 
 @f_raw(_1: ptr) -> i32:
@@ -1403,16 +1276,11 @@ L_as_bb2_fail:
     panic(1502)
 L_bb5:
     _5 = _3
-    // UNSUPPORTED binop -> _6: AddWithOverflow(_4, _5)
-    _6 = 0
-    _as_bb5 = _6
-    _as_bb5_eq = eq _as_bb5, 0
-    br _as_bb5_eq -> L_bb1, L_as_bb5_fail
-L_as_bb5_fail:
-    // assert failed: Overflow(Add, move _4, move _5)
-    panic(1505)
+    _6 = call @sa_num_add_checked(_4, _5)
+    // overflow assert folded: L_bb1 traps inside sa_std/num.sai (Overflow(Add, move _4, move _5) )
+    jmp L_bb1
 L_bb1:
-    _0 = 0
+    _0 = _6
     !_0
     !_10
     !_11
@@ -1446,8 +1314,6 @@ L_bb1:
     !_as_bb2_eq
     !_as_bb3_eq
     !_as_bb4_eq
-    !_as_bb5
-    !_as_bb5_eq
     return 0
 
 @f_asm(_1: u64) -> u64:
@@ -1595,16 +1461,11 @@ L_bb8:
     _9_v0 = call @std_collections_hash_map_Entry___std_string_String_usize_or_insert(_10, 1)
     jmp L_bb9
 L_bb9:
-    // UNSUPPORTED binop -> _13: AddWithOverflow(_9_v0, 1)
-    _13 = 0
-    _as_bb9 = _13
-    _as_bb9_eq = eq _as_bb9, 0
-    br _as_bb9_eq -> L_bb10, L_as_bb9_fail
-L_as_bb9_fail:
-    // assert failed: Overflow(Add, copy (*_9), const 1_usize)
-    panic(1509)
+    _13 = call @sa_num_add_checked(_9_v0, 1)
+    // overflow assert folded: L_bb10 traps inside sa_std/num.sai (Overflow(Add, copy (*_9), const 1_usize) )
+    jmp L_bb10
 L_bb10:
-    _9_v1 = 0
+    _9_v1 = _13
     _15 = &_2
     // MIR: std::collections::HashMap::<std::string::String, usize>::values
     _14 = call @std_collections_HashMap_std_string_String_usize_values(_15)
@@ -1639,8 +1500,6 @@ L_bb13:
     !_8
     !_9_v0
     !_9_v1
-    !_as_bb9
-    !_as_bb9_eq
     return _0
 L_bb14:
     // cleanup drop _2 (omitted: main path owns the release)
@@ -1663,20 +1522,13 @@ L_bb19:
 
 @_closure_0_(_1: ptr) -> u64:
 L_bb0:
-    // UNSUPPORTED binop -> _2: AddWithOverflow(40, 2)
-    _2 = 0
-    _as_bb0 = _2
-    _as_bb0_eq = eq _as_bb0, 0
-    br _as_bb0_eq -> L_bb1, L_as_bb0_fail
-L_as_bb0_fail:
-    // assert failed: Overflow(Add, const 40_usize, const 2_usize)
-    panic(1500)
+    _2 = call @sa_num_add_checked(40, 2)
+    // overflow assert folded: L_bb1 traps inside sa_std/num.sai (Overflow(Add, const 40_usize, const 2_usize) )
+    jmp L_bb1
 L_bb1:
-    _0 = 0
+    _0 = _2
     !_0
     !_1
-    !_as_bb0
-    !_as_bb0_eq
     return 0
 
 @f_async(_1: i32) -> ptr:
@@ -1720,26 +1572,16 @@ L_as_bb5_fail:
     panic(1505)
 L_bb7:
     _3 = _9
-    // UNSUPPORTED binop -> _5: AddWithOverflow(_3, 1)
-    _5 = 0
-    _as_bb7 = _5
-    _as_bb7_eq = eq _as_bb7, 0
-    br _as_bb7_eq -> L_bb1, L_as_bb7_fail
-L_as_bb7_fail:
-    // assert failed: Overflow(Add, copy _3, const 1_i32)
-    panic(1507)
+    _5 = call @sa_num_add_checked(_3, 1)
+    // overflow assert folded: L_bb1 traps inside sa_std/num.sai (Overflow(Add, copy _3, const 1_i32) )
+    jmp L_bb1
 L_bb1:
-    _4 = 0
-    // UNSUPPORTED binop -> _6: MulWithOverflow(_4, 2)
-    _6 = 0
-    _as_bb1 = _6
-    _as_bb1_eq = eq _as_bb1, 0
-    br _as_bb1_eq -> L_bb2, L_as_bb1_fail
-L_as_bb1_fail:
-    // assert failed: Overflow(Mul, copy _4, const 2_i32)
-    panic(1501)
+    _4 = _5
+    _6 = call @sa_num_mul_checked(_4, 2)
+    // overflow assert folded: L_bb2 traps inside sa_std/num.sai (Overflow(Mul, copy _4, const 2_i32) )
+    jmp L_bb2
 L_bb2:
-    _7 = 0
+    _7 = _6
     // single-elem aggregate (exact)
     _0 = _7
     // set-discriminant (enum tag)
@@ -1748,10 +1590,6 @@ L_bb2:
     !_10
     !_3
     !_4
-    !_as_bb1
-    !_as_bb1_eq
-    !_as_bb7
-    !_as_bb7_eq
     !_sw_bb0
     !_sw_bb0_eq_0
     return 0

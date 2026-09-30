@@ -664,3 +664,33 @@ targets 的 bug，Rust 版已修正；另 `(_4.0: T)` 投影归一到基 local�
     （T24b）：join 处为每对到达版本建合并槽，值在支配集对齐后再读出。
   - 判据升级：先量收益上限（此处 5 项泄漏）再动手；上限低于「新增 trap 的
     风险面」时不 ship。三次迭代的数据已留档，patch 存于 scratch。
+
+## T26 checked 算术：`*WithOverflow` 226 项全部关闭（走 sa_std，不原创）
+
+- 问题：`*WithOverflow` 产出 (值, 溢出标志) **对**，本仓一局部一寄存器装不下；
+  此前整条 BinOp 大声（sci 110 / sla 116），且其后的
+  `Assert(Overflow(..))` 拿**值寄存器**当标志去比较（语义错）。
+- 关键取证：MIR 里 `*WithOverflow` 之后**总是**跟一个 `msg` 以 `Overflow(`
+  开头的 `Assert`（`24_factorial` 等逐例确认，msg 形如
+  `Overflow(Sub, copy _1, const 1_i32)`），即这对里的标志唯一消费者就是那个
+  断言。于是「值」可独立交付：溢出检查由 sa_std 的 checked helper  trapping。
+- **sa_std 侧正规补充**（遵守「禁止原创」）：新增 `sci/sa_std/num.sai` 声明
+  `sa_num_add_checked / sub_checked / mul_checked`（i64 → i64），并在
+  `sci/sa_std/num.sal` 落同款守卫宏 `NUM_ADD_CHECKED` / `NUM_SUB_CHECKED` /
+  `NUM_MUL_CHECKED`（符号判定 + `panic(PANIC_ARITH_OVERFLOW)`，mul 用
+  「乘回再除，无余数」判据）。探针取证 `gt/ge/lt/sub/mul/div/rem/ne/or/and/br/
+  panic` 均为合法 SA 指令（`br` 必须是语句而非可赋值表达式——这一点曾让我的
+  探针误报 ForbiddenSyntax）。
+- 后端：`binop_mnemonic` 之前先查 `checked_arith_helper`，命中则发
+  `dest = call @sa_num_*_checked(l, r)`；溢出 `Assert` 折叠为注释 + `jmp`
+  （控制流保留），并**大声记账** `OverflowAssertFolded`（折叠是语义变换，
+  必须可见）。prelude 增加 `@import "sa_std/num.sai"`。新增 2 个锁
+  （`checked_arith_shape` / `overflow_assert_folded`，**65/65**）。
+- 实测：`BinOp-*WithOverflow` **sci 110→0、sla 116→0**；折叠记账
+  137/147；loud 497→520 / 2029→2054（折叠必须记账，故 loud 略升——这是
+  口径的诚实代价，不是新增缺口）；全绿 426→425 / 412→410（−1/−2，来自分支
+  内新暴露的 3 例**比较临时量**泄漏，与本改动无因果：`181_file_descriptor_raii`
+  零 `sa_num_*` 调用，泄漏是 `_sw_bb5`）。
+- 结论：**语义收益明确 ship**（此前该类算术产出的是垃圾值 + 垃圾比较，现在
+  值精确、溢出按 Rust 语义 trapping），指标上的 loud 上升已在 INVENTORY 说明。
+  残留比较临时量泄漏留给下一轮（针对性、可证明安全的窄口径修复）。

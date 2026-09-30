@@ -4,7 +4,7 @@ use std::process::ExitCode;
 use crate::asm::{asm_inout_passthrough, asm_mov_copy, is_plain_local};
 use crate::mir::*;
 use crate::render::*;
-use crate::render_util::{assert_panic_code, assign_loud_const, build_constmap, call_sig_loud, const_needs_loud, flat_comment, render_call_arg, render_operand, sa_ident, sa_label, unreachable_panic_code};
+use crate::render_util::{assert_panic_code, assign_loud_const, build_constmap, call_sig_loud, const_needs_loud, flat_comment, is_overflow_assert, render_call_arg, render_operand, sa_ident, sa_label, unreachable_panic_code};
 use crate::spill::{build_spill, spill_slot};
 
 /// Placeholder bind for loud paths: an unbound dest gets `= 0` so
@@ -325,6 +325,22 @@ pub fn lower_function(f: &Function, unsup: &mut Vec<String>) -> String {    // T
                 }
             }
             Term::Assert { cond, target, msg, expected } => {
+                // Overflow asserts are folded: the accompanying
+                // `*WithOverflow` already lowered to `sa_std/num.sai`'s
+                // checked helper, which traps on overflow. Comparing the flag
+                // here would test the VALUE register (the pair is collapsed),
+                // i.e. nonsense. Counted loudly so the folding stays visible.
+                let msg_text = msg.as_deref().unwrap_or("");
+                if is_overflow_assert(msg_text) {
+                    unsup.push(format!("{}: OverflowAssertFolded", b.id));
+                    out.push(format!(
+                        "    // overflow assert folded: {} traps inside sa_std/num.sai ({} )",
+                        sa_label(target),
+                        flat_comment(msg_text)
+                    ));
+                    out.push(format!("    jmp {}", sa_label(target)));
+                    continue;
+                }
                 // `assert cond` is not an SA instruction: compare against the
                 // expected bit, branch to target, else numeric panic (the msg
                 // rides as a comment; codes are 1500+bb deterministic).
@@ -527,7 +543,7 @@ pub fn cmd_lower(args: &[String]) -> ExitCode {
     let mut unsup = vec![];
     // Bodies joined by "\n"; each body already ends with one trailing newline.
     // sla convention: `@extern` decls for all called-but-undefined symbols.
-    let mut sa_compat = String::from("@import \"sa_std/io/print.sai\"\n\n");
+    let mut sa_compat = String::from("@import \"sa_std/io/print.sai\"\n@import \"sa_std/num.sai\"\n\n");
     let mut exts = collect_externs(&mir);
     let bodies: Vec<String> = mir.functions.iter().map(|f| lower_function(f, &mut unsup)).collect();
     if bodies.iter().any(|b| b.contains("sa_mem_set")) {

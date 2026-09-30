@@ -197,6 +197,23 @@ pub fn binop_mnemonic(op: &str) -> Option<&'static str> {
     }
 }
 
+/// `*WithOverflow` -> the `sci/sa_std` checked helper that returns the exact
+/// value and traps on overflow. None for every other binop.
+pub fn checked_arith_helper(op: &str) -> Option<&'static str> {
+    match op {
+        "AddWithOverflow" => Some("sa_num_add_checked"),
+        "SubWithOverflow" => Some("sa_num_sub_checked"),
+        "MulWithOverflow" => Some("sa_num_mul_checked"),
+        _ => None,
+    }
+}
+
+/// True for rustc's overflow assert (`msg` starts with `Overflow(`), whose
+/// check the sa_std helper already performs: the flag test is folded.
+pub fn is_overflow_assert(msg: &str) -> bool {
+    msg.trim_start().starts_with("Overflow(")
+}
+
 /// MIR UnOp name -> SA mnemonic (`r = op a` shape, probed legal).
 pub fn unop_mnemonic(op: &str) -> Option<&'static str> {
     match op {

@@ -57,7 +57,7 @@
 |---|---|---|
 | Use | ✅ | `=`（SA `=` 本身即 move；`^` 仅合法于 call 实参/store 值位） |
 | Ref (Shared) | ✅ | `&`；Mut 降级 `&` + 注释（Phase1，与 sla 一致）；ZST 被借用 → `= 0`（无存储 exact） |
-| BinaryOp（符号无关子集） | ✅/🔶 | Add/Sub/Mul/BitAnd/BitOr/BitXor/Shl/Eq/Ne → 同名小写指令；`*WithOverflow`、有序比较、Shr 等需符号/溢出语义 → 大声（Move 操作数先绑临时） |
+| BinaryOp（符号无关子集） | ✅/🔶 | Add/Sub/Mul/BitAnd/BitOr/BitXor/Shl/Eq/Ne → 同名小写指令；`*WithOverflow` → T26 走 `sa_num_*_checked`（值精确、溢出 trapping，标志对不可表示）；有序比较、Shr 等需符号性 → 大声（Move 操作数先绑临时） |
 | UnOp | ✅/🔶 | Not→`not`、Neg→`neg`；PtrMetadata 等 → 大声 |
 | Cast | ✅/🔶 | kind+源类型双定：同宽/指针恒等→plain copy；变宽按符号 `sext/zext/trunc`；float 交叉 `fptosi/sitofp/uitofp`；Unsize/fn-ptr → 大声 |
 | Discriminant | ✅ | `load place+0 as i64`（与 SetDisc 对偶；旧 `discriminant()` 伪指令非法已删） |
@@ -152,8 +152,8 @@ mir2sa 覆盖偏移原文使用（reorder 非升序与枚举 tag-gap 绝对偏�
 |---|---|---|
 | ConstValue（corpus 基线） | 38 | 驱动 const-eval（`const_eval_resolve`）；`&[u8;N]` 字节提升已于 T21a 落地（值位） |
 | Rebind（同路重定义） | 23 | SSA 版本改写 + join-phi（Referee 程序） |
-| `*WithOverflow` BinOp | 27 | 元组解构 + 溢出断言改写（Referee 程序） |
-| CallConstValue（调用实参） | 10 | **合流版本释放能力**是前置：胖指针值位/实参本身已可实现（长度头缓冲，T23 实测 arity 恒匹配、loud −148），但合流处的版本化局部谁都不支配 join、无法出口释放，放大后净损；需 join 状态对齐 / merge-slot（与 PhiStateConflict 同地基）。`*WithOverflow` 另需在 `sci/sa_std` 补 checked 算术（现无现成 extern，arc.sa 为内联比较） |
+| `*WithOverflow` BinOp | 27（rosetta sci 110 / sla 116 → **0**） | **T26 已落地**：走 `sci/sa_std/num.sai` 的 `sa_num_*_checked`（值精确、溢出 trapping）；溢出 Assert 折叠并记 `OverflowAssertFolded`（折叠是语义变换，必须可见，故 loud 口径略升） |
+| CallConstValue（调用实参） | 10 | **合流版本释放能力**是前置：胖指针值位/实参本身已可实现（长度头缓冲，T23 实测 arity 恒匹配、loud −148），但合流处的版本化局部谁都不支配 join、无法出口释放，放大后净损；需 join 状态对齐 / merge-slot（与 PhiStateConflict 同地基）。（`*WithOverflow` 已在 T26 用 sa_std checked helper 关闭） |
 | 有序比较/移位（Lt/Gt/Ge/Shr） | 9 | driver 下发符号性 |
 | PointerCoercion（Unsize/fn-ptr） | 5 | 胖指针构造/intrinsic 策略 |
 | UnOp-PtrMetadata | 0（3→0，T21b-1 落为 `load p+8`） | 0（13→0） | 0（5→0） | 已落地：slice.sal (ptr,len) 布局 meta 恒在 +8 |

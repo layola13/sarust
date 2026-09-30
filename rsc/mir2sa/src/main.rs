@@ -92,7 +92,10 @@ fn cmd_coverage(args: &[String]) -> ExitCode {
                             match rvalue {
                                 Rvalue::Unsupported { .. } => true,
                                 // ThreadLocal lowers to sa_thread_local_slot (sci registry).
-                                Rvalue::BinOp { op, .. } => binop_mnemonic(op).is_none(),
+                                // `*WithOverflow` lowers to the sa_std checked helper.
+                                Rvalue::BinOp { op, .. } => {
+                                    binop_mnemonic(op).is_none() && checked_arith_helper(op).is_none()
+                                }
                                 Rvalue::UnOp { op, .. } => unop_needs_loud(op),
                                 Rvalue::Cast { castkind, src_ty, ty, .. } => {
                                     match (castkind.as_deref(), src_ty.as_deref()) {
@@ -180,6 +183,11 @@ fn cmd_coverage(args: &[String]) -> ExitCode {
                             bound.insert(d.clone());
                         }
                     }
+                }
+                Term::Assert { cond, msg, .. } if is_overflow_assert(msg.as_deref().unwrap_or("")) => {
+                    // Folded in lower(): the checked helper traps instead.
+                    tot_unsup += 1;
+                    unsup.push(format!("{}: T/OverflowAssertFolded", b.id));
                 }
                 Term::Assert { cond, .. } if const_needs_loud(cond) => {
                     tot_unsup += 1;
@@ -845,13 +853,62 @@ mod tests {
     }
 
     #[test]
+    fn checked_arith_shape() {
+        // `*WithOverflow` cannot hold the (value, flag) pair, so it lowers to
+        // the sa_std checked helper: exact value, overflow traps inside the
+        // library (T26). No invented arithmetic, no inline guard duplication.
+        let mut idx = 0usize;
+        let mut unsup = vec![];
+        for (op, want) in [
+            ("AddWithOverflow", "sa_num_add_checked"),
+            ("SubWithOverflow", "sa_num_sub_checked"),
+            ("MulWithOverflow", "sa_num_mul_checked"),
+        ] {
+            let line = render_rvalue(
+                &Rvalue::BinOp {
+                    op: op.to_string(),
+                    left: Box::new(Operand::Copy { place: "_1".to_string() }),
+                    right: Box::new(Operand::Copy { place: "_2".to_string() }),
+                },
+                "_3", Some("_3"), &mut unsup, "bb0", &mut idx,
+                &std::collections::HashMap::new(), &std::collections::BTreeMap::new(),
+            );
+            assert!(unsup.is_empty(), "{}: {:?}", op, unsup);
+            assert_eq!(line, format!("_3 = call @{}(_1, _2)", want));
+        }
+    }
+
+    #[test]
+    fn overflow_assert_folded() {
+        // rustc's `Assert(Overflow(..))` tests the flag, which shares the
+        // value's register: comparing it is nonsense, so it is folded into the
+        // checked helper's trap — counted loudly, control preserved.
+        let f = blank_fn("f_ovf", vec![Block {
+            id: "bb0".to_string(),
+            statements: vec![],
+            terminator: Term::Assert {
+                cond: Box::new(Operand::Move { place: "_3".to_string() }),
+                target: "bb1".to_string(),
+                msg: Some("Overflow(Add, copy _1, const 1_i32)".to_string()),
+                expected: Some(false),
+            },
+        }]);
+        let mut unsup = vec![];
+        let sa = lower_function(&f, &mut unsup);
+        assert_eq!(unsup, vec!["bb0: OverflowAssertFolded".to_string()]);
+        assert!(sa.contains("overflow assert folded"), "{}", sa);
+        assert!(sa.contains("jmp L_bb1"), "control preserved: {}", sa);
+        assert!(!sa.contains("eq _3"), "no flag compare: {}", sa);
+    }
+
+    #[test]
     fn assert_shape() {
         // `assert cond` is not an instruction: eq + br + numeric panic.
         let f = blank_fn("f_as", vec![
             blank_block("bb0", Term::Assert {
                 cond: Box::new(Operand::Copy { place: "_1".to_string() }),
                 target: "bb1".to_string(),
-                msg: Some("Overflow(Add, copy _1, const 1_i32)".to_string()),
+                msg: Some("BoundsCheck { len: const 3_usize, index: copy _2 }".to_string()),
                 expected: Some(true),
             }),
             blank_block("bb1", Term::Return { ret: None }),

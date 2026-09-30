@@ -100,22 +100,27 @@
 | InlineAsm（值稳定 `inout` 逃逸） | ✅ | driver 下发 `inout` + 双边（sla-117 形）；注释-only 模板 + 空 options + 单 out/in → 同 local 零指令（注释），分 local 补 `out = in` 拷贝；他形大声（`cargo test` 3 用例锁定） |
 | InlineAsm（其他） | 🔶 | 具名 + 计数，大声 UNSUPPORTED（SA 无内联汇编；extern/intrinsic 策略 TBD；两仓 619 文件零残留） |
 
-## SA 汇编器陷阱普查（`sa check`，T14–T15）
+## SA 汇编器陷阱普查（`sa check`，T14–T20）
 
 发射行 parse 层（ForbiddenSyntax/UnknownRegister/CapabilityMismatch/
 IllegalUnsafeContext/UnsupportedType）：三集归零（逐函数/整文件普查）。
 Referee 层由前端负责（sala 03 模型：Drop 插入与 Phi 由上游负责）：
 
-| trap | corpus 40fn | sci 321 | sla 298 | 出路 |
+rosetta 两列为 **T20 逐函数普查**（同 harness、同文件集、同 item 数，
+基线＝T18 之前的 `09ba17b` 版本 worktree 重跑；此前为整文件口径，
+不可直接比）。基线→现状：sci 318 文件 503 函数 **391→426 全绿**
+（77.7%→84.7%）、Borrow 21→2、UAM 63→46；sla 296 文件 509 函数
+**366→399 全绿**（71.9%→78.4%）、Borrow 27→5、UAM 73→61。
+
+| trap | corpus 40fn | sci 318 文件/503fn | sla 296 文件/509fn | 出路 |
 |---|---|---|---|---|
-| PhiStateConflict | 2（3→2，T19 reload 改写后消解 f_parse） | 9（4→9） | 10（9→10） | 合流/循环携带 Conflict，需 phi/merge-slot 范式 |
-| UnknownRegister | 0（T19 前 1，修借用 dest 保活后归零） | 3（3） | 2（0→2） | 被移动 reg 上 `!r` 会报此错（T19 根因） |
-| MemoryLeak | 1（T19 揭开的合流版本泄漏面） | 1（185→1） | 1（60→1） | `drop.rs` 出口释放（T17）；残 2 需 use-analysis |
-| UseAfterMove | 6（14→9→6，T19 cast/借用 dest spill） | 57（102→57） | 61（104→61） | const-prop + spill（T17）+ cast/借用 dest reload（T19）；残留需 borrow-copy/use-analysis |
-| BorrowConflict | 0（4→5→0，T18 borrow-end + T18b cleanup 去重） | 14（9→14） | 21（16→21） | borrow-end 分析（先释借用再释源；rosetta 待重跑） |
-| PhiStateConflict | 3（2→3） | 21（20→21） | 22（114→22） | 路径敏感清理（join 状态对齐） |
+| PhiStateConflict | 2 | 23（23→23） | 23（23→23） | 合流/循环携带 Conflict，需 phi/merge-slot 范式 |
+| UnknownRegister | 0 | 0 | 0 | T19 揭出「被移动 reg 上 `!r`」根因并修（借用 dest 保活）；T20 修「转换操作数内嵌 load」 |
+| MemoryLeak | 1 | 6（5→6） | 21（20→21） | `drop.rs` 出口释放（T17）；残量需 use-analysis + phi |
+| UseAfterMove | 6 | 46（63→46） | 61（73→61） | const-prop + spill（T17）+ cast/借用 dest reload（T19）；残留需 borrow-copy/use-analysis |
+| BorrowConflict | 0 | 2（21→2） | 5（27→5） | borrow-end + cleanup 去重（T18/T18b） |
 | RegisterRedefinition | 0 | 0 | 0 | 版本化+支配集重绑定检测已覆盖 |
-| 全绿文件 | 31（3→23→28→31） | 228（5→228） | 180（4→180） | — |
+| 全绿函数 | 31/40（3→23→28→31） | 426/503（391→426） | 399/509（366→399） | — |
 
 仿射消费表（探针取证）：`x = y` 移动源；call/store/eq/load/br 共享读；
 `&y` 锁定源（生借用未释禁 `!y`）；`!r` 释放；`^` 仅 call 实参/store 值位合法。

@@ -472,3 +472,31 @@ targets 的 bug，Rust 版已修正；另 `(_4.0: T)` 投影归一到基 local�
 - 意义：这是后端**调用约定的第一块真值**——此前任何非 void 调用的返回值
   都是 0；现在 extern 声明（STD_MAP 映射 sci/sa_std）的返回类型才真正有
   意义。残留：合流返回（需 phi）与 f_parse 的 `_0` 版本泄漏（同一族）。
+
+## T20 rosetta 全量重跑（sci 318 + sla 296 文件，逐函数普查，量化 T18–T19b）
+
+- 方法（口径对齐是关键）：新建批处理跑批（driver → mir2sa lower/coverage →
+  逐函数切分 `sa check`，切分件带 `@import`+`@extern` 前导）跑
+  `sci/demos/rosetta` 331 目录（318 产出 / 13 driver 拒收）与
+  `sa_plugin_sla/demos/rosetta` 313 目录（296 / 17）；**基线用 git
+  worktree 检出 T18 之前的 `09ba17b` 重新编译 mir2sa，同一 harness 重跑**，
+  故 delta 可比（items 数完全一致：sci 6478、sla 9335）。
+- 量化收益（基线→现状）：
+  - sci：全绿函数 **391→426**（77.7%→84.7%，+35）；BorrowConflict 21→2；
+    UseAfterMove 63→46；MemoryLeak 5→6；Phi 23→23；loud 805→830。
+  - sla：全绿函数 **366→399**（71.9%→78.4%，+33）；BorrowConflict 27→5；
+    UseAfterMove 73→61；MemoryLeak 20→21；Phi 23→23；loud 2291→2329。
+  - 合计 **+68 个全绿函数**、Borrow **48→7**、UAM **136→107**。
+  - loud 上升（+25/+38）主要是 T19b 的 `ReturnConflict` 具名记账
+    （sci 23 / sla 36），属诚实口径而非新增缺口。
+- 本轮抓出并修掉一处**我方新引入的 trap**（rosetta 重跑的价值所在）：
+  sla `201_pkg_manifest_basic` 报 UnknownRegister——T19 的 cast 重载把
+  `load _2_spill+0 as u8` 直接塞进 `zext ... as i32` 的操作数位，而 SA 的
+  转换操作数必须是寄存器（嵌套表达式不解析）。修法：转换前先把重载绑到
+  `_mv_{bb}_{i}` 临时量（`bind_move_operand` 同款），plain-copy 转换仍可
+  内联 load。加锁单测 `cast_reload_binds_temp_for_convert`（**59/59**）。
+  修后 sla UnknownRegister 归零（并揭出该文件 1 例旧泄漏，MemoryLeak 20→21）。
+- 诚实记录：sla 的 `MemoryLeak` 20→21 与 sci 的 5→6 均为「被前序 trap 掩盖、
+  修复后显形」的旧泄漏（Referee 首 trap 即停），非新增能力缺口。
+- 工具沉淀：批处理与 census 脚本在 `scratch/`（已 gitignore），方法与探针
+  结论均已抄入本节与源码注释。

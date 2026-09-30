@@ -130,8 +130,9 @@ pub fn render_rvalue(
             // reuse one value 2-3 times, and a borrow temp must stay bound
             // for its own later `!b`; `sa check` traps the plain assign as
             // UseAfterMove / UnknownRegister).
-            let (mut pre, ot) = match spill_reg(op, spill) {
-                Some(t) => (vec![], t),
+            let reload = spill_reg(op, spill);
+            let (mut pre, ot) = match &reload {
+                Some(t) => (vec![], t.clone()),
                 None => bind_move_operand(op, bid, mv_idx),
             };
             // SA emission type for conversions (`as TY`).
@@ -157,7 +158,19 @@ pub fn render_rvalue(
                         pre.join("\n")
                     }
                     Some(CastLower::Convert(m)) => {
-                        pre.push(format!("{} = {} {} as {}", dest, m, ot, emit_ty));
+                        // The conversion operand must be a REGISTER: a
+                        // reload expression cannot be nested (`zext load ..
+                        // as u8 as i32` is UnknownRegister, sla-201 shape),
+                        // so bind the reload to a temp first.
+                        match &reload {
+                            Some(t) => {
+                                let tmp = format!("_mv_{}_{}", bid, mv_idx);
+                                *mv_idx += 1;
+                                pre.push(format!("{} = {}", tmp, t));
+                                pre.push(format!("{} = {} {} as {}", dest, m, tmp, emit_ty));
+                            }
+                            None => pre.push(format!("{} = {} {} as {}", dest, m, ot, emit_ty)),
+                        }
                         slot(&mut pre);
                         pre.join("\n")
                     }

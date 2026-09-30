@@ -752,6 +752,35 @@ mod tests {
     }
 
     #[test]
+    fn cast_reload_binds_temp_for_convert() {
+        // sla-201 shape: a spilled source feeding a WIDTH-CHANGING cast must
+        // be bound to a temp first — `zext load _s+0 as u8 as i32` does not
+        // parse (UnknownRegister). A plain-copy cast may inline the load.
+        let spilled = std::collections::BTreeMap::from([("_2".to_string(), "u8".to_string())]);
+        let cast = |kind: &str, src: &str, ty: &str| Rvalue::Cast {
+            op: Box::new(Operand::Copy { place: "_2".to_string() }),
+            ty: ty.to_string(),
+            castkind: Some(kind.to_string()),
+            src_ty: Some(src.to_string()),
+        };
+        let mut idx = 0usize;
+        let mut unsup = vec![];
+        let line = render_rvalue(
+            &cast("IntToInt", "u8", "i32"), "_7", Some("_7"), &mut unsup, "bb0",
+            &mut idx, &std::collections::HashMap::new(), &spilled,
+        );
+        assert!(unsup.is_empty());
+        assert_eq!(line, "_mv_bb0_0 = load _2_spill+0 as u8\n_7 = zext _mv_bb0_0 as i32");
+        let mut idx = 0usize;
+        let mut unsup = vec![];
+        let line = render_rvalue(
+            &cast("IntToInt", "u32", "u32"), "_7", Some("_7"), &mut unsup, "bb0",
+            &mut idx, &std::collections::HashMap::new(), &spilled,
+        );
+        assert_eq!(line, "_7 = load _2_spill+0 as u8");
+    }
+
+    #[test]
     fn assert_shape() {
         // `assert cond` is not an instruction: eq + br + numeric panic.
         let f = blank_fn("f_as", vec![

@@ -161,6 +161,8 @@ L_bb4:
     _0 = 0
     jmp L_bb10
 L_bb10:
+    !_sw_bb0
+    !_sw_bb0_eq_0
     return 0
 
 @f_opt_mutate(_1: ptr) -> i32:
@@ -179,6 +181,11 @@ L_bb0:
     _0 = call @std_option_Option_i32_unwrap_or(_5, 0)
     jmp L_bb1
 L_bb1:
+    !_0
+    !_2
+    !_3
+    !_4
+    !_5
     return 0
 
 @f_struct(_1: ptr) -> i32:
@@ -215,6 +222,15 @@ L_as_bb2_fail:
     panic(1502)
 L_bb3:
     _0 = _6
+    !_0
+    !_4
+    !_5
+    !_as_bb0
+    !_as_bb0_eq
+    !_as_bb1
+    !_as_bb1_eq
+    !_as_bb2
+    !_as_bb2_eq
     return 0
 
 @f_tuple(_1: ptr) -> u64:
@@ -254,6 +270,18 @@ L_bb3:
     !_1
     jmp L_bb4
 L_bb4:
+    !_0
+    !_2
+    !_3
+    !_4
+    !_5
+    !_8
+    !_as_bb1
+    !_as_bb1_eq
+    !_as_bb2
+    !_as_bb2_eq
+    !_mv_bb1_0
+    !_mv_bb2_0
     return 0
 L_bb5:
     !_1
@@ -339,6 +367,12 @@ L_bb7:
     jmp L_bb1
 L_bb8:
     _0 = _2
+    !_0
+    !_3
+    !_4
+    !_7
+    !_sw_bb1
+    !_sw_bb1_eq_0
     return 0
 
 @f_repeat() -> ptr:
@@ -347,16 +381,19 @@ L_bb0:
     _rep_bb0 = alloc 8
     call @sa_mem_set(&_rep_bb0, 7, 8)
     _0 = _rep_bb0
+    !_0
     return 0
 
 @_constant_0_() -> u64:
 L_bb0:
     _0 = 8
+    !_0
     return 0
 
 @_constant_1_() -> u64:
 L_bb0:
     _0 = 8
+    !_0
     return 0
 
 @f_loops(_1: ptr) -> i32:
@@ -497,6 +534,21 @@ L_bb24:
     jmp L_bb19
 L_bb25:
     _0 = _2
+    !_0
+    !_1
+    !_14
+    !_19
+    !_22
+    !_4
+    !_7
+    !_sw_bb16
+    !_sw_bb16_eq_0
+    !_sw_bb4
+    !_sw_bb4_eq_0
+    !_sw_bb9
+    !_sw_bb9_eq_0
+    !_20
+    !_5
     return 0
 L_bb11:
     _15 = _12
@@ -575,6 +627,23 @@ L_bb6:
     jmp L_bb7
 L_bb7:
     _0 = _5
+    !_0
+    !_1
+    !_10
+    !_11
+    !_12
+    !_13
+    !_14
+    !_15
+    !_16
+    !_17
+    !_18
+    !_2
+    !_3
+    !_6
+    !_7
+    !_9
+    !_8
     return 0
 L_bb8:
     !_5
@@ -597,6 +666,11 @@ L_as_bb0_fail:
     panic(1500)
 L_bb1:
     _0 = _4
+    !_0
+    !_2
+    !_3
+    !_as_bb0
+    !_as_bb0_eq
     return 0
 
 @_closure_1_(_1: ptr, _2: i32) -> i32:
@@ -612,6 +686,10 @@ L_as_bb0_fail:
 L_bb1:
     // UNSUPPORTED rebind -> _1 (already bound; keeping first value)
     _0 = _1
+    !_0
+    !_2
+    !_as_bb0
+    !_as_bb0_eq
     return 0
 
 @f_generic(_1: ptr) -> ptr:
@@ -633,6 +711,9 @@ L_bb2:
     !_1
     jmp L_bb3
 L_bb3:
+    !_0
+    !_3
+    !_4
     return 0
 L_bb4:
     !_2
@@ -651,6 +732,7 @@ L_bb0:
     _0 = 0
     jmp L_bb1
 L_bb1:
+    !_1
     return 0
 
 @shout(_1: ptr) -> ptr:
@@ -660,6 +742,7 @@ L_bb0:
     _0 = 0
     jmp L_bb1
 L_bb1:
+    !_1
     return 0
 
 @f_dyn(_1: ptr) -> u64:
@@ -676,6 +759,9 @@ L_bb2:
     !_3
     jmp L_bb3
 L_bb3:
+    !_0
+    !_1
+    !_2
     return 0
 L_bb4:
     !_3
@@ -702,6 +788,9 @@ L_bb3:
     !_1
     jmp L_bb4
 L_bb4:
+    !_0
+    !_2
+    !_4
     return 0
 L_bb5:
     !_3
@@ -758,6 +847,11 @@ L_bb7:
     _0 = _8
     jmp L_bb8
 L_bb8:
+    !_1
+    !_3
+    !_4
+    !_sw_bb3
+    !_sw_bb3_eq_0
     return 0
 
 @_closure_0_(_1: ptr, _2: ptr) -> ptr:
@@ -767,6 +861,8 @@ L_bb0:
     _0 = 0
     jmp L_bb1
 L_bb1:
+    !_1
+    !_2
     return 0
 
 @f_box(_1: ptr) -> i32:
@@ -816,6 +912,21 @@ L_bb4:
     !_2
     jmp L_bb5
 L_bb5:
+    !_0
+    !_1
+    !_10
+    !_11
+    !_13
+    !_14
+    !_15
+    !_16
+    !_3
+    !_4
+    !_5
+    !_8
+    !_9
+    !_as_bb1_eq
+    !_as_bb8_eq
     return 0
 L_bb6:
     !_2
@@ -873,6 +984,18 @@ L_bb9:
     !_2
     jmp L_bb10
 L_bb10:
+    !_0
+    !_1
+    !_10
+    !_11
+    !_3
+    !_5
+    !_6
+    !_7
+    !_8
+    !_9
+    !_as_bb7
+    !_as_bb7_eq
     return 0
 L_bb11:
     !_4
@@ -938,6 +1061,13 @@ L_bb10:
     jmp L_bb3
 L_bb7:
     _0 = _2
+    !_0
+    !_1
+    !_4
+    !_7
+    !_sw_bb4
+    !_sw_bb4_eq_0
+    !_5
     return 0
 
 @f_cast(_1: i64, _2: f64) -> i64:
@@ -983,6 +1113,24 @@ L_bb2:
     _mv_bb2_2 = _7
     _mv_bb2_3 = _13
     _0 = or _mv_bb2_2, _mv_bb2_3
+    !_0
+    !_1
+    !_11
+    !_15
+    !_16
+    !_2
+    !_3
+    !_as_bb0
+    !_as_bb0_eq
+    !_as_bb1
+    !_as_bb1_eq
+    !_mv_bb0_0
+    !_mv_bb0_1
+    !_mv_bb0_2
+    !_mv_bb1_0
+    !_mv_bb1_1
+    !_mv_bb2_2
+    !_mv_bb2_3
     return 0
 
 @TLS_N() -> ptr:
@@ -1002,6 +1150,7 @@ L_bb0:
     _0 = call @std_cell_Cell_u32_new(0)
     jmp L_bb1
 L_bb1:
+    !_0
     return 0
 
 @_constant_0_() -> ptr:
@@ -1033,6 +1182,8 @@ L_bb3:
     jmp L_bb4
 L_bb4:
     // StorageDead _1
+    !_sw_bb1
+    !_sw_bb1_eq_0
     return 0
 
 @_closure_0_(_1: ptr, _2: ptr) -> ptr:
@@ -1043,6 +1194,10 @@ L_bb0:
     _0 = call @std_thread_local_impl_EagerStorage_std_cell_Cell_u32_get(_3)
     jmp L_bb1
 L_bb1:
+    !_0
+    !_1
+    !_2
+    !_3
     return 0
 
 @__RUST_STD_INTERNAL_VAL() -> ptr:
@@ -1060,12 +1215,16 @@ L_bb0:
     // thread-local registry slot
     _3 = call @sa_thread_local_slot(18153923440919753515)
     _0 = _3
+    !_0
+    !_1
+    !_2
     return 0
 
 @__RUST_STD_INTERNAL_VAL() -> ptr:
 L_bb0:
     // UNSUPPORTED const-value -> _0: unresolvable const Unevaluated(UnevaluatedConst { def: DefId(0:63 ~ main[a064]:
     _0 = 0
+    !_0
     return 0
 
 @f_tls() -> u32:
@@ -1076,6 +1235,8 @@ L_bb0:
     _0 = call @std_thread_LocalKey_std_cell_Cell_u32_with_closure_content_sa_all_sarust_corpus_(_1, 0)
     jmp L_bb1
 L_bb1:
+    !_0
+    !_1
     return 0
 
 @_closure_0_(_1: ptr, _2: ptr) -> u32:
@@ -1104,6 +1265,14 @@ L_bb3:
     _0 = call @std_cell_Cell_u32_get(_2)
     jmp L_bb4
 L_bb4:
+    !_0
+    !_1
+    !_2
+    !_3
+    !_4
+    !_5
+    !_as_bb1
+    !_as_bb1_eq
     return 0
 
 @f_raw(_1: ptr) -> i32:
@@ -1172,6 +1341,33 @@ L_as_bb5_fail:
     panic(1505)
 L_bb1:
     _0 = _6
+    !_0
+    !_10
+    !_11
+    !_13
+    !_14
+    !_15
+    !_16
+    !_18
+    !_19
+    !_20
+    !_21
+    !_22
+    !_24
+    !_25
+    !_26
+    !_27
+    !_28
+    !_4
+    !_5
+    !_8
+    !_9
+    !_as_bb0_eq
+    !_as_bb2_eq
+    !_as_bb3_eq
+    !_as_bb4_eq
+    !_as_bb5
+    !_as_bb5_eq
     return 0
 
 @f_asm(_1: u64) -> u64:
@@ -1181,6 +1377,7 @@ L_bb0:
     jmp L_bb1
 L_bb1:
     _0 = _2
+    !_0
     return 0
 
 @f_underscore(_1: ptr) -> u64:
@@ -1228,6 +1425,21 @@ L_bb3:
     !_1
     jmp L_bb4
 L_bb4:
+    !_0
+    !_10
+    !_11
+    !_13
+    !_14
+    !_15
+    !_16
+    !_17
+    !_2
+    !_3
+    !_5
+    !_8
+    !_9
+    !_as_bb2_eq
+    !_as_bb7_eq
     return 0
 L_bb5:
     !_1
@@ -1311,6 +1523,19 @@ L_bb12:
     jmp L_bb13
 L_bb13:
     // UNSUPPORTED rebind -> _17 (already bound; keeping first value)
+    !_0
+    !_10
+    !_14
+    !_15
+    !_16
+    !_17
+    !_3
+    !_6
+    !_7
+    !_8
+    !_9
+    !_as_bb9
+    !_as_bb9_eq
     return 0
 L_bb14:
     !_2
@@ -1343,12 +1568,17 @@ L_as_bb0_fail:
     panic(1500)
 L_bb1:
     _0 = _2
+    !_0
+    !_1
+    !_as_bb0
+    !_as_bb0_eq
     return 0
 
 @f_async(_1: i32) -> ptr:
 L_bb0:
     // single-elem aggregate (exact)
     _0 = _1
+    !_0
     return 0
 
 @_closure_0_(_1: ptr, _2: ptr) -> ptr:
@@ -1409,6 +1639,16 @@ L_bb2:
     _0 = _7
     // set-discriminant (enum tag)
     store _9+0, 1 as i64
+    !_0
+    !_10
+    !_3
+    !_4
+    !_as_bb1
+    !_as_bb1_eq
+    !_as_bb7
+    !_as_bb7_eq
+    !_sw_bb0
+    !_sw_bb0_eq_0
     return 0
 L_bb3:
     // set-discriminant (enum tag)
@@ -2096,6 +2336,185 @@ L_bb88:
     _196 = 0
     jmp L_bb89
 L_bb89:
+    !_1
+    !_10
+    !_102
+    !_105
+    !_106
+    !_107
+    !_108
+    !_11
+    !_112
+    !_115
+    !_116
+    !_117
+    !_118
+    !_12
+    !_121
+    !_122
+    !_126
+    !_127
+    !_128
+    !_129
+    !_132
+    !_133
+    !_136
+    !_137
+    !_138
+    !_139
+    !_142
+    !_143
+    !_146
+    !_147
+    !_148
+    !_149
+    !_15
+    !_155
+    !_156
+    !_157
+    !_158
+    !_16
+    !_161
+    !_164
+    !_165
+    !_166
+    !_167
+    !_170
+    !_171
+    !_175
+    !_176
+    !_177
+    !_178
+    !_181
+    !_184
+    !_185
+    !_186
+    !_187
+    !_190
+    !_194
+    !_195
+    !_196
+    !_197
+    !_2
+    !_20
+    !_200
+    !_203
+    !_204
+    !_205
+    !_206
+    !_207
+    !_208
+    !_209
+    !_21
+    !_210
+    !_211
+    !_212
+    !_213
+    !_214
+    !_215
+    !_216
+    !_217
+    !_218
+    !_219
+    !_22
+    !_220
+    !_221
+    !_222
+    !_223
+    !_224
+    !_228
+    !_229
+    !_23
+    !_230
+    !_231
+    !_233
+    !_234
+    !_235
+    !_236
+    !_238
+    !_239
+    !_240
+    !_241
+    !_242
+    !_244
+    !_245
+    !_246
+    !_247
+    !_248
+    !_26
+    !_27
+    !_30
+    !_31
+    !_32
+    !_33
+    !_36
+    !_37
+    !_41
+    !_42
+    !_43
+    !_44
+    !_47
+    !_48
+    !_49
+    !_5
+    !_53
+    !_54
+    !_55
+    !_56
+    !_59
+    !_6
+    !_62
+    !_63
+    !_64
+    !_65
+    !_68
+    !_69
+    !_70
+    !_73
+    !_74
+    !_75
+    !_76
+    !_80
+    !_84
+    !_85
+    !_86
+    !_87
+    !_88
+    !_9
+    !_91
+    !_92
+    !_93
+    !_96
+    !_97
+    !_98
+    !_99
+    !_as_bb30_eq
+    !_as_bb51_eq
+    !_as_bb93_eq
+    !_as_bb94_eq
+    !_103
+    !_113
+    !_124
+    !_134
+    !_144
+    !_153
+    !_162
+    !_17
+    !_172
+    !_173
+    !_18
+    !_182
+    !_192
+    !_201
+    !_28
+    !_39
+    !_50
+    !_51
+    !_60
+    !_7
+    !_71
+    !_82
+    !_94
     return 0
 L_bb90:
     !_111

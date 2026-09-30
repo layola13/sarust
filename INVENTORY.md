@@ -96,6 +96,26 @@
 | InlineAsm（值稳定 `inout` 逃逸） | ✅ | driver 下发 `inout` + 双边（sla-117 形）；注释-only 模板 + 空 options + 单 out/in → 同 local 零指令（注释），分 local 补 `out = in` 拷贝；他形大声（`cargo test` 3 用例锁定） |
 | InlineAsm（其他） | 🔶 | 具名 + 计数，大声 UNSUPPORTED（SA 无内联汇编；extern/intrinsic 策略 TBD；两仓 619 文件零残留） |
 
+## SA 汇编器陷阱普查（`sa check`，T14–T15）
+
+发射行 parse 层（ForbiddenSyntax/UnknownRegister/CapabilityMismatch/
+IllegalUnsafeContext/UnsupportedType）：三集归零（逐函数/整文件普查）。
+Referee 层由前端负责（sala 03 模型：Drop 插入与 Phi 由上游负责）：
+
+| trap | corpus 40fn | sci 321 | sla 298 | 出路 |
+|---|---|---|---|---|
+| MemoryLeak | 0（10→0） | 1（185→1） | 1（60→1） | `drop.rs` 出口释放（本轮）；残 2 需 use-analysis |
+| UseAfterMove | 14 | 102 | 104 | 重借/reload 程序（MIR shared-copy 在 SA 须重借） |
+| BorrowConflict | 4 | 9 | 16 | borrow-end 分析（先释借用再释源） |
+| PhiStateConflict | 2 | 20 | 114 | 路径敏感清理（join 状态对齐） |
+| RegisterRedefinition | 0 | 0 | 0 | 支配集重绑定检测已覆盖 |
+| 全绿文件 | 20 | 189 | 63 | — |
+
+仿射消费表（探针取证）：`x = y` 移动源；call/store/eq/load/br 共享读；
+`&y` 锁定源（生借用未释禁 `!y`）；`!r` 释放；`^` 仅 call 实参/store 值位合法。
+`drop.rs` 规则：单定义+支配出口+全程未移动/未释放+借用拓扑（借者先释），
+不合一律跳过（宁漏不新 trap）。
+
 ## Place ProjectionElem（p_layout 主战场）
 
 `Deref / Field / Index / ConstantIndex / Subslice / Downcast / OpaqueCast / UnwrapUnsafeBinder / PhantomDeref`：

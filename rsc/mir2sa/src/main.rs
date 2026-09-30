@@ -11,6 +11,7 @@
 
 mod asm;
 mod const_util;
+mod drop;
 mod layout;
 mod lower;
 mod mir;

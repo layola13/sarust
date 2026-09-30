@@ -147,17 +147,12 @@ mod order_tests {
     }
 }
 
-/// Bound seeds per block: header params plus Assign/Call dests of all
-/// STRICT dominators (computed over explicit terminator edges). A rebind of
-/// a seeded dest is a same-path redefinition (RegisterRedefinition downstream)
-/// and goes loud; exclusive-branch joins never seed each other, so they stay
-/// legal. Unreachable blocks seed from params only.
-pub fn dom_seeds(blocks: &[Block], n_params: usize) -> Vec<std::collections::BTreeSet<String>> {
-    use std::collections::BTreeSet;
+/// Raw dominator sets (each incl. self) over explicit terminator edges.
+/// Entry root is blocks[0]; unreachable blocks end with the full set.
+pub fn dom_sets(blocks: &[Block]) -> Vec<HashSet<usize>> {
     let n = blocks.len();
     let index: HashMap<&str, usize> =
         blocks.iter().enumerate().map(|(i, b)| (b.id.as_str(), i)).collect();
-    // Successors and predecessors over explicit edges.
     let mut succ: Vec<Vec<usize>> = vec![vec![]; n];
     for (i, b) in blocks.iter().enumerate() {
         for s in successors(&b.terminator) {
@@ -172,7 +167,6 @@ pub fn dom_seeds(blocks: &[Block], n_params: usize) -> Vec<std::collections::BTr
             pred[j].push(i);
         }
     }
-    // Iterative dominators: dom(entry)={entry}, rest=all, intersect.
     let all: HashSet<usize> = (0..n).collect();
     let mut dom: Vec<HashSet<usize>> = vec![all.clone(); n];
     if n > 0 {
@@ -188,7 +182,6 @@ pub fn dom_seeds(blocks: &[Block], n_params: usize) -> Vec<std::collections::BTr
                         Some(s) => s.intersection(&dom[p]).cloned().collect(),
                     });
                 }
-                // Unreachable blocks keep yesterday's set (all) -> trim to empty below.
                 let mut new = new.unwrap_or_default();
                 new.insert(i);
                 if new != dom[i] {
@@ -198,7 +191,18 @@ pub fn dom_seeds(blocks: &[Block], n_params: usize) -> Vec<std::collections::BTr
             }
         }
     }
-    // Per-block defs (Assign dests + Call dests).
+    dom
+}
+
+/// Bound seeds per block: header params plus Assign/Call dests of all
+/// STRICT dominators. A rebind of a seeded dest is a same-path redefinition
+/// (RegisterRedefinition downstream) and goes loud; exclusive-branch joins
+/// never seed each other, so they stay legal. Unreachable blocks seed from
+/// params only.
+pub fn dom_seeds(blocks: &[Block], n_params: usize) -> Vec<std::collections::BTreeSet<String>> {
+    use std::collections::BTreeSet;
+    let dom = dom_sets(blocks);
+    let n = blocks.len();
     let mut defs: Vec<BTreeSet<String>> = vec![BTreeSet::new(); n];
     for (i, b) in blocks.iter().enumerate() {
         for s in &b.statements {

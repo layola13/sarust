@@ -81,7 +81,7 @@ targets 的 bug，Rust 版已修正；另 `(_4.0: T)` 投影归一到基 local�
 - 未知 stmt kind → `bad mir.json: unknown variant …`，`RC=2`。
 - `--strict` 下有 UNSUPPORTED → `RC=1`。
 - `hi.mir.json → hi.sa`：`UNSUPPORTED=0`。
-- `cargo test` 30：`scalar_hex_driver_form`、`const_elem_both_forms`、
+- `cargo test` 35：`scalar_hex_driver_form`、`const_elem_both_forms`、
   `array_init_bb30_shape`（array-init 回归锁）、`repeat_forms`（repeat lowering 锁）、
   `adt_range_two_i32`（Range 2×i32）、`adt_mixed_move_const_bool`（move 混排对齐）、
   `adt_generic_two_moves`（泛型元组双 move 可见）、
@@ -95,7 +95,9 @@ targets 的 bug，Rust 版已修正；另 `(_4.0: T)` 投影归一到基 local�
   `switchint_chain_shape` / `assert_shape` / `unreachable_becomes_panic` /
   `typed_header_and_extern` / `cast_copy_vs_convert`（形状六锁）、
   `rpo_loop_back_edge` / `rpo_diamond` / `rpo_unreachable_appended` /
-  `dom_seeds_diamond`（order 四锁，`order.rs` 内）。
+  `dom_seeds_diamond`（order 四锁，`order.rs` 内）、`classify_shapes` /
+  `frees_simple_leak` / `borrow_ordering` / `moved_not_freed` /
+  `branch_local_never_freed_at_join`（drop 五锁，`drop.rs` 内）。
 
 ## T7 p_layout v1（本轮：sala/sla 对齐的通用 Adt 落法）
 
@@ -312,4 +314,25 @@ targets 的 bug，Rust 版已修正；另 `(_4.0: T)` 投影归一到基 local�
   `cargo test` 30/30。
 - backlog（具名程序）：const-eval（Unevaluated/byte-ref 38+10）、溢出元组解构（27）、
   SSA 版本改写（Rebind 23）、调用实参提升（10）、driver 符号性（9）、fat-meta（3）、
-  Unsize（5）、Referee Drop 胶水（仿射全集）。
+  Unsize（5）、Referee Drop 胶水（仿射全集，T15 立项）。
+
+## T15 referee_drop-1（本轮：仿射取证 + 出口释放，泄漏 255→2）
+
+- 仿射消费表（`sa check` 探针逐项取证）：`x = y` 移动源（`!` 已移动源报
+  UseAfterMove）；call/store/eq/load/br 均为共享读（同寄存器复用 OK）；
+  `&y` 锁定源（生借用未释禁 `!y` → BorrowConflict）；`!r` 释放；
+  `^` 仅 call 实参/store 值位合法（赋值位/eq 内非法）；
+  `alloc N`/`store +off`/`_N` 命名合法；`return` 可后随标号；
+  `unreachable` 终结函数文本（后继禁排），`panic` 不终结。
+- `drop.rs`（新模块，`exit_frees` + 5 单测）：Return 块出口释放；
+  候选 = 单定义（无条件前缀）+ 支配出口 + 全程未移动/未释放（含参）；
+  借用拓扑排序（借者先释）；任一存疑即跳过（宁漏不新 trap）。
+  关键 bug 史：首版缺支配检查（分支局部定义在 join 出口被释 →
+  UnknownRegister，`_constant_0_` 事件），补支配+无条件前缀后解决；
+  另修 Repeat 漏绑 dest（`_1 = _rep`，54/199 事件）。
+- 实测：corpus 全绿 3→20（Leak 10→0）；sci 全绿 5→189（Leak 185→1）；
+  sla 全绿 4→63（Leak 60→1）。parse-trap 保持归零；剩余 Referee
+  按上表移交（UAM/借用/Phi 需重借与路径敏感程序）。
+- 残 2 泄漏（181/188 `_sw` 临时量）：定义于条件区、join 出口可达但非支配
+  ——需 use-analysis（末次使用后即释），下期。
+- `cargo test` 35/35（含 drop 5 锁 + order 支配锁）。

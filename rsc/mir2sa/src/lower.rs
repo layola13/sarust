@@ -44,8 +44,11 @@ pub fn lower_function(f: &Function, unsup: &mut Vec<String>) -> String {    // T
     // a seeded dest is a same-path redefinition and goes loud.
     let order = crate::order::rpo_order(&f.blocks);
     let seeds = crate::order::dom_seeds(&f.blocks, f.params.len());
+    // Block line ranges (for drop-glue insertion afterwards).
+    let mut block_ranges: Vec<(usize, usize, usize)> = vec![];
     for bi in order {
         let b = &f.blocks[bi];
+        let start = out.len();
         out.push(format!("{}:", sa_label(&b.id)));
         // Per-block bound set: repeats go loud and keep the first value
         // (skip the line). Exclusive-branch joins stay legal (never seeded).
@@ -300,6 +303,33 @@ pub fn lower_function(f: &Function, unsup: &mut Vec<String>) -> String {    // T
             Term::Unsupported { text } => {
                 unsup.push(format!("{}: UnsupportedTerm", b.id));
                 out.push(format!("    // UNSUPPORTED terminator: {}", text));
+            }
+        }
+        block_ranges.push((bi, start, out.len()));
+    }
+    // Drop glue (see drop.rs): exit-anchored releases over emitted lines.
+    // Insertion runs over original block indices (dom_sets keying), from
+    // last to first so earlier indices stay valid.
+    {
+        let n = f.blocks.len();
+        let mut lines_by_orig: Vec<Vec<String>> = vec![vec![]; n];
+        let mut range_by_orig: Vec<(usize, usize)> = vec![(0, 0); n];
+        for (bi, s, e) in &block_ranges {
+            lines_by_orig[*bi] = out[*s..*e].to_vec();
+            range_by_orig[*bi] = (*s, *e);
+        }
+        let doms = crate::order::dom_sets(&f.blocks);
+        let frees = crate::drop::exit_frees(&lines_by_orig, &doms, f.params.len());
+        let mut order_desc: Vec<usize> = (0..n).collect();
+        order_desc.sort_by_key(|b| std::cmp::Reverse(range_by_orig[*b].0));
+        for bi in order_desc {
+            if let Some(fs) = frees.get(&bi) {
+                let (s, e) = range_by_orig[bi];
+                // Return line is last in exit blocks; insert before it.
+                let pos = e.saturating_sub(1).max(s);
+                for (k, r) in fs.iter().enumerate() {
+                    out.insert(pos + k, format!("    !{}", r));
+                }
             }
         }
     }

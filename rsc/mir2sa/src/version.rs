@@ -374,6 +374,22 @@ pub fn version_function(f: &Function) -> Function {
                     place.push_str("__VERSION_CONFLICT__");
                 }
             }
+            // Return reads local `_0` (rustc return place). Resolve the
+            // reaching version so `return _0_vK` is exact; a join with two
+            // reaching versions has no single register (needs phi) and gets
+            // the same sentinel as Drop.
+            Term::Return { ret } => {
+                let resolved = if multi.contains("_0") {
+                    match resolve("_0", bi, None, &numbered, &inn) {
+                        Ok(Some(k)) => Some(versioned_name("_0", k)),
+                        Err(()) => Some("__VERSION_CONFLICT__".to_string()),
+                        Ok(None) => Some("_0".to_string()),
+                    }
+                } else {
+                    Some("_0".to_string())
+                };
+                *ret = resolved;
+            }
             Term::SwitchInt { discr, .. } => {
                 rewrite_operand(discr, bi, None, &numbered, &inn)
             }
@@ -434,7 +450,7 @@ mod version_tests {
     #[test]
     fn single_def_passthrough() {
         let f = mkfn(vec![blk("bb0", vec![use_stmt("_1", "_2")], goto("bb1")),
-                         blk("bb1", vec![], Term::Return)]);
+                         blk("bb1", vec![], Term::Return { ret: None })]);
         let out = version_function(&f);
         assert_eq!(out.blocks[0].statements.len(), 1);
     }
@@ -444,7 +460,7 @@ mod version_tests {
         // bb0 defines _1 twice (v0, v1); bb1 dominated by bb0 uses _1 -> v1.
         let f = mkfn(vec![
             blk("bb0", vec![use_stmt("_1", "_9"), use_stmt("_1", "_8")], goto("bb1")),
-            blk("bb1", vec![use_stmt("_2", "_1")], Term::Return),
+            blk("bb1", vec![use_stmt("_2", "_1")], Term::Return { ret: None }),
         ]);
         let out = version_function(&f);
         // Both defs renamed; the use sees the deepest (v1).
@@ -478,7 +494,7 @@ mod version_tests {
             }),
             blk("bb1", vec![use_stmt("_1", "_8")], goto("bb3")),
             blk("bb2", vec![use_stmt("_1", "_7")], goto("bb3")),
-            blk("bb3", vec![use_stmt("_2", "_1")], Term::Return),
+            blk("bb3", vec![use_stmt("_2", "_1")], Term::Return { ret: None }),
         ]);
         let out = version_function(&f);
         if let Stmt::Assign { rvalue: Rvalue::Use { op }, .. } = &out.blocks[3].statements[0] {
@@ -510,7 +526,7 @@ mod version_tests {
         };
         let f = mkfn(vec![
             blk("bb0", vec![use_stmt("_1", "_9")], asm_term),
-            blk("bb1", vec![ref_stmt], Term::Return),
+            blk("bb1", vec![ref_stmt], Term::Return { ret: None }),
         ]);
         let out = version_function(&f);
         if let Stmt::Assign { rvalue: Rvalue::Ref { place, .. }, .. } = &out.blocks[1].statements[0] {
@@ -540,7 +556,7 @@ mod version_tests {
             blk("bb2", vec![], goto("bb3")),
             blk("bb3", vec![use_stmt("_2", "_6")], goto("bb4")),
             blk("bb4", vec![], goto("bb5")),
-            blk("bb5", vec![mkref()], Term::Return),
+            blk("bb5", vec![mkref()], Term::Return { ret: None }),
         ]);
         let out = version_function(&f);
         if let Stmt::Assign { dest: d0, .. } = &out.blocks[0].statements[0] {

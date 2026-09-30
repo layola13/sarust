@@ -1,4 +1,4 @@
-fn f_match: blocks=11 stmts+terms=30 unsupported=4
+fn f_match: blocks=11 stmts+terms=30 unsupported=5
        2 Assign/BinOp/AddWithOverflow
        1 Assign/BinOp/Gt
        1 Assign/BinOp/SubWithOverflow
@@ -14,6 +14,7 @@ fn f_match: blocks=11 stmts+terms=30 unsupported=4
     ?? bb3:_5 BinOp/AddWithOverflow()
     ?? bb6:_13 BinOp/SubWithOverflow()
     ?? bb7:_16 BinOp/AddWithOverflow()
+    ?? bb10: T/ReturnConflict
 fn f_opt_mutate: blocks=2 stmts+terms=9 unsupported=0
        3 Assign/Aggregate
        4 Assign/Use
@@ -147,7 +148,7 @@ fn f_static_dispatch: blocks=8 stmts+terms=10 unsupported=0
        4 T/Drop
        1 T/Resume
        1 T/Return
-fn f_parse: blocks=9 stmts+terms=15 unsupported=1
+fn f_parse: blocks=9 stmts+terms=15 unsupported=2
        1 Assign/Aggregate
        1 Assign/BinOp/MulWithOverflow
        1 Assign/Discriminant
@@ -159,6 +160,7 @@ fn f_parse: blocks=9 stmts+terms=15 unsupported=1
        1 T/SwitchInt
        1 T/Unreachable
     ?? bb5:_9 BinOp/MulWithOverflow()
+    ?? bb8: T/ReturnConflict
 fn {closure#0}: blocks=2 stmts+terms=2 unsupported=1
        1 T/Call
        1 T/Return
@@ -221,7 +223,7 @@ fn __RUST_STD_INTERNAL_INIT: blocks=2 stmts+terms=3 unsupported=0
        1 Nop
        1 T/Call
        1 T/Return
-fn {constant#0}: blocks=5 stmts+terms=16 unsupported=2
+fn {constant#0}: blocks=5 stmts+terms=16 unsupported=3
        2 Assign/Aggregate
        2 Assign/Cast
        1 Nop
@@ -233,6 +235,7 @@ fn {constant#0}: blocks=5 stmts+terms=16 unsupported=2
        1 T/SwitchInt
     ?? bb2:_0_v0 Cast()
     ?? bb3:_0_v1 Cast()
+    ?? bb4: T/ReturnConflict
 fn {closure#0}: blocks=2 stmts+terms=3 unsupported=0
        1 Assign/ThreadLocal
        1 T/Call
@@ -388,4 +391,4 @@ fn main: blocks=97 stmts+terms=260 unsupported=35
     ?? bb87:_203 Use()
     ?? bb93:_245 BinOp/Ne()
     ?? bb94:_239 BinOp/Ne()
-TOTAL stmts=428 terms=317 unsupported=104 coverage=86.0%
+TOTAL stmts=428 terms=317 unsupported=107 coverage=85.6%

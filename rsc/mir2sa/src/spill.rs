@@ -259,7 +259,7 @@ mod spill_tests {
         let blocks = vec![Block {
             id: "bb0".to_string(),
             statements: vec![use_agg],
-            terminator: Term::Return,
+            terminator: Term::Return { ret: None },
         }];
         let m = build_spill(&blocks);
         assert_eq!(m.get("_agg_bb0"), Some(&"ptr".to_string()));
@@ -271,7 +271,7 @@ mod spill_tests {
         let blocks = vec![Block {
             id: "bb0".to_string(),
             statements: vec![],
-            terminator: Term::Return,
+            terminator: Term::Return { ret: None },
         }];
         assert!(build_spill(&blocks).is_empty());
     }
@@ -323,7 +323,7 @@ mod spill_tests {
                 cast_copy("_7", "_6", "*const ()"),
                 cast_copy("_12", "_6", "*const ()"),
             ],
-            terminator: Term::Return,
+            terminator: Term::Return { ret: None },
         }];
         let m = build_spill(&blocks);
         assert_eq!(m.get("_6"), Some(&"ptr".to_string()));
@@ -348,7 +348,7 @@ mod spill_tests {
                     },
                 },
             ],
-            terminator: Term::Return,
+            terminator: Term::Return { ret: None },
         }];
         assert_eq!(build_spill(&blocks).get("_78"), Some(&"ptr".to_string()));
     }
@@ -390,7 +390,7 @@ mod spill_tests {
                 },
                 cast_copy("_7", "_6", "usize"),
             ],
-            terminator: Term::Return,
+            terminator: Term::Return { ret: None },
         }];
         assert!(!build_spill(&blocks).contains_key("_6"));
     }

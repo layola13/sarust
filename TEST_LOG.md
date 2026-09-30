@@ -448,3 +448,27 @@ targets 的 bug，Rust 版已修正；另 `(_4.0: T)` 投影归一到基 local�
   各定义在一支，谁都不支配 join，drop.rs 按支配门不敢释放）——旧版被
   PhiStateConflict 掩盖（Referee 首 trap 即停），属「需 phi」同一族限制的
   泄漏面，**不新增能力缺口**，但已具名入册（INVENTORY trap 表）。
+
+## T19b 返回值保真：`return <reg>` 取代恒 `return 0`
+
+- 问题：Return 臂恒发 `return 0`——**每个非 void 函数都返回 0**（返回值全丢，
+  且被返回的局部量按 `return 0` 语义泄漏）。探针 r4/r5 证：`return <reg>`
+  合法且**消费**该 reg（r4 ok），`return 0` 则泄漏它（r5 MemoryLeak）。
+- 实现：
+  - `Term::Return` 变体携带 `ret: Option<String>`（`#[serde(default)]`，
+    旧 JSON 兼容）——MIR 经局部量 `_0` 返回，reg 由 `version.rs` 解析：
+    多定义时按 reaching-definitions 取唯一版本（`return _0_vK`），两版本
+    合流则置 `__VERSION_CONFLICT__` 哨兵（与 Drop 同款）；
+  - `lower.rs`：非 void + 该 reg 在本块 `bound` 集内（支配门）→ 发
+    `return <reg>`；void / 未绑定 / 冲突 → 回落 `return 0`，冲突另记
+    `ReturnConflict` 大声（coverage 同构记 `T/ReturnConflict`）；
+  - `drop.rs`：`return <reg>` 记为 move 源，出口释放不再重复释它
+    （否则 UAM）。两个 drop 单测随之改口径（旧断言锁的是"return 后仍释放"，
+    已被 r4 证伪）。
+- 实测：corpus 6 个函数从 `return 0` 变为 `return _0`（含
+  `f_opt_mutate` 返回 `Option::unwrap_or` 结果）；3 处合流冲突诚实大声；
+  trap 谱不变（UAM 6 / Phi 2 / Leak 1）、全绿 31/40、parse-trap 归零；
+  loud 104→107（+3 ReturnConflict，85.6%）；`cargo test` **58/58**（+2）。
+- 意义：这是后端**调用约定的第一块真值**——此前任何非 void 调用的返回值
+  都是 0；现在 extern 声明（STD_MAP 映射 sci/sa_std）的返回类型才真正有
+  意义。残留：合流返回（需 phi）与 f_parse 的 `_0` 版本泄漏（同一族）。

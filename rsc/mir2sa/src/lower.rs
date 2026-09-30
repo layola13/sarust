@@ -137,7 +137,26 @@ pub fn lower_function(f: &Function, unsup: &mut Vec<String>) -> String {    // T
         }
         match &b.terminator {
             Term::Goto { target } => out.push(format!("    jmp {}", sa_label(target))),
-            Term::Return => out.push("    return 0".to_string()),
+            Term::Return { ret } => {
+                // Return-value fidelity: `return <reg>` is legal and consumes
+                // the reg (probe r4; `return 0` leaks it, probe r5). Fall back
+                // to the `0` marker when unresolved, void, conflicting, or not
+                // definitely bound here — the marker is always parse-clean.
+                let is_void = f.ret.as_deref() == Some("void");
+                let live = ret.as_deref().filter(|r| !is_void).filter(|r| {
+                    *r != "__VERSION_CONFLICT__" && bound.contains(*r)
+                });
+                match live {
+                    Some(r) => out.push(format!("    return {}", r)),
+                    None => {
+                        if ret.as_deref() == Some("__VERSION_CONFLICT__") {
+                            unsup.push(format!("{}: ReturnConflict", b.id));
+                            out.push("    // UNSUPPORTED return-value: version conflict at join (multiple reaching defs)".to_string());
+                        }
+                        out.push("    return 0".to_string());
+                    }
+                }
+            }
             Term::Resume => {
                 out.push("    // MIR Resume (cleanup path)".to_string());
                 out.push("    panic(\"unwind-resume\")".to_string());

@@ -280,7 +280,7 @@ pub fn parse_block(lines: &[String]) -> (Vec<Stmt>, Term, usize) {
             }
         }
         if s == "return;" || s == "return" {
-            term = Some(Term::Return);
+            term = Some(Term::Return { ret: None });
             continue;
         }
         if s == "resume;" || s == "resume" {
@@ -329,7 +329,7 @@ pub fn parse_block(lines: &[String]) -> (Vec<Stmt>, Term, usize) {
         unsup += 1;
         stmts.push(Stmt::UnsupportedStmt { text: s.chars().take(120).collect() });
     }
-    (stmts, term.unwrap_or(Term::Return), unsup)
+    (stmts, term.unwrap_or(Term::Return { ret: None }), unsup)
 }
 
 pub fn extract_fn(text: &str, fname: &str) -> Option<Vec<String>> {
@@ -404,7 +404,7 @@ pub fn rvalue_kind(rv: &Rvalue) -> String {
 pub fn term_kind(t: &Term) -> &'static str {
     match t {
         Term::Goto { .. } => "Goto",
-        Term::Return => "Return",
+        Term::Return { .. } => "Return",
         Term::Resume => "Resume",
         Term::Call { .. } => "Call",
         Term::Drop { .. } => "Drop",

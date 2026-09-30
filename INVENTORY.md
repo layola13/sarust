@@ -85,7 +85,7 @@
 
 | kind | 状态 | SA 落法 |
 |---|---|---|
-| Goto / Return / Resume-Redirect | ✅ | `jmp` / `return 0`（多 return 合法）/ Resume→`panic` |
+| Goto / Return / Resume-Redirect | ✅ | `jmp` / `return <reg>`（T19b：经局部量 `_0` 返回，version.rs 解析 reaching 版本；void/未绑定/合流冲突回落 `return 0` + 大声）/ Resume→`panic` |
 | Unreachable | ✅ | `panic(16xx)` 大声中止（裸 `unreachable` 会终结 SA 函数文本，禁排后继） |
 | Call（含 diverging） | ✅/🔶 | 类型化 `@extern`（driver 下发 callee sig；`void` 调用裸写）+ `jmp`；无 sig/坏常量参数 → 大声保控制 |
 | Drop | ✅ | `!p` |
@@ -138,7 +138,7 @@ mir2sa 覆盖偏移原文使用（reorder 非升序与枚举 tag-gap 绝对偏�
 
 ## 当前缺口（corpus 基线，T14 口径：汇编器为准）
 
-`mir2sa coverage` **86.0%**（428 stmts + 317 terms，104 缺口，全部具名）：
+`mir2sa coverage` **85.6%**（428 stmts + 317 terms，107 缺口，全部具名）：
 
 | 类别 | 数 | 出路 |
 |---|---|---|
@@ -152,7 +152,7 @@ mir2sa 覆盖偏移原文使用（reorder 非升序与枚举 tag-gap 绝对偏�
 | FnSig（128 位） | 0（corpus） | 已有计数器；rosetta-09 触发 1 次 |
 
 历史 100%（T13）为 MIR-kind 口径；T14 起以 `sa check` 为准绳，
-上述缺口此前以不可汇编形态静默存在，现全部大声。`cargo test` 51/51；
+上述缺口此前以不可汇编形态静默存在，现全部大声。`cargo test` 58/58；
 `examples/corpus.{mir.json,sa,coverage.txt}` 为锁定产物。
 
 ## 保真（corpus 全量对账，T14 口径）

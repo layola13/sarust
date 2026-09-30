@@ -375,7 +375,7 @@ mod borrow_end_tests {
                 sig: None,
             }),
             blk("bb1", vec![], Term::Drop { place: "_1".to_string(), target: "bb2".to_string() }),
-            blk("bb2", vec![], Term::Return),
+            blk("bb2", vec![], Term::Return { ret: None }),
         ]
     }
 
@@ -391,7 +391,7 @@ mod borrow_end_tests {
     fn used_after_vetoes() {
         // Borrower reused after the drop: ending it would move-into-trap.
         let mut blocks = lin();
-        blocks.push(blk("bb3", vec![], Term::Return));
+        blocks.push(blk("bb3", vec![], Term::Return { ret: None }));
         if let Term::Drop { target, .. } = &mut blocks[1].terminator {
             *target = "bb3".to_string();
         }
@@ -411,7 +411,7 @@ mod borrow_end_tests {
     fn multidef_vetoes() {
         // Borrower redefined later: single-def gate refuses.
         let mut blocks = lin();
-        blocks[2] = blk("bb2", vec![rf("_2", "_1")], Term::Return);
+        blocks[2] = blk("bb2", vec![rf("_2", "_1")], Term::Return { ret: None });
         let plan = plan_drops(&blocks, &doms(&blocks));
         assert!(!plan.ends.contains_key(&1));
         assert!(plan.loud.contains(&1));
@@ -436,7 +436,7 @@ mod borrow_end_tests {
         // duplicate of the main path, so phase 2 must omit it.
         let mut blocks = vec![
             blk("bb0", vec![], Term::Drop { place: "_1".to_string(), target: "bb1".to_string() }),
-            blk("bb1", vec![], Term::Return),
+            blk("bb1", vec![], Term::Return { ret: None }),
             blk("bb9", vec![], Term::Drop { place: "_1".to_string(), target: "bb1".to_string() }),
         ];
         let plan = plan_drops(&blocks, &doms(&blocks));
@@ -449,7 +449,7 @@ mod borrow_end_tests {
     fn no_borrow_no_plan() {
         let blocks = vec![
             blk("bb0", vec![], Term::Drop { place: "_1".to_string(), target: "bb1".to_string() }),
-            blk("bb1", vec![], Term::Return),
+            blk("bb1", vec![], Term::Return { ret: None }),
         ];
         let plan = plan_drops(&blocks, &doms(&blocks));
         assert!(plan.ends.is_empty());
@@ -465,7 +465,7 @@ mod borrow_end_tests {
                 rvalue: Rvalue::Ref { place: "_1".to_string(), mut_: false, via: None, zst: true },
             }], Term::Goto { target: "bb1".to_string() }),
             blk("bb1", vec![], Term::Drop { place: "_1".to_string(), target: "bb2".to_string() }),
-            blk("bb2", vec![], Term::Return),
+            blk("bb2", vec![], Term::Return { ret: None }),
         ];
         let plan = plan_drops(&blocks, &doms(&blocks));
         assert!(plan.ends.is_empty());

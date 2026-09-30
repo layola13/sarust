@@ -139,6 +139,14 @@ fn cmd_coverage(args: &[String]) -> ExitCode {
                 tot_unsup += 1;
                 unsup.push(format!("{}: T/Unsupported({})", b.id, text.chars().take(60).collect::<String>()));
             }
+            // Version-conflicted returns lower() cannot express (join over
+            // two reaching versions): counted like lower()'s ReturnConflict.
+            if let Term::Return { ret: Some(r) } = &b.terminator {
+                if r == "__VERSION_CONFLICT__" {
+                    tot_unsup += 1;
+                    unsup.push(format!("{}: T/ReturnConflict", b.id));
+                }
+            }
             // Conflict-marked drops (see version.rs) go loud like lower().
             // Borrow-live drops lower() cannot provably end go loud too.
             // Cleanup duplicates are deduped by lower() (borrow_end phase 2)
@@ -656,9 +664,9 @@ mod tests {
                 targets: vec![("0".to_string(), "bb1".to_string()), ("1".to_string(), "bb2".to_string())],
                 otherwise: "bb3".to_string(),
             }),
-            blank_block("bb1", Term::Return),
-            blank_block("bb2", Term::Return),
-            blank_block("bb3", Term::Return),
+            blank_block("bb1", Term::Return { ret: None }),
+            blank_block("bb2", Term::Return { ret: None }),
+            blank_block("bb3", Term::Return { ret: None }),
         ]);
         let mut unsup = vec![];
         let sa = lower_function(&f, &mut unsup);
@@ -668,6 +676,79 @@ mod tests {
         assert!(sa.contains("_sw_bb0_eq_0 = eq _1, 0"), "eq arm:\n{}", sa);
         assert!(sa.contains("br _sw_bb0_eq_0 -> L_bb1, L_sw_bb0_0"), "two-target br:\n{}", sa);
         assert!(sa.contains("L_sw_bb0_0:"), "fallthrough label:\n{}", sa);
+    }
+
+    fn ret_fn(name: &str, ret: Option<&str>, blocks: Vec<Block>) -> Function {
+        let mut f = blank_fn(name, blocks);
+        f.ret = ret.map(|s| s.to_string());
+        f
+    }
+
+    fn def(dest: &str, v: &str) -> Stmt {
+        Stmt::Assign {
+            dest: dest.to_string(),
+            dest_place: Some(dest.to_string()),
+            rvalue: Rvalue::Use { op: c(v) },
+        }
+    }
+
+    /// Plain register copy (not a const literal: `c()` values go loud).
+    fn def_from(dest: &str, src: &str) -> Stmt {
+        Stmt::Assign {
+            dest: dest.to_string(),
+            dest_place: Some(dest.to_string()),
+            rvalue: Rvalue::Use { op: Operand::Copy { place: src.to_string() } },
+        }
+    }
+
+    #[test]
+    fn return_value_emitted() {
+        // Probe r4: `return <reg>` is legal and consumes the reg (r5 shows
+        // `return 0` leaks it), so the resolved return local is emitted.
+        let f = ret_fn("f_ret", Some("i32"), vec![
+            blank_block("bb0", Term::Goto { target: "bb1".to_string() }),
+            Block {
+                id: "bb1".to_string(),
+                statements: vec![def_from("_0", "_1")],
+                terminator: Term::Return { ret: Some("_0".to_string()) },
+            },
+        ]);
+        let mut f = f;
+        f.params = vec!["i32".to_string()];
+        let mut unsup = vec![];
+        let sa = lower_function(&f, &mut unsup);
+        assert!(unsup.is_empty(), "{:?}", unsup);
+        assert!(sa.contains("return _0"), "return value:\n{}", sa);
+    }
+
+    #[test]
+    fn return_fallbacks_are_safe() {
+        // Void: no register to return. Unbound reg: fall back. Conflict:
+        // loud marker plus the `0` fallback (never a raw sentinel register).
+        let cases: Vec<(Function, &str)> = vec![
+            (ret_fn("f_void", Some("void"), vec![Block {
+                id: "bb0".to_string(),
+                statements: vec![def_from("_0", "_1")],
+                terminator: Term::Return { ret: Some("_0".to_string()) },
+            }]), "return 0"),
+            (ret_fn("f_unbound", Some("i32"), vec![
+                blank_block("bb0", Term::Return { ret: Some("_0".to_string()) }),
+            ]), "return 0"),
+            (ret_fn("f_conf", Some("i32"), vec![Block {
+                id: "bb0".to_string(),
+                statements: vec![def_from("_0", "_1")],
+                terminator: Term::Return { ret: Some("__VERSION_CONFLICT__".to_string()) },
+            }]), "return 0"),
+        ];
+        for (f, want) in &cases {
+            let mut unsup = vec![];
+            let sa = lower_function(f, &mut unsup);
+            assert!(sa.contains(want), "fallback {} missing:\n{}", want, sa);
+            assert!(!sa.contains("__VERSION_CONFLICT__"), "no raw sentinel:\n{}", sa);
+        }
+        let mut unsup = vec![];
+        let _ = lower_function(&cases[2].0, &mut unsup);
+        assert_eq!(unsup, vec!["bb0: ReturnConflict".to_string()]);
     }
 
     #[test]
@@ -680,7 +761,7 @@ mod tests {
                 msg: Some("Overflow(Add, copy _1, const 1_i32)".to_string()),
                 expected: Some(true),
             }),
-            blank_block("bb1", Term::Return),
+            blank_block("bb1", Term::Return { ret: None }),
         ]);
         let mut unsup = vec![];
         let sa = lower_function(&f, &mut unsup);
@@ -697,7 +778,7 @@ mod tests {
         // without ending it, so siblings keep assembling.
         let f = blank_fn("f_un", vec![
             blank_block("bb0", Term::Unreachable),
-            blank_block("bb1", Term::Return),
+            blank_block("bb1", Term::Return { ret: None }),
         ]);
         let mut unsup = vec![];
         let sa = lower_function(&f, &mut unsup);
@@ -718,7 +799,7 @@ mod tests {
                 target: Some("bb1".to_string()),
                 sig: Some(CallSig { params: vec!["ptr".to_string()], ret: "i32".to_string() }),
             }),
-            blank_block("bb1", Term::Return),
+            blank_block("bb1", Term::Return { ret: None }),
         ]);
         let mut f = f;
         f.params = vec!["ptr".to_string()];

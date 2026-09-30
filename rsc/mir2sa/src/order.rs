@@ -87,7 +87,7 @@ mod order_tests {
         let blocks = vec![
             blk("bb0", Term::Goto { target: "bb2".to_string() }),
             blk("bb9", Term::Goto { target: "bb2".to_string() }),
-            blk("bb2", Term::Return),
+            blk("bb2", Term::Return { ret: None }),
         ];
         let order = rpo_order(&blocks);
         // Entry first, join after its reachable predecessor.
@@ -98,8 +98,8 @@ mod order_tests {
     #[test]
     fn rpo_unreachable_appended() {
         let blocks = vec![
-            blk("bb0", Term::Return),
-            blk("bb9", Term::Return),
+            blk("bb0", Term::Return { ret: None }),
+            blk("bb9", Term::Return { ret: None }),
         ];
         assert_eq!(rpo_order(&blocks), vec![0, 1]);
     }

@@ -88,6 +88,15 @@ fn classify(line: &str) -> LineUse {
         }
         return u;
     }
+    // `return <reg>` CONSUMES the reg (probe r4): it must not also be a
+    // free candidate, or the exit free double-releases it.
+    if let Some(rest) = s.strip_prefix("return ") {
+        let r = rest.trim();
+        if is_reg(r) {
+            u.move_srcs.push(r.to_string());
+        }
+        return u;
+    }
     if let Some(eq) = s.find(" = ") {
         let dest = s[..eq].trim();
         if is_reg(dest) {
@@ -271,9 +280,9 @@ mod drop_tests {
         // _a alloc'd, stored into (non-consuming), never freed -> freed.
         // _v stored (non-consuming) -> freed. _r returned... return line
         // itself is not a def; _r defined once, never moved -> freed too?
-        // (_r IS used by return — return is not tracked as a use, and our
-        // rule frees it; SA return-then-end needs no live regs. Probed OK
-        // pattern: return 0 with all freed is the documented clean shape.)
+        // (_r IS used by return — return CONSUMES the reg (probe r4: `return
+        // _r` needs no `!_r`, and `return 0` with a live _r leaks it, probe
+        // r5), so _r is not a free candidate.)
         let body = vec![lines(&[
             "_a = alloc 8",
             "store _a+0, 71 as u8",
@@ -284,7 +293,7 @@ mod drop_tests {
         let out = exit_frees(&body, &doms, 0);
         let frees = &out[&0];
         assert!(frees.contains(&"_a".to_string()), "{:?}", frees);
-        assert!(frees.contains(&"_r".to_string()), "{:?}", frees);
+        assert!(!frees.contains(&"_r".to_string()), "return consumes _r: {:?}", frees);
     }
 
     #[test]
@@ -328,8 +337,8 @@ mod drop_tests {
             std::collections::HashSet::from([0, 3]),
         ];
         let out = exit_frees(&body, &doms, 0);
-        let frees = &out[&3];
+        // No candidates left (return consumes _r) -> no entry at all.
+        let frees = out.get(&3).cloned().unwrap_or_default();
         assert!(!frees.contains(&"_x".to_string()), "{:?}", frees);
-        assert!(frees.contains(&"_r".to_string()), "{:?}", frees);
     }
 }

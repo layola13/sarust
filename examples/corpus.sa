@@ -165,6 +165,7 @@ L_bb4:
     _0_v3 = 0
     jmp L_bb10
 L_bb10:
+    // UNSUPPORTED return-value: version conflict at join (multiple reaching defs)
     !_sw_bb0
     !_sw_bb0_eq_0
     return 0
@@ -185,12 +186,11 @@ L_bb0:
     _0 = call @std_option_Option_i32_unwrap_or(_5, 0)
     jmp L_bb1
 L_bb1:
-    !_0
     !_1
     !_1_v0
     !_1_v1
     !_5
-    return 0
+    return _0
 
 @f_struct(_1: ptr) -> i32:
 L_bb0:
@@ -226,7 +226,6 @@ L_as_bb2_fail:
     panic(1502)
 L_bb3:
     _0 = 0
-    !_0
     !_1
     !_1_v0
     !_4
@@ -237,7 +236,7 @@ L_bb3:
     !_as_bb1_eq
     !_as_bb2
     !_as_bb2_eq
-    return 0
+    return _0
 
 @f_tuple(_1: ptr) -> u64:
 L_bb0:
@@ -377,7 +376,6 @@ L_bb7:
 L_bb8:
     // UNSUPPORTED const-value -> _0: version conflict at join (multiple reaching defs of _2)
     _0 = 0
-    !_0
     !_2_v0
     !_3
     !_4
@@ -385,7 +383,7 @@ L_bb8:
     !_7
     !_sw_bb1
     !_sw_bb1_eq_0
-    return 0
+    return _0
 
 @f_repeat() -> ptr:
 L_bb0:
@@ -554,7 +552,6 @@ L_bb24:
 L_bb25:
     // UNSUPPORTED const-value -> _0: version conflict at join (multiple reaching defs of _2)
     _0 = 0
-    !_0
     !_1
     !_12_v0
     !_14
@@ -575,7 +572,7 @@ L_bb25:
     !_sw_bb9_eq_0
     !_20
     !_5
-    return 0
+    return _0
 L_bb11:
     // UNSUPPORTED const-value -> _15: version conflict at join (multiple reaching defs of _12)
     _15 = 0
@@ -881,6 +878,7 @@ L_bb7:
     _0_v1 = _8
     jmp L_bb8
 L_bb8:
+    // UNSUPPORTED return-value: version conflict at join (multiple reaching defs)
     !_1
     !_2
     !_2_spill
@@ -1115,7 +1113,6 @@ L_bb10:
 L_bb7:
     // UNSUPPORTED const-value -> _0: version conflict at join (multiple reaching defs of _2)
     _0 = 0
-    !_0
     !_1
     !_2_v0
     !_4
@@ -1125,7 +1122,7 @@ L_bb7:
     !_sw_bb4
     !_sw_bb4_eq_0
     !_5
-    return 0
+    return _0
 
 @f_cast(_1: i64, _2: f64) -> i64:
 L_bb0:
@@ -1243,6 +1240,7 @@ L_bb3:
     jmp L_bb4
 L_bb4:
     // StorageDead _1
+    // UNSUPPORTED return-value: version conflict at join (multiple reaching defs)
     !_sw_bb1
     !_sw_bb1_eq_0
     return 0
@@ -1618,7 +1616,6 @@ L_bb12:
     jmp L_bb13
 L_bb13:
     _17_v3 = 0
-    !_0
     !_10
     !_14
     !_16_v0
@@ -1636,7 +1633,7 @@ L_bb13:
     !_9_v1
     !_as_bb9
     !_as_bb9_eq
-    return 0
+    return _0
 L_bb14:
     // cleanup drop _2 (omitted: main path owns the release)
     jmp L_bb19

@@ -40,7 +40,7 @@ pub struct Block {
 }
 
 pub fn default_return() -> Term {
-    Term::Return
+    Term::Return { ret: None }
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -139,7 +139,13 @@ pub const STR_INLINE_MAX: u64 = 64;
 #[serde(tag = "kind")]
 pub enum Term {
     Goto { target: String },
-    Return,
+    /// `ret` is the resolved return register (MIR returns through local `_0`,
+    /// renamed by `version.rs`); `None` when unresolved and
+    /// `__VERSION_CONFLICT__` when a join gives two reaching versions.
+    Return {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        ret: Option<String>,
+    },
     Resume,
     Call {
         func: String,

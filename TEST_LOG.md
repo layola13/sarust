@@ -174,3 +174,23 @@ targets 的 bug，Rust 版已修正；另 `(_4.0: T)` 投影归一到基 local�
 2. `&mut` Phase1 降级为 `&` + Referee（与 `sa_plugin_sla` 已知局限一致）。
 3. `alloc <数字>` 直接量与 `store` 元素类型写法待 `sa` 汇编器到货后做汇编级校验
    （当前以 `sci/sa_std/alloc/vec.sa` 现行写法为对齐依据）。
+4. rosetta 8 处 Slice-const Aggregate（字符串字面量 `Val(Slice{alloc…})`，
+   需 const-eval 提升 alloc 内容；driver const-table 后续工作）与
+   p_layout v2（v1 启发式按源码序排布，mixed-size struct/tuple 若被 rustc
+   重排则 pad 有差；rosetta 320 文件未发现反例，但理论缺口仍在）。
+
+## T10 rosetta 重跑（新驱动 + 新 mir2sa，T6 缺口关闭量化）
+
+- 方法：`sci/demos/rosetta` 331 个 `main.rs` → 新 `rsc_driver`
+  （nightly-1.101 c1070d693）直提（先 2021 edition，失败转 2024，与 T6
+  同口径）→ 新 mir2sa `coverage` 逐文件聚合。驱动 320/331 通过；11 个
+  驱动失败与 T6 已知分类一致（async 系、specialization/negative_impls/
+  TAIT/try_blocks、OUT_DIR 环境）。
+- 结果：同 320 文件、同 3781 stmts + 2794 terms = 6575 项，缺口
+  **141 → 9**（**97.9% → 99.9%**）：
+  - Aggregate-Adt ×130 → ×8（v1 启发式 + ZST 跳过关闭 122；剩余 8 个全含
+    `Val(Slice {alloc…})` 字符串字面量常量，保持大声）；
+  - SetDisc ×6 → 0；ThreadLocal ×4 → 0；InlineAsm ×1 → ×1（`117` 的
+    `/* native escape */` 非 mov 形，保持大声，正确）。
+- corpus 侧：`lower`/`coverage` 重跑仍 UNSUPPORTED=0 / 100.0%（锁定产物
+  字节一致）；`cargo test` 12/12（新增 `adt_zst_skipped`）。

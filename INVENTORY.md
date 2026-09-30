@@ -32,6 +32,8 @@
 | Aggregate 单元素 | ✅ | 直接赋值（exact） |
 | Aggregate 数组 `[T; N]` 全 Const | ✅ | `alloc` + `store`（sla/vec.sa 惯例） |
 | Aggregate struct/tuple/range/enum | ✅ | `alloc` + 逐字段 `store`（p_layout v1：sla tuple/struct ABI；Move 保持 `^` 可见；`dest = _agg_bbN`） |
+| Aggregate ZST 字段（PhantomData/Pinned） | ✅ | 占 0 字节，不发射 `store`（exact；全 ZST 则 `dest = 0`） |
+| Aggregate 含 Slice/alloc 常量 | 🔶 | 具名 + 计数，大声 UNSUPPORTED（需 const-eval 提升 alloc 内容；语料库零残留，rosetta 8 处） |
 | Repeat `[c; N]` u8/i8 Const | ✅ | `alloc` + `call @sa_mem_set` |
 | Repeat 其他 | 🔶 | 具名 + 计数（非常量元素需循环） |
 | RawPtr | ✅ | `*p // raw-ptr`（Referee: UnsafeBinder 语义） |

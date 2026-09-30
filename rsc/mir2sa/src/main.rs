@@ -364,14 +364,20 @@ fn const_elem_ty(value: &str) -> Option<(&'static str, usize)> {
 /// Layout mirrors `sa_plugin_sla` tuple/struct ABI (packed except 8-byte
 /// alignment). Move elements stay visible as `^p`; Const elements are
 /// decimalized; unknown-typed Moves/Copies default to 8-byte `u64` slots
-/// (sla `else => 8`). Returns SA lines bound to `dest`, or None.
+/// (sla `else => 8`). Zero-sized Consts (`Val(ZeroSized, …)`: PhantomData,
+/// PhantomPinned) occupy 0 bytes and emit no store (exact, per Rust layout).
+/// Returns SA lines bound to `dest`, or None.
 fn lower_adt_init(bid: &str, dest: &str, dest_place: &str, elems: &[Operand]) -> Option<Vec<String>> {
     if elems.len() < 2 {
         return None;
     }
-    let mut plans: Vec<(String, &'static str, usize)> = Vec::with_capacity(elems.len());
+    // (rendered | None for skipped ZST, sa_ty, size)
+    let mut plans: Vec<(Option<String>, &'static str, usize)> = Vec::with_capacity(elems.len());
     for e in elems {
         match e {
+            Operand::Const { value } if value.trim_start().starts_with("Val(ZeroSized") => {
+                plans.push((None, "u8", 0));
+            }
             Operand::Const { value } => {
                 let (ty, size) = const_elem_ty(value)?;
                 let rendered = match ty {
@@ -387,13 +393,13 @@ fn lower_adt_init(bid: &str, dest: &str, dest_place: &str, elems: &[Operand]) ->
                     }
                     _ => const_array_elem(value, ty, size)?,
                 };
-                plans.push((rendered, sa_scalar_ty(ty), size));
+                plans.push((Some(rendered), sa_scalar_ty(ty), size));
             }
             Operand::Move { place } => {
-                plans.push((format!("^{}", place), "u64", 8));
+                plans.push((Some(format!("^{}", place)), "u64", 8));
             }
             Operand::Copy { place } => {
-                plans.push((place.clone(), "u64", 8));
+                plans.push((Some(place.clone()), "u64", 8));
             }
         }
     }
@@ -404,14 +410,23 @@ fn lower_adt_init(bid: &str, dest: &str, dest_place: &str, elems: &[Operand]) ->
         offsets.push(off);
         off += *size;
     }
-    let total = off.max(1);
+    if off == 0 {
+        // All fields zero-sized: no storage, bind a null marker (exact).
+        return Some(vec![
+            format!("// aggregate Adt init @ {} (all fields zero-sized)", dest_place.trim()),
+            format!("{} = 0 // zero-size Adt", dest),
+        ]);
+    }
+    let total = off;
     let base = format!("_agg_{}", bid);
     let mut lines = vec![
         format!("// aggregate Adt init @ {} (p_layout v1: sla tuple/struct ABI)", dest_place.trim()),
         format!("{} = alloc {}", base, total),
     ];
     for (i, (rendered, sa_ty, _)) in plans.iter().enumerate() {
-        lines.push(format!("store {}+{}, {} as {}", base, offsets[i], rendered, sa_ty));
+        if let Some(v) = rendered {
+            lines.push(format!("store {}+{}, {} as {}", base, offsets[i], v, sa_ty));
+        }
     }
     lines.push(format!("{} = {}", dest, base));
     Some(lines)
@@ -1396,7 +1411,8 @@ mod tests {
     }
 
     #[test]
-    fn adt_generic_two_moves() {        // f_generic bb2: (Move _2, Move _4) -> two pointer slots, moves visible.
+    fn adt_generic_two_moves() {
+        // f_generic bb2: (Move _2, Move _4) -> two pointer slots, moves visible.
         let elems = vec![
             Operand::Move { place: "_2".to_string() },
             Operand::Move { place: "_4".to_string() },
@@ -1408,7 +1424,8 @@ mod tests {
     }
 
     #[test]
-    fn thread_local_registry_call() {        // ThreadLocal rvalue -> registry call with stable FNV-1a key, no UNSUPPORTED.
+    fn thread_local_registry_call() {
+        // ThreadLocal rvalue -> registry call with stable FNV-1a key, no UNSUPPORTED.
         let def = "TLS_N::{constant#0}::{closure#0}::__RUST_STD_INTERNAL_VAL";
         assert_eq!(tls_key(def), tls_key(def));
         assert_ne!(tls_key(def), tls_key("TLS_N::{constant#0}::{closure#1}::__RUST_STD_INTERNAL_VAL"));
@@ -1458,5 +1475,18 @@ mod tests {
         assert!(asm_mov(Some("mov {0}, {1}"), Some(""), true, &["_2"], &ins).is_none());
         assert!(asm_mov(Some("mov {0}, {1}"), Some(""), false, &["_proj"], &ins).is_none());
         assert!(asm_mov(Some("mov {0}, {1}"), Some(""), false, &["_2", "_3"], &ins).is_none());
+    }
+
+    #[test]
+    fn adt_zst_skipped() {
+        // (8_i32, PhantomPinned): ZST occupies 0 bytes, emits no store.
+        let elems = vec![
+            c("Val(Scalar(0x00000008), i32)"),
+            c("Val(ZeroSized, std::marker::PhantomPinned)"),
+        ];
+        let lines = lower_adt_init("bb0", "_2", "_2", &elems).expect("zst pair must lower");
+        assert_eq!(lines[1], "_agg_bb0 = alloc 4");
+        assert_eq!(lines[2], "store _agg_bb0+0, 8 as i32");
+        assert_eq!(lines[3], "_2 = _agg_bb0");
     }
 }

@@ -1,4 +1,4 @@
-fn f_match: blocks=11 stmts+terms=30 unsupported=0
+fn f_match: blocks=11 stmts+terms=30 unsupported=4
        2 Assign/BinOp/AddWithOverflow
        1 Assign/BinOp/Gt
        1 Assign/BinOp/SubWithOverflow
@@ -10,19 +10,31 @@ fn f_match: blocks=11 stmts+terms=30 unsupported=0
        1 T/Return
        2 T/SwitchInt
        1 T/Unreachable
-fn f_opt_mutate: blocks=2 stmts+terms=9 unsupported=0
+    ?? bb2:_10 BinOp/Gt()
+    ?? bb3:_5 BinOp/AddWithOverflow()
+    ?? bb6:_13 BinOp/SubWithOverflow()
+    ?? bb7:_16 BinOp/AddWithOverflow()
+fn f_opt_mutate: blocks=2 stmts+terms=9 unsupported=3
        3 Assign/Aggregate
        4 Assign/Use
        1 T/Call
        1 T/Return
-fn f_struct: blocks=4 stmts+terms=12 unsupported=0
+    ?? bb0:_1 Rebind
+    ?? bb0:_1 Rebind
+    ?? bb0:_1 Rebind
+fn f_struct: blocks=4 stmts+terms=12 unsupported=5
        1 Assign/BinOp/AddWithOverflow
        1 Assign/BinOp/MulWithOverflow
        1 Assign/BinOp/SubWithOverflow
        5 Assign/Use
        3 T/Assert
        1 T/Return
-fn f_tuple: blocks=7 stmts+terms=16 unsupported=0
+    ?? bb0:_2 BinOp/AddWithOverflow()
+    ?? bb1:_1 Rebind
+    ?? bb1:_3 BinOp/MulWithOverflow()
+    ?? bb2:_1 Rebind
+    ?? bb2:_6 BinOp/SubWithOverflow()
+fn f_tuple: blocks=7 stmts+terms=16 unsupported=2
        2 Assign/BinOp/AddWithOverflow
        2 Assign/Cast
        1 Assign/Ref
@@ -32,7 +44,9 @@ fn f_tuple: blocks=7 stmts+terms=16 unsupported=0
        2 T/Drop
        1 T/Resume
        1 T/Return
-fn f_slice: blocks=9 stmts+terms=31 unsupported=0
+    ?? bb1:_7 BinOp/AddWithOverflow()
+    ?? bb2:_10 BinOp/AddWithOverflow()
+fn f_slice: blocks=9 stmts+terms=31 unsupported=12
        3 Assign/BinOp/AddWithOverflow
        3 Assign/BinOp/Lt
        2 Assign/RawPtr
@@ -43,6 +57,18 @@ fn f_slice: blocks=9 stmts+terms=31 unsupported=0
        2 T/Goto
        1 T/Return
        1 T/SwitchInt
+    ?? bb0:_3 UnOp/PtrMetadata()
+    ?? bb1:_6 BinOp/Lt()
+    ?? bb2:_10 UnOp/PtrMetadata()
+    ?? bb2:_11 BinOp/Lt()
+    ?? bb3:_12 BinOp/AddWithOverflow()
+    ?? bb4:_1 Rebind
+    ?? bb4:_16 UnOp/PtrMetadata()
+    ?? bb4:_17 BinOp/Lt()
+    ?? bb5:_18 BinOp/AddWithOverflow()
+    ?? bb6:_2 Rebind
+    ?? bb6:_19 BinOp/AddWithOverflow()
+    ?? bb7:_5 Rebind
 fn f_repeat: blocks=1 stmts+terms=2 unsupported=0
        1 Assign/Repeat
        1 T/Return
@@ -52,7 +78,7 @@ fn {constant#0}: blocks=1 stmts+terms=2 unsupported=0
 fn {constant#1}: blocks=1 stmts+terms=2 unsupported=0
        1 Assign/Use
        1 T/Return
-fn f_loops: blocks=26 stmts+terms=58 unsupported=0
+fn f_loops: blocks=26 stmts+terms=58 unsupported=11
        2 Assign/Aggregate
        5 Assign/BinOp/AddWithOverflow
        1 Assign/BinOp/Ge
@@ -66,6 +92,17 @@ fn f_loops: blocks=26 stmts+terms=58 unsupported=0
        1 T/Return
        5 T/SwitchInt
        1 T/Unreachable
+    ?? bb6:_11 BinOp/AddWithOverflow()
+    ?? bb8:_2 Rebind
+    ?? bb9:_13 BinOp/Ge()
+    ?? bb11:_16 BinOp/AddWithOverflow()
+    ?? bb12:_2 Rebind
+    ?? bb12:_17 BinOp/AddWithOverflow()
+    ?? bb13:_12 Rebind
+    ?? bb21:_34 BinOp/AddWithOverflow()
+    ?? bb22:_32 BinOp/Gt()
+    ?? bb23:_35 BinOp/AddWithOverflow()
+    ?? bb24:_2 Rebind
 fn f_closure: blocks=10 stmts+terms=21 unsupported=0
        4 Assign/Aggregate
        5 Assign/Ref
@@ -74,16 +111,19 @@ fn f_closure: blocks=10 stmts+terms=21 unsupported=0
        1 T/Drop
        1 T/Resume
        1 T/Return
-fn {closure#0}: blocks=2 stmts+terms=6 unsupported=0
+fn {closure#0}: blocks=2 stmts+terms=6 unsupported=1
        1 Assign/BinOp/AddWithOverflow
        3 Assign/Use
        1 T/Assert
        1 T/Return
-fn {closure#1}: blocks=2 stmts+terms=5 unsupported=0
+    ?? bb0:_4 BinOp/AddWithOverflow()
+fn {closure#1}: blocks=2 stmts+terms=5 unsupported=2
        1 Assign/BinOp/AddWithOverflow
        2 Assign/Use
        1 T/Assert
        1 T/Return
+    ?? bb0:_3 BinOp/AddWithOverflow()
+    ?? bb1:_1 Rebind
 fn f_generic: blocks=7 stmts+terms=9 unsupported=0
        1 Assign/Aggregate
        1 Assign/Ref
@@ -91,12 +131,14 @@ fn f_generic: blocks=7 stmts+terms=9 unsupported=0
        3 T/Drop
        1 T/Resume
        1 T/Return
-fn shout: blocks=2 stmts+terms=2 unsupported=0
+fn shout: blocks=2 stmts+terms=2 unsupported=1
        1 T/Call
        1 T/Return
-fn shout: blocks=2 stmts+terms=2 unsupported=0
+    ?? bb0: T/CallConstValue
+fn shout: blocks=2 stmts+terms=2 unsupported=1
        1 T/Call
        1 T/Return
+    ?? bb0: T/CallConstValue
 fn f_dyn: blocks=6 stmts+terms=7 unsupported=0
        1 Assign/Ref
        2 T/Call
@@ -109,7 +151,7 @@ fn f_static_dispatch: blocks=8 stmts+terms=10 unsupported=0
        4 T/Drop
        1 T/Resume
        1 T/Return
-fn f_parse: blocks=9 stmts+terms=15 unsupported=0
+fn f_parse: blocks=9 stmts+terms=15 unsupported=1
        1 Assign/Aggregate
        1 Assign/BinOp/MulWithOverflow
        1 Assign/Discriminant
@@ -120,10 +162,12 @@ fn f_parse: blocks=9 stmts+terms=15 unsupported=0
        1 T/Return
        1 T/SwitchInt
        1 T/Unreachable
-fn {closure#0}: blocks=2 stmts+terms=2 unsupported=0
+    ?? bb5:_9 BinOp/MulWithOverflow()
+fn {closure#0}: blocks=2 stmts+terms=2 unsupported=1
        1 T/Call
        1 T/Return
-fn f_box: blocks=10 stmts+terms=22 unsupported=0
+    ?? bb0: T/CallConstValue
+fn f_box: blocks=10 stmts+terms=22 unsupported=1
        2 Assign/BinOp/BitAnd
        2 Assign/BinOp/Eq
        1 Assign/BinOp/Sub
@@ -135,7 +179,8 @@ fn f_box: blocks=10 stmts+terms=22 unsupported=0
        2 T/Drop
        1 T/Resume
        1 T/Return
-fn f_rc: blocks=14 stmts+terms=19 unsupported=0
+    ?? bb1:_9 BinOp/Sub()
+fn f_rc: blocks=14 stmts+terms=19 unsupported=1
        1 Assign/BinOp/AddWithOverflow
        3 Assign/Ref
        1 Assign/Use
@@ -144,7 +189,8 @@ fn f_rc: blocks=14 stmts+terms=19 unsupported=0
        4 T/Drop
        1 T/Resume
        1 T/Return
-fn f_str: blocks=11 stmts+terms=20 unsupported=0
+    ?? bb7:_12 BinOp/AddWithOverflow()
+fn f_str: blocks=11 stmts+terms=20 unsupported=2
        1 Assign/BinOp/AddWithOverflow
        1 Assign/Discriminant
        2 Assign/Ref
@@ -155,7 +201,9 @@ fn f_str: blocks=11 stmts+terms=20 unsupported=0
        1 T/Return
        2 T/SwitchInt
        1 T/Unreachable
-fn f_cast: blocks=3 stmts+terms=19 unsupported=0
+    ?? bb9:_12 BinOp/AddWithOverflow()
+    ?? bb10:_2 Rebind
+fn f_cast: blocks=3 stmts+terms=19 unsupported=3
        1 Assign/BinOp/BitAnd
        2 Assign/BinOp/BitOr
        1 Assign/BinOp/BitXor
@@ -165,15 +213,19 @@ fn f_cast: blocks=3 stmts+terms=19 unsupported=0
        8 Assign/Cast
        2 T/Assert
        1 T/Return
-fn TLS_N: blocks=2 stmts+terms=3 unsupported=0
+    ?? bb0:_12 BinOp/Lt()
+    ?? bb1:_17 BinOp/Lt()
+    ?? bb2:_14 BinOp/Shr()
+fn TLS_N: blocks=2 stmts+terms=3 unsupported=1
        1 Nop
        1 T/Call
        1 T/Return
+    ?? bb0: T/CallConstValue
 fn __RUST_STD_INTERNAL_INIT: blocks=2 stmts+terms=3 unsupported=0
        1 Nop
        1 T/Call
        1 T/Return
-fn {constant#0}: blocks=5 stmts+terms=16 unsupported=0
+fn {constant#0}: blocks=5 stmts+terms=16 unsupported=2
        2 Assign/Aggregate
        2 Assign/Cast
        1 Nop
@@ -183,32 +235,38 @@ fn {constant#0}: blocks=5 stmts+terms=16 unsupported=0
        2 T/Goto
        1 T/Return
        1 T/SwitchInt
+    ?? bb2:_0 Cast()
+    ?? bb3:_0 Cast()
 fn {closure#0}: blocks=2 stmts+terms=3 unsupported=0
        1 Assign/ThreadLocal
        1 T/Call
        1 T/Return
-fn __RUST_STD_INTERNAL_VAL: blocks=2 stmts+terms=3 unsupported=0
+fn __RUST_STD_INTERNAL_VAL: blocks=2 stmts+terms=3 unsupported=1
        1 Nop
        1 T/Call
        1 T/Return
+    ?? bb0: T/CallConstValue
 fn {closure#1}: blocks=1 stmts+terms=3 unsupported=0
        1 Assign/RawPtr
        1 Assign/ThreadLocal
        1 T/Return
-fn __RUST_STD_INTERNAL_VAL: blocks=1 stmts+terms=2 unsupported=0
+fn __RUST_STD_INTERNAL_VAL: blocks=1 stmts+terms=2 unsupported=1
        1 Assign/Use
        1 T/Return
-fn f_tls: blocks=2 stmts+terms=3 unsupported=0
+    ?? bb0:_0 Use()
+fn f_tls: blocks=2 stmts+terms=3 unsupported=1
        1 Assign/Use
        1 T/Call
        1 T/Return
-fn {closure#0}: blocks=5 stmts+terms=7 unsupported=0
+    ?? bb0:_1 Use()
+fn {closure#0}: blocks=5 stmts+terms=7 unsupported=1
        1 Assign/BinOp/AddWithOverflow
        1 Assign/Use
        1 T/Assert
        3 T/Call
        1 T/Return
-fn f_raw: blocks=6 stmts+terms=34 unsupported=0
+    ?? bb1:_6 BinOp/AddWithOverflow()
+fn f_raw: blocks=6 stmts+terms=34 unsupported=5
        1 Assign/BinOp/AddWithOverflow
        4 Assign/BinOp/BitAnd
        4 Assign/BinOp/Eq
@@ -220,11 +278,16 @@ fn f_raw: blocks=6 stmts+terms=34 unsupported=0
        3 Assign/Use
        5 T/Assert
        1 T/Return
+    ?? bb0:_14 BinOp/Sub()
+    ?? bb2:_25 BinOp/Ne()
+    ?? bb3:_19 BinOp/Ne()
+    ?? bb4:_9 BinOp/Sub()
+    ?? bb5:_6 BinOp/AddWithOverflow()
 fn f_asm: blocks=2 stmts+terms=3 unsupported=0
        1 Assign/Use
        1 T/InlineAsm
        1 T/Return
-fn f_underscore: blocks=9 stmts+terms=24 unsupported=0
+fn f_underscore: blocks=9 stmts+terms=24 unsupported=2
        2 Assign/BinOp/BitAnd
        2 Assign/BinOp/Eq
        1 Assign/BinOp/Ne
@@ -238,7 +301,9 @@ fn f_underscore: blocks=9 stmts+terms=24 unsupported=0
        3 T/Drop
        1 T/Resume
        1 T/Return
-fn f_thread_map: blocks=20 stmts+terms=34 unsupported=0
+    ?? bb2:_9 BinOp/Sub()
+    ?? bb7:_14 BinOp/Ne()
+fn f_thread_map: blocks=20 stmts+terms=34 unsupported=10
        1 Assign/BinOp/AddWithOverflow
        3 Assign/Ref
       10 Assign/Use
@@ -248,15 +313,26 @@ fn f_thread_map: blocks=20 stmts+terms=34 unsupported=0
        1 T/Resume
        1 T/Return
        2 T/SwitchInt
-fn {closure#0}: blocks=2 stmts+terms=4 unsupported=0
+    ?? bb0:_17 Rebind
+    ?? bb2: T/CallConstValue
+    ?? bb3:_16 Rebind
+    ?? bb3:_17 Rebind
+    ?? bb5:_16 Rebind
+    ?? bb6:_16 Rebind
+    ?? bb6: T/CallConstValue
+    ?? bb9:_13 BinOp/AddWithOverflow()
+    ?? bb10:_9 Rebind
+    ?? bb13:_17 Rebind
+fn {closure#0}: blocks=2 stmts+terms=4 unsupported=1
        1 Assign/BinOp/AddWithOverflow
        1 Assign/Use
        1 T/Assert
        1 T/Return
+    ?? bb0:_2 BinOp/AddWithOverflow()
 fn f_async: blocks=1 stmts+terms=2 unsupported=0
        1 Assign/Aggregate
        1 T/Return
-fn {closure#0}: blocks=8 stmts+terms=20 unsupported=0
+fn {closure#0}: blocks=8 stmts+terms=20 unsupported=2
        2 Assign/Aggregate
        1 Assign/BinOp/AddWithOverflow
        1 Assign/BinOp/MulWithOverflow
@@ -269,7 +345,9 @@ fn {closure#0}: blocks=8 stmts+terms=20 unsupported=0
        1 T/Return
        1 T/SwitchInt
        1 T/Unreachable
-fn main: blocks=97 stmts+terms=260 unsupported=0
+    ?? bb1:_6 BinOp/MulWithOverflow()
+    ?? bb7:_5 BinOp/AddWithOverflow()
+fn main: blocks=97 stmts+terms=260 unsupported=37
       47 Assign/Aggregate
        4 Assign/BinOp/BitAnd
        4 Assign/BinOp/Eq
@@ -284,4 +362,41 @@ fn main: blocks=97 stmts+terms=260 unsupported=0
        4 T/Drop
        1 T/Resume
        1 T/Return
-TOTAL stmts=428 terms=317 unsupported=0 coverage=100.0%
+    ?? bb2:_9 Use()
+    ?? bb6:_20 Use()
+    ?? bb10:_30 Use()
+    ?? bb12: T/CallConstValue
+    ?? bb15:_41 Use()
+    ?? bb17:_48 Cast()
+    ?? bb19:_53 Use()
+    ?? bb23:_62 Use()
+    ?? bb25:_70 Use()
+    ?? bb25:_69 Cast()
+    ?? bb27:_73 Use()
+    ?? bb30:_234 BinOp/Sub()
+    ?? bb33:_84 Use()
+    ?? bb37:_93 Use()
+    ?? bb37:_92 Cast()
+    ?? bb39:_96 Use()
+    ?? bb43:_105 Use()
+    ?? bb45:_112 Use()
+    ?? bb47:_115 Use()
+    ?? bb51:_229 BinOp/Sub()
+    ?? bb54:_126 Use()
+    ?? bb56:_133 Use()
+    ?? bb58:_136 Use()
+    ?? bb60:_143 Use()
+    ?? bb62:_146 Use()
+    ?? bb64: T/CallConstValue
+    ?? bb66:_155 Use()
+    ?? bb70:_164 Use()
+    ?? bb74:_175 Use()
+    ?? bb78:_184 Use()
+    ?? bb80: T/CallConstValue
+    ?? bb83:_194 Use()
+    ?? bb87:_203 Use()
+    ?? bb93:_245 BinOp/Ne()
+    ?? bb94:_239 BinOp/Ne()
+    ?? bb95:_225 Rebind
+    ?? bb96:_226 Rebind
+TOTAL stmts=428 terms=317 unsupported=115 coverage=84.6%

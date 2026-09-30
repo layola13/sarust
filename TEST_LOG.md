@@ -1,10 +1,13 @@
 # sa_plugin_rsc 验证记录 (2026-09-30, 容器实跑, 100% Rust / 0 Python)
 
 > 全支持路线：`INVENTORY.md` 为总表；语料库 `corpus/`（24 fns + closures +
-> consts + statics）`mir2sa coverage` **100.0%**（零缺口），demo 工程
-> `--strict` 全绿
-> （`UNSUPPORTED=0`）。落法已对齐 `sa_plugin_sla`（`@extern` 闭包、`&`/`^`
-> 前缀、`!` 释放、`alloc`+`store` 数组/Adt、`sa_mem_set` 复写）。
+> consts + statics）`mir2sa coverage` **84.6%**（115 具名缺口；T14 起以
+> `sa check` 为准绳，见 T14）。验收集：sci 321 文件（6587 项，825 缺口）+
+> sla 298 文件（9432 项，1959 缺口）。三集 parse-trap 归零（逐函数普查），
+> 剩余 trap 全部 Referee 层（下一阶段）。
+> 落法已对齐 `sa_plugin_sla`（`@extern` 闭包、`&` 前缀、`!` 释放、
+> `alloc`+`store` 数组/Adt、`sa_mem_set` 复写；`^` 仅合法于 call 实参，
+> 赋值位裸写）。
 
 > Python 原型已全部删除（`tools/*.py`、`src/main.rs` 占位），现任实现：
 > `rsc/driver/driver.rs`（rustc_private 真劫持）+ `rsc/mir2sa`（纯 Rust
@@ -78,17 +81,21 @@ targets 的 bug，Rust 版已修正；另 `(_4.0: T)` 投影归一到基 local�
 - 未知 stmt kind → `bad mir.json: unknown variant …`，`RC=2`。
 - `--strict` 下有 UNSUPPORTED → `RC=1`。
 - `hi.mir.json → hi.sa`：`UNSUPPORTED=0`。
-- `cargo test` 20/20：`scalar_hex_driver_form`、`const_elem_both_forms`、
+- `cargo test` 30：`scalar_hex_driver_form`、`const_elem_both_forms`、
   `array_init_bb30_shape`（array-init 回归锁）、`repeat_forms`（repeat lowering 锁）、
   `adt_range_two_i32`（Range 2×i32）、`adt_mixed_move_const_bool`（move 混排对齐）、
   `adt_generic_two_moves`（泛型元组双 move 可见）、
   `thread_local_registry_call`（FNV-1a 键稳定 + 注册表调用形状）、
-  `asm_mov_copy_exact` / `asm_mov_keeps_move_visible` /
-  `asm_non_mov_stays_loud`（asm 精确门控三锁）、`adt_zst_skipped`、
+  `asm_mov_copy_exact` / `asm_mov_plain_copy` / `asm_non_mov_stays_loud`、
+  `asm_inout_passthrough_117` / `asm_inout_split_places` /
+  `asm_inout_non_passthrough_stays_loud`（asm 六锁）、`adt_zst_skipped`、
   `adt_v2_reordered_tuple` / `adt_v2_enum_payload_absolute` /
   `adt_v2_arity_mismatch_falls_back`（v2 三锁）、`adt_str_lit_fat_ptr` /
-  `adt_str_lit_gates`（str 内联两锁）、`asm_inout_passthrough_117` /
-  `asm_inout_split_places` / `asm_inout_non_passthrough_stays_loud`（inout 三锁）。
+  `adt_str_lit_gates`（str 内联两锁）、`sa_ident_sanitizes` /
+  `switchint_chain_shape` / `assert_shape` / `unreachable_becomes_panic` /
+  `typed_header_and_extern` / `cast_copy_vs_convert`（形状六锁）、
+  `rpo_loop_back_edge` / `rpo_diamond` / `rpo_unreachable_appended` /
+  `dom_seeds_diamond`（order 四锁，`order.rs` 内）。
 
 ## T7 p_layout v1（本轮：sala/sla 对齐的通用 Adt 落法）
 
@@ -176,8 +183,8 @@ targets 的 bug，Rust 版已修正；另 `(_4.0: T)` 投影归一到基 local�
 
 1. `cargo build rsc_driver` 不可行（cargo 不解析 sysroot crate），固定走 `build.sh`。
 2. `&mut` Phase1 降级为 `&` + Referee（与 `sa_plugin_sla` 已知局限一致）。
-3. `alloc <数字>` 直接量与 `store` 元素类型写法待 `sa` 汇编器到货后做汇编级校验
-   （当前以 `sci/sa_std/alloc/vec.sa` 现行写法为对齐依据）。
+3. 发射形状汇编级校验已落地（T14）；剩余为 Referee 层程序（仿射/借用/泄漏，
+   T14 已计数）与值层缺口（INVENTORY 表）。
 4. 两仓官方拒收 demo（T13 已逐项定性：外部 crate / 未完成 nightly 特性 /
    方言示意 / 缺构建产物）：输入在 rustc 即无 MIR，属管线射程之外；
    其中可 cargo 化的（tokio 系）待 `rsc build` 工程模式立项。
@@ -267,4 +274,42 @@ targets 的 bug，Rust 版已修正；另 `(_4.0: T)` 投影归一到基 local�
   - 缺构建产物：sla/195（无 shipped generated.rs）；
   - 无 main.rs：sla/314/315（纯 `.sla`，无 Rust 输入）。
 - backlog 更新：corpus/rosetta 两仓零缺口后，剩余 p_layout v2 已落地；
-  通用未竟：`sa` 汇编级校验（缺口 #3）、`&mut` Phase2（sla 触发）。
+  通用未竟：`sa` 汇编级校验（缺口 #3，已立项为 T14）、`&mut` Phase2（sla 触发）。
+
+## T14 asm_verify（本轮：以 `sa check` 为准绳，发射形状全过汇编器）
+
+- 动机：T13 的零缺口是 MIR-kind 口径；发射行从未经汇编器，属未验证宣称。
+  方法：sala 03/04/08 章 + 探针二分（`sa check` 微文件）定合法形状 →
+  逐函数 `sa check` 普查 → 修发射端 → 复测。判据分层：parse 类 trap
+  （ForbiddenSyntax/UnknownRegister/CapabilityMismatch/IllegalUnsafeContext/
+  UnsupportedType）必须归零；Referee 类（UseAfterMove/MemoryLeak/
+  BorrowConflict/PhiStateConflict/RegisterRedefinition）属仿射/生命周期
+  程序，计数移交 backlog。
+- 分模块（AGENTS.md 规则落地）：`mir2sa/src/main.rs` 2126 行 →
+  mir/parse/render/render_util/layout/asm/cast→asm/const_util/order/lower +
+  main（最大逻辑文件 417 行）；`driver.rs` 815 行 → util/place/tyinfo/
+  emit + driver（最大 468 行）。拆分前后构建 + corpus 产物字节一致。
+- 形状修正（探针验证，每项皆有 `sa check` OK 证据）：
+  - 标签 `bbN:` 非法 → `L_bbN`（RPO 排放序保文本先定义后使用；asm 补显式 `jmp`）；
+  - `br x == v` 非法 → `eq`+双目标 br 链（`eq` 非消费，复用安全）；
+  - `assert c` 非法 → `eq`+`br`+数字 `panic`（复用 sa_core ASSERT_EQ 形；`expected` 由 driver 下发）；
+  - `@{closure#0}` 非法 → `sa_ident` 清洗（定义与调用点同函数）；
+  - `_x = ^_y` 赋值位非法（`=` 本身即 move）→ 裸写，`^` 仅留 call 实参（后证实与 plain-param 声明 mismatch，亦改裸写；`^` 仅存于 store 值位）；
+  - 行尾 `//` 非法 → 注释全部整行化（含外部文本 `flat_comment` 展平）；
+  - `discriminant()`/`*p`/call 形 BinOp 非法 → `load +0`/`plain copy`/小写助记符；
+  - `eq ^x` 非法 → Move 先绑临时；`_x = Val(..)` → 十进制化（顺手修 `false` 字面量泄漏）；
+  - `unreachable` 终结函数文本 → 改 `panic(16xx)`（含 diverging call）；
+  - 调用须类型化 `@extern`（无参声明调有参必 CapabilityMismatch）→ driver 下发函数签名 + callee sig（`Val(ZeroSized, FnDef)` 形取证），`void` 调用裸写；
+  - `_proj` 占位（双括号投影漏网）→ `p.local` 精确取基（全集零残留）；
+  - `alloc 32`/`store +0`/`_N` 命名经探针合法，无需改动。
+- 诚实计数（lower/coverage 双镜像，同函数判定）：overflow-元组/符号比较/
+  Unsize 转换/不可判定常量（Unevaluated/byte-ref/call 实参）/无 sig 调用/
+  重绑定（支配集种子，`order::dom_seeds`）/128 位签名，一律大声 + 占位续行。
+- 实测：corpus 115 缺口（84.6%，分类见 INVENTORY）；sci 825/6587；sla
+  1959/9432。三集 parse-trap 归零（corpus 逐函数 40/40，rosetta 619 整文件）；
+  Referee 层：corpus（UAM 11/Leak 10/Borrow 5/Phi 2）+ sci（Leak 185/UAM 103/
+  Phi 20/Borrow 9）+ sla（Phi 114/UAM 108/Leak 60/Borrow 12）+ 9 个全绿文件；
+  `cargo test` 30/30。
+- backlog（具名程序）：const-eval（Unevaluated/byte-ref 38+10）、溢出元组解构（27）、
+  SSA 版本改写（Rebind 23）、调用实参提升（10）、driver 符号性（9）、fat-meta（3）、
+  Unsize（5）、Referee Drop 胶水（仿射全集）。

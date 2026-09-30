@@ -1,359 +1,442 @@
 @import "sa_std/io/print.sai"
 
 // MIR callees (map to sci/sa_std per STD_MAP.md):
-@extern T_as_Shout_shout()
-@extern T_as_std_clone_Clone_clone()
-@extern T_as_std_default_Default_default()
-@extern closure_content_sa_all_sarust_corpus_src_main_rs_93_20_93_33_as_std_ops_FnMut_i3()
-@extern core_fmt_rt_Argument___new_debug_std_result_Result_i32_std_string_String()
-@extern core_fmt_rt_Argument___new_debug_std_vec_Vec_i32()
-@extern core_fmt_rt_Argument___new_debug_u8_8()
-@extern core_fmt_rt_Argument___new_display_i32()
-@extern core_fmt_rt_Argument___new_display_i64()
-@extern core_fmt_rt_Argument___new_display_u32()
-@extern core_fmt_rt_Argument___new_display_u64()
-@extern core_fmt_rt_Argument___new_display_usize()
-@extern core_slice_impl_i32_iter()
-@extern core_str_impl_str_chars()
-@extern core_str_impl_str_parse_i32()
-@extern dyn_Shout_as_Shout_shout()
-@extern f_asm()
-@extern f_box()
-@extern f_cast()
-@extern f_closure()
-@extern f_dyn()
-@extern f_generic_i32()
-@extern f_loops()
-@extern f_match()
-@extern f_opt_mutate()
-@extern f_parse()
-@extern f_raw()
-@extern f_rc()
-@extern f_repeat()
-@extern f_slice()
-@extern f_static_dispatch_Dog()
-@extern f_str()
-@extern f_struct()
-@extern f_thread_map()
-@extern f_tls()
-@extern f_tuple()
-@extern f_underscore()
-@extern sa_mem_set()
-@extern sa_thread_local_slot()
-@extern std_boxed_Box_i32_1_new_uninit()
-@extern std_boxed_Box_i32_2_new_uninit()
-@extern std_boxed_Box_i32_new()
-@extern std_boxed_Box_std_vec_Vec_i32_new()
-@extern std_boxed_box_assume_init_into_vec_unsafe_i32_1()
-@extern std_boxed_box_assume_init_into_vec_unsafe_i32_2()
-@extern std_cell_Cell_u32_get()
-@extern std_cell_Cell_u32_new()
-@extern std_cell_Cell_u32_set()
-@extern std_char_methods_impl_char_is_ascii_alphabetic()
-@extern std_collections_HashMap_std_string_String_usize_entry()
-@extern std_collections_HashMap_std_string_String_usize_insert()
-@extern std_collections_HashMap_std_string_String_usize_new()
-@extern std_collections_HashMap_std_string_String_usize_values()
-@extern std_collections_hash_map_Entry___std_string_String_usize_or_insert()
-@extern std_collections_hash_map_Values___std_string_String_usize_as_std_iter_Iterator_s()
-@extern std_fmt_Arguments___new_4_1()
-@extern std_io__print()
-@extern std_iter_Map_std_vec_IntoIter_i32_closure_content_sa_all_sarust_corpus_src_main_()
-@extern std_mem_needs_drop_std_cell_Cell_u32()
-@extern std_ops_Range_i32_as_std_iter_IntoIterator_into_iter()
-@extern std_ops_Range_i32_as_std_iter_Iterator_next()
-@extern std_option_Option_i32_unwrap_or()
-@extern std_rc_Rc_std_string_String_as_std_clone_Clone_clone()
-@extern std_rc_Rc_std_string_String_as_std_ops_Deref_deref()
-@extern std_rc_Rc_std_string_String_new()
-@extern std_result_Result_i32_std_num_ParseIntError_map_err_std_string_String_closure_co()
-@extern std_result_Result_i32_std_string_String_as_std_ops_FromResidual_std_result_Resul()
-@extern std_result_Result_i32_std_string_String_as_std_ops_Try_branch()
-@extern std_result_Result_usize_std_boxed_Box_dyn_std_any_Any_std_marker_Send_unwrap()
-@extern std_slice_Iter___i32_as_std_iter_IntoIterator_into_iter()
-@extern std_slice_Iter___i32_as_std_iter_Iterator_next()
-@extern std_slice_Iter___i32_as_std_iter_Iterator_sum_i32()
-@extern std_str_Chars___as_std_iter_IntoIterator_into_iter()
-@extern std_str_Chars___as_std_iter_Iterator_next()
-@extern std_string_String_as_std_convert_From_str_from()
-@extern std_string_String_len()
-@extern std_thread_JoinHandle_usize_join()
-@extern std_thread_LocalKey_std_cell_Cell_u32_new()
-@extern std_thread_LocalKey_std_cell_Cell_u32_with_closure_content_sa_all_sarust_corpus_()
-@extern std_thread_local_impl_EagerStorage_std_cell_Cell_u32_get()
-@extern std_thread_local_impl_EagerStorage_std_cell_Cell_u32_new()
-@extern std_thread_spawn_closure_content_sa_all_sarust_corpus_src_main_rs_205_32_205_34_()
-@extern std_vec_IntoIter_i32_as_std_iter_Iterator_map_i32_closure_content_sa_all_sarust_()
-@extern std_vec_Vec_i32_as_std_iter_IntoIterator_into_iter()
-@extern std_vec_Vec_i32_as_std_ops_Deref_deref()
-@extern std_vec_Vec_i32_push()
+@extern T_as_Shout_shout(_a0: ptr) -> ptr
+@extern T_as_std_clone_Clone_clone(_a0: ptr) -> ptr
+@extern T_as_std_default_Default_default() -> ptr
+@extern closure_content_sa_all_sarust_corpus_src_main_rs_93_20_93_33_as_std_ops_FnMut_i3(_a0: ptr, _a1: ptr) -> ptr
+@extern core_fmt_rt_Argument___new_debug_std_result_Result_i32_std_string_String(_a0: ptr) -> ptr
+@extern core_fmt_rt_Argument___new_debug_std_vec_Vec_i32(_a0: ptr) -> ptr
+@extern core_fmt_rt_Argument___new_debug_u8_8(_a0: ptr) -> ptr
+@extern core_fmt_rt_Argument___new_display_i32(_a0: ptr) -> ptr
+@extern core_fmt_rt_Argument___new_display_i64(_a0: ptr) -> ptr
+@extern core_fmt_rt_Argument___new_display_u32(_a0: ptr) -> ptr
+@extern core_fmt_rt_Argument___new_display_u64(_a0: ptr) -> ptr
+@extern core_fmt_rt_Argument___new_display_usize(_a0: ptr) -> ptr
+@extern core_slice_impl_i32_iter(_a0: ptr) -> ptr
+@extern core_str_impl_str_chars(_a0: ptr) -> ptr
+@extern core_str_impl_str_parse_i32(_a0: ptr) -> ptr
+@extern dyn_Shout_as_Shout_shout(_a0: ptr) -> ptr
+@extern f_asm(_a0: u64) -> u64
+@extern f_box(_a0: ptr) -> i32
+@extern f_cast(_a0: i64, _a1: f64) -> i64
+@extern f_closure(_a0: ptr) -> ptr
+@extern f_dyn(_a0: ptr) -> u64
+@extern f_generic_i32(_a0: ptr) -> ptr
+@extern f_loops(_a0: ptr) -> i32
+@extern f_match(_a0: ptr) -> i32
+@extern f_opt_mutate(_a0: ptr) -> i32
+@extern f_parse(_a0: ptr) -> ptr
+@extern f_raw(_a0: ptr) -> i32
+@extern f_rc(_a0: ptr) -> u64
+@extern f_repeat() -> ptr
+@extern f_slice(_a0: ptr) -> i32
+@extern f_static_dispatch_Dog(_a0: ptr) -> u64
+@extern f_str(_a0: ptr) -> u64
+@extern f_struct(_a0: ptr) -> i32
+@extern f_thread_map() -> u64
+@extern f_tls() -> u32
+@extern f_tuple(_a0: ptr) -> u64
+@extern f_underscore(_a0: ptr) -> u64
+@extern sa_mem_set(_a0: ptr, _a1: u8, _a2: u64) -> void
+@extern sa_thread_local_slot(_a0: u64) -> ptr
+@extern std_boxed_Box_i32_1_new_uninit() -> ptr
+@extern std_boxed_Box_i32_2_new_uninit() -> ptr
+@extern std_boxed_Box_i32_new(_a0: ptr) -> ptr
+@extern std_boxed_Box_std_vec_Vec_i32_new(_a0: ptr) -> ptr
+@extern std_boxed_box_assume_init_into_vec_unsafe_i32_1(_a0: ptr) -> ptr
+@extern std_boxed_box_assume_init_into_vec_unsafe_i32_2(_a0: ptr) -> ptr
+@extern std_cell_Cell_u32_get(_a0: ptr) -> ptr
+@extern std_cell_Cell_u32_new(_a0: ptr) -> ptr
+@extern std_cell_Cell_u32_set(_a0: ptr, _a1: ptr) -> void
+@extern std_char_methods_impl_char_is_ascii_alphabetic(_a0: ptr) -> u8
+@extern std_collections_HashMap_std_string_String_usize_entry(_a0: ptr, _a1: ptr) -> ptr
+@extern std_collections_HashMap_std_string_String_usize_insert(_a0: ptr, _a1: ptr, _a2: ptr) -> ptr
+@extern std_collections_HashMap_std_string_String_usize_new() -> ptr
+@extern std_collections_HashMap_std_string_String_usize_values(_a0: ptr) -> ptr
+@extern std_collections_hash_map_Entry___std_string_String_usize_or_insert(_a0: ptr, _a1: ptr) -> ptr
+@extern std_collections_hash_map_Values___std_string_String_usize_as_std_iter_Iterator_s(_a0: ptr) -> ptr
+@extern std_fmt_Arguments___new_4_1(_a0: ptr, _a1: ptr) -> ptr
+@extern std_io__print(_a0: ptr) -> void
+@extern std_iter_Map_std_vec_IntoIter_i32_closure_content_sa_all_sarust_corpus_src_main_(_a0: ptr) -> ptr
+@extern std_mem_needs_drop_std_cell_Cell_u32() -> u8
+@extern std_ops_Range_i32_as_std_iter_IntoIterator_into_iter(_a0: ptr) -> ptr
+@extern std_ops_Range_i32_as_std_iter_Iterator_next(_a0: ptr) -> ptr
+@extern std_option_Option_i32_unwrap_or(_a0: ptr, _a1: ptr) -> ptr
+@extern std_rc_Rc_std_string_String_as_std_clone_Clone_clone(_a0: ptr) -> ptr
+@extern std_rc_Rc_std_string_String_as_std_ops_Deref_deref(_a0: ptr) -> ptr
+@extern std_rc_Rc_std_string_String_new(_a0: ptr) -> ptr
+@extern std_result_Result_i32_std_num_ParseIntError_map_err_std_string_String_closure_co(_a0: ptr, _a1: ptr) -> ptr
+@extern std_result_Result_i32_std_string_String_as_std_ops_FromResidual_std_result_Resul(_a0: ptr) -> ptr
+@extern std_result_Result_i32_std_string_String_as_std_ops_Try_branch(_a0: ptr) -> ptr
+@extern std_result_Result_usize_std_boxed_Box_dyn_std_any_Any_std_marker_Send_unwrap(_a0: ptr) -> ptr
+@extern std_slice_Iter___i32_as_std_iter_IntoIterator_into_iter(_a0: ptr) -> ptr
+@extern std_slice_Iter___i32_as_std_iter_Iterator_next(_a0: ptr) -> ptr
+@extern std_slice_Iter___i32_as_std_iter_Iterator_sum_i32(_a0: ptr) -> ptr
+@extern std_str_Chars___as_std_iter_IntoIterator_into_iter(_a0: ptr) -> ptr
+@extern std_str_Chars___as_std_iter_Iterator_next(_a0: ptr) -> ptr
+@extern std_string_String_as_std_convert_From_str_from(_a0: ptr) -> ptr
+@extern std_string_String_len(_a0: ptr) -> u64
+@extern std_thread_JoinHandle_usize_join(_a0: ptr) -> ptr
+@extern std_thread_LocalKey_std_cell_Cell_u32_new(_a0: ptr) -> ptr
+@extern std_thread_LocalKey_std_cell_Cell_u32_with_closure_content_sa_all_sarust_corpus_(_a0: ptr, _a1: ptr) -> ptr
+@extern std_thread_local_impl_EagerStorage_std_cell_Cell_u32_get(_a0: ptr) -> ptr
+@extern std_thread_local_impl_EagerStorage_std_cell_Cell_u32_new(_a0: ptr) -> ptr
+@extern std_thread_spawn_closure_content_sa_all_sarust_corpus_src_main_rs_205_32_205_34_(_a0: ptr) -> ptr
+@extern std_vec_IntoIter_i32_as_std_iter_Iterator_map_i32_closure_content_sa_all_sarust_(_a0: ptr, _a1: ptr) -> ptr
+@extern std_vec_Vec_i32_as_std_iter_IntoIterator_into_iter(_a0: ptr) -> ptr
+@extern std_vec_Vec_i32_as_std_ops_Deref_deref(_a0: ptr) -> ptr
+@extern std_vec_Vec_i32_push(_a0: ptr, _a1: ptr) -> void
 
-@f_match() -> i32:
-bb0:
-    _2 = discriminant(_1) // enum tag read
-    _sw_bb0 = ^_2
-    br _sw_bb0 == 0 -> bb4
-    br _sw_bb0 == 1 -> bb3
-    br _sw_bb0 == 2 -> bb2
-    jmp bb1
-bb1:
-    unreachable
-bb2:
-    _7 = &_1 // via ((_1 as Named).0: i32)
-    _9 = &_1 // via ((_1 as Named).1: i32)
+@f_match(_1: ptr) -> i32:
+L_bb0:
+    _2 = load _1+0 as i64
+    _sw_bb0 = _2
+    _sw_bb0_eq_0 = eq _sw_bb0, 0
+    br _sw_bb0_eq_0 -> L_bb4, L_sw_bb0_0
+L_sw_bb0_0:
+    _sw_bb0_eq_1 = eq _sw_bb0, 1
+    br _sw_bb0_eq_1 -> L_bb3, L_sw_bb0_1
+L_sw_bb0_1:
+    _sw_bb0_eq_2 = eq _sw_bb0, 2
+    br _sw_bb0_eq_2 -> L_bb2, L_bb1
+L_bb1:
+    // MIR unreachable (diverging path)
+    panic(1601)
+L_bb2:
+    // via ((_1 as Named).0: i32)
+    _7 = &_1
+    // via ((_1 as Named).1: i32)
+    _9 = &_1
     _11 = _7
     _12 = _9
-    _10 = Gt(^_11, ^_12)
-    _sw_bb2 = ^_10
-    br _sw_bb2 == 0 -> bb7
-    jmp bb6
-bb3:
-    _3 = _1
-    _4 = _1
-    _5 = AddWithOverflow(_3, _4)
-    assert ^_5
-    jmp bb5
-bb4:
-    _0 = Val(Scalar(0x00000000), i32)
-    jmp bb10
-bb5:
-    _0 = ^_5
-    jmp bb10
-bb6:
+    // UNSUPPORTED binop -> _10: Gt(_mv_bb2_0, _mv_bb2_1)
+    _10 = 0
+    _sw_bb2 = _10
+    _sw_bb2_eq_0 = eq _sw_bb2, 0
+    br _sw_bb2_eq_0 -> L_bb7, L_bb6
+L_bb6:
     _6 = _1
     _8 = _1
-    _13 = SubWithOverflow(_6, _8)
-    assert ^_13
-    jmp bb8
-bb7:
+    // UNSUPPORTED binop -> _13: SubWithOverflow(_6, _8)
+    _13 = 0
+    _as_bb6 = _13
+    _as_bb6_eq = eq _as_bb6, 0
+    br _as_bb6_eq -> L_bb8, L_as_bb6_fail
+L_as_bb6_fail:
+    // assert failed: Overflow(Sub, copy _6, copy _8)
+    panic(1506)
+L_bb8:
+    _0 = _13
+    jmp L_bb10
+L_bb7:
     _14 = _1
     _15 = _1
-    _16 = AddWithOverflow(_14, _15)
-    assert ^_16
-    jmp bb9
-bb8:
-    _0 = ^_13
-    jmp bb10
-bb9:
-    _0 = ^_16
-    jmp bb10
-bb10:
+    // UNSUPPORTED binop -> _16: AddWithOverflow(_14, _15)
+    _16 = 0
+    _as_bb7 = _16
+    _as_bb7_eq = eq _as_bb7, 0
+    br _as_bb7_eq -> L_bb9, L_as_bb7_fail
+L_as_bb7_fail:
+    // assert failed: Overflow(Add, copy _14, copy _15)
+    panic(1507)
+L_bb9:
+    _0 = _16
+    jmp L_bb10
+L_bb3:
+    _3 = _1
+    _4 = _1
+    // UNSUPPORTED binop -> _5: AddWithOverflow(_3, _4)
+    _5 = 0
+    _as_bb3 = _5
+    _as_bb3_eq = eq _as_bb3, 0
+    br _as_bb3_eq -> L_bb5, L_as_bb3_fail
+L_as_bb3_fail:
+    // assert failed: Overflow(Add, copy _3, copy _4)
+    panic(1503)
+L_bb5:
+    _0 = _5
+    jmp L_bb10
+L_bb4:
+    _0 = 0
+    jmp L_bb10
+L_bb10:
     return 0
 
-@f_opt_mutate() -> i32:
-bb0:
-    _2 = Val(Scalar(0x00000029), i32) // single-elem aggregate (exact)
-    _1 = ^_2 // place: (*_1)
-    _3 = 0 // zero-elem aggregate (unit/niche; tag via SetDisc when present)
-    _1 = ^_3 // place: (*_1)
-    _4 = Val(Scalar(0x00000001), i32) // single-elem aggregate (exact)
-    _1 = ^_4 // place: (*_1)
+@f_opt_mutate(_1: ptr) -> i32:
+L_bb0:
+    // single-elem aggregate (exact)
+    _2 = 41
+    // UNSUPPORTED rebind -> _1 (already bound; keeping first value)
+    // zero-elem aggregate (unit/niche; tag via SetDisc when present)
+    _3 = 0
+    // UNSUPPORTED rebind -> _1 (already bound; keeping first value)
+    // single-elem aggregate (exact)
+    _4 = 1
+    // UNSUPPORTED rebind -> _1 (already bound; keeping first value)
     _5 = _1
     // MIR: std::option::Option::<i32>::unwrap_or
-    _0 = call @std_option_Option_i32_unwrap_or(^_5, Val(Scalar(0x00000000), i32))
-    jmp bb1
-bb1:
+    _0 = call @std_option_Option_i32_unwrap_or(_5, 0)
+    jmp L_bb1
+L_bb1:
     return 0
 
-@f_struct() -> i32:
-bb0:
-    _2 = AddWithOverflow(_1, Val(Scalar(0x00000001), i32))
-    assert ^_2
-    jmp bb1
-bb1:
-    _1 = ^_2 // place: (_1.0: i32)
-    _3 = MulWithOverflow(_1, Val(Scalar(0x00000002), i32))
-    assert ^_3
-    jmp bb2
-bb2:
-    _1 = ^_3 // place: (_1.1: i32)
+@f_struct(_1: ptr) -> i32:
+L_bb0:
+    // UNSUPPORTED binop -> _2: AddWithOverflow(_1, 1)
+    _2 = 0
+    _as_bb0 = _2
+    _as_bb0_eq = eq _as_bb0, 0
+    br _as_bb0_eq -> L_bb1, L_as_bb0_fail
+L_as_bb0_fail:
+    // assert failed: Overflow(Add, copy (_1.0: i32), const 1_i32)
+    panic(1500)
+L_bb1:
+    // UNSUPPORTED rebind -> _1 (already bound; keeping first value)
+    // UNSUPPORTED binop -> _3: MulWithOverflow(_1, 2)
+    _3 = 0
+    _as_bb1 = _3
+    _as_bb1_eq = eq _as_bb1, 0
+    br _as_bb1_eq -> L_bb2, L_as_bb1_fail
+L_as_bb1_fail:
+    // assert failed: Overflow(Mul, copy (_1.1: i32), const 2_i32)
+    panic(1501)
+L_bb2:
+    // UNSUPPORTED rebind -> _1 (already bound; keeping first value)
     _4 = _1
     _5 = _1
-    _6 = SubWithOverflow(_4, _5)
-    assert ^_6
-    jmp bb3
-bb3:
-    _0 = ^_6
+    // UNSUPPORTED binop -> _6: SubWithOverflow(_4, _5)
+    _6 = 0
+    _as_bb2 = _6
+    _as_bb2_eq = eq _as_bb2, 0
+    br _as_bb2_eq -> L_bb3, L_as_bb2_fail
+L_as_bb2_fail:
+    // assert failed: Overflow(Sub, move _4, move _5)
+    panic(1502)
+L_bb3:
+    _0 = _6
     return 0
 
-@f_tuple() -> i32:
-bb0:
-    _4 = &_1 // via (_1.1: std::string::String)
+@f_tuple(_1: ptr) -> u64:
+L_bb0:
+    // via (_1.1: std::string::String)
+    _4 = &_1
     // MIR: std::string::String::len
-    _3 = call @std_string_String_len(^_4)
-    jmp bb1
-bb1:
+    _3 = call @std_string_String_len(_4)
+    jmp L_bb1
+L_bb1:
     _6 = _1
-    _5 = *^_6 // cast: usize
-    _7 = AddWithOverflow(_3, _5)
-    assert ^_7
-    jmp bb2
-bb2:
-    _2 = ^_7
+    _mv_bb1_0 = _6
+    _5 = sext _mv_bb1_0 as u64
+    // UNSUPPORTED binop -> _7: AddWithOverflow(_3, _5)
+    _7 = 0
+    _as_bb1 = _7
+    _as_bb1_eq = eq _as_bb1, 0
+    br _as_bb1_eq -> L_bb2, L_as_bb1_fail
+L_as_bb1_fail:
+    // assert failed: Overflow(Add, move _3, move _5)
+    panic(1501)
+L_bb2:
+    _2 = _7
     _9 = _1
-    _8 = *^_9 // cast: usize
-    _10 = AddWithOverflow(_2, _8)
-    assert ^_10
-    jmp bb3
-bb3:
-    _0 = ^_10
+    _mv_bb2_0 = _9
+    _8 = zext _mv_bb2_0 as u64
+    // UNSUPPORTED binop -> _10: AddWithOverflow(_2, _8)
+    _10 = 0
+    _as_bb2 = _10
+    _as_bb2_eq = eq _as_bb2, 0
+    br _as_bb2_eq -> L_bb3, L_as_bb2_fail
+L_as_bb2_fail:
+    // assert failed: Overflow(Add, move _2, move _8)
+    panic(1502)
+L_bb3:
+    _0 = _10
     !_1
-    jmp bb4
-bb4:
+    jmp L_bb4
+L_bb4:
     return 0
-bb5:
+L_bb5:
     !_1
-    jmp bb6
-bb6:
-    panic("unwind-resume") // MIR Resume (cleanup path)
+    jmp L_bb6
+L_bb6:
+    // MIR Resume (cleanup path)
+    panic("unwind-resume")
 
-@f_slice() -> i32:
-bb0:
-    _2 = Val(Scalar(0x00000000), i32)
-    _4 = &_1 // via (*_1)
-    _3 = PtrMetadata(^_4)
-    _5 = Val(Scalar(0x0000000000000000), usize)
-    jmp bb1
-bb1:
+@f_slice(_1: ptr) -> i32:
+L_bb0:
+    _2 = 0
+    // zero-sized borrow (no storage)
+    _4 = 0
+    // UNSUPPORTED unop -> _3: PtrMetadata(_mv_bb0_0)
+    _3 = 0
+    _5 = 0
+    jmp L_bb1
+L_bb1:
     _7 = _5
-    _6 = Lt(^_7, _3)
-    _sw_bb1 = ^_6
-    br _sw_bb1 == 0 -> bb8
-    jmp bb2
-bb2:
+    // UNSUPPORTED binop -> _6: Lt(_mv_bb1_0, _3)
+    _6 = 0
+    _sw_bb1 = _6
+    _sw_bb1_eq_0 = eq _sw_bb1, 0
+    br _sw_bb1_eq_0 -> L_bb8, L_bb2
+L_bb2:
     _8 = _5
-    _9 = *_1 // raw-ptr const
-    _10 = PtrMetadata(^_9)
-    _11 = Lt(_8, _10)
-    assert ^_11
-    jmp bb3
-bb3:
-    _12 = AddWithOverflow(_proj, Val(Scalar(0x00000001), i32))
-    assert ^_12
-    jmp bb4
-bb4:
-    _proj = ^_12 // place: (*_1)[_8]
+    _9 = _1
+    // UNSUPPORTED unop -> _10: PtrMetadata(_mv_bb2_0)
+    _10 = 0
+    // UNSUPPORTED binop -> _11: Lt(_8, _10)
+    _11 = 0
+    _as_bb2 = _11
+    _as_bb2_eq = eq _as_bb2, 1
+    br _as_bb2_eq -> L_bb3, L_as_bb2_fail
+L_as_bb2_fail:
+    // assert failed: BoundsCheck { len: move _10, index: copy _8 }
+    panic(1502)
+L_bb3:
+    // UNSUPPORTED binop -> _12: AddWithOverflow(_1, 1)
+    _12 = 0
+    _as_bb3 = _12
+    _as_bb3_eq = eq _as_bb3, 0
+    br _as_bb3_eq -> L_bb4, L_as_bb3_fail
+L_as_bb3_fail:
+    // assert failed: Overflow(Add, copy (*_1)[_8], const 1_i32)
+    panic(1503)
+L_bb4:
+    // UNSUPPORTED rebind -> _1 (already bound; keeping first value)
     _14 = _5
-    _15 = *_1 // raw-ptr const
-    _16 = PtrMetadata(^_15)
-    _17 = Lt(_14, _16)
-    assert ^_17
-    jmp bb5
-bb5:
-    _13 = _proj
-    _18 = AddWithOverflow(_2, _13)
-    assert ^_18
-    jmp bb6
-bb6:
-    _2 = ^_18
-    _19 = AddWithOverflow(_5, Val(Scalar(0x0000000000000001), usize))
-    assert ^_19
-    jmp bb7
-bb7:
-    _5 = ^_19
-    jmp bb1
-bb8:
+    _15 = _1
+    // UNSUPPORTED unop -> _16: PtrMetadata(_mv_bb4_0)
+    _16 = 0
+    // UNSUPPORTED binop -> _17: Lt(_14, _16)
+    _17 = 0
+    _as_bb4 = _17
+    _as_bb4_eq = eq _as_bb4, 1
+    br _as_bb4_eq -> L_bb5, L_as_bb4_fail
+L_as_bb4_fail:
+    // assert failed: BoundsCheck { len: move _16, index: copy _14 }
+    panic(1504)
+L_bb5:
+    _13 = _1
+    // UNSUPPORTED binop -> _18: AddWithOverflow(_2, _13)
+    _18 = 0
+    _as_bb5 = _18
+    _as_bb5_eq = eq _as_bb5, 0
+    br _as_bb5_eq -> L_bb6, L_as_bb5_fail
+L_as_bb5_fail:
+    // assert failed: Overflow(Add, copy _2, move _13)
+    panic(1505)
+L_bb6:
+    // UNSUPPORTED rebind -> _2 (already bound; keeping first value)
+    // UNSUPPORTED binop -> _19: AddWithOverflow(_5, 1)
+    _19 = 0
+    _as_bb6 = _19
+    _as_bb6_eq = eq _as_bb6, 0
+    br _as_bb6_eq -> L_bb7, L_as_bb6_fail
+L_as_bb6_fail:
+    // assert failed: Overflow(Add, copy _5, const 1_usize)
+    panic(1506)
+L_bb7:
+    // UNSUPPORTED rebind -> _5 (already bound; keeping first value)
+    jmp L_bb1
+L_bb8:
     _0 = _2
     return 0
 
-@f_repeat() -> i32:
-bb0:
+@f_repeat() -> ptr:
+L_bb0:
     // repeat [Val(Scalar(0x07), u8); 8_usize]
     _rep_bb0 = alloc 8
     call @sa_mem_set(&_rep_bb0, 7, 8)
+    _0 = _rep_bb0
     return 0
 
-@{constant#0}() -> i32:
-bb0:
-    _0 = Val(Scalar(0x0000000000000008), usize)
+@_constant_0_() -> u64:
+L_bb0:
+    _0 = 8
     return 0
 
-@{constant#1}() -> i32:
-bb0:
-    _0 = Val(Scalar(0x0000000000000008), usize)
+@_constant_1_() -> u64:
+L_bb0:
+    _0 = 8
     return 0
 
-@f_loops() -> i32:
-bb0:
-    _2 = Val(Scalar(0x00000000), i32)
+@f_loops(_1: ptr) -> i32:
+L_bb0:
+    _2 = 0
     // MIR: core::slice::<impl [i32]>::iter
     _4 = call @core_slice_impl_i32_iter(_1)
-    jmp bb1
-bb1:
+    jmp L_bb1
+L_bb1:
     // MIR: <std::slice::Iter<'_, i32> as std::iter::IntoIterator>::into_iter
-    _3 = call @std_slice_Iter___i32_as_std_iter_IntoIterator_into_iter(^_4)
-    jmp bb2
-bb2:
-    _5 = ^_3
-    jmp bb3
-bb3:
-    _7 = &_5 // mut-borrow (Phase1: & + Referee)
+    _3 = call @std_slice_Iter___i32_as_std_iter_IntoIterator_into_iter(_4)
+    jmp L_bb2
+L_bb2:
+    _5 = _3
+    jmp L_bb3
+L_bb3:
+    // mut-borrow (Phase1: & + Referee)
+    _7 = &_5
     // MIR: <std::slice::Iter<'_, i32> as std::iter::Iterator>::next
     _6 = call @std_slice_Iter___i32_as_std_iter_Iterator_next(_7)
-    jmp bb4
-bb4:
-    _8 = discriminant(_6) // enum tag read
-    _sw_bb4 = ^_8
-    br _sw_bb4 == 0 -> bb7
-    br _sw_bb4 == 1 -> bb6
-    jmp bb5
-bb5:
-    unreachable
-bb6:
+    jmp L_bb4
+L_bb4:
+    _8 = load _6+0 as i64
+    _sw_bb4 = _8
+    _sw_bb4_eq_0 = eq _sw_bb4, 0
+    br _sw_bb4_eq_0 -> L_bb7, L_sw_bb4_0
+L_sw_bb4_0:
+    _sw_bb4_eq_1 = eq _sw_bb4, 1
+    br _sw_bb4_eq_1 -> L_bb6, L_bb5
+L_bb6:
     _9 = _6
     _10 = _9
-    _11 = AddWithOverflow(_2, _10)
-    assert ^_11
-    jmp bb8
-bb7:
-    _12 = Val(Scalar(0x00000000), i32)
-    jmp bb9
-bb8:
-    _2 = ^_11
-    jmp bb3
-bb9:
+    // UNSUPPORTED binop -> _11: AddWithOverflow(_2, _10)
+    _11 = 0
+    _as_bb6 = _11
+    _as_bb6_eq = eq _as_bb6, 0
+    br _as_bb6_eq -> L_bb8, L_as_bb6_fail
+L_as_bb6_fail:
+    // assert failed: Overflow(Add, copy _2, move _10)
+    panic(1506)
+L_bb8:
+    // UNSUPPORTED rebind -> _2 (already bound; keeping first value)
+    jmp L_bb3
+L_bb7:
+    _12 = 0
+    jmp L_bb9
+L_bb9:
     _14 = _12
-    _13 = Ge(^_14, Val(Scalar(0x00000003), i32))
-    _sw_bb9 = ^_13
-    br _sw_bb9 == 0 -> bb11
-    jmp bb10
-bb10:
+    // UNSUPPORTED binop -> _13: Ge(_mv_bb9_0, 3)
+    _13 = 0
+    _sw_bb9 = _13
+    _sw_bb9_eq_0 = eq _sw_bb9, 0
+    br _sw_bb9_eq_0 -> L_bb11, L_bb10
+L_bb10:
     // aggregate Adt init @ _19 (p_layout v2: rustc layout)
     _agg_bb10 = alloc 8
     store _agg_bb10+0, 0 as i32
     store _agg_bb10+4, 4 as i32
     _19 = _agg_bb10
     // MIR: <std::ops::Range<i32> as std::iter::IntoIterator>::into_iter
-    _18 = call @std_ops_Range_i32_as_std_iter_IntoIterator_into_iter(^_19)
-    jmp bb14
-bb11:
-    _15 = _12
-    _16 = AddWithOverflow(_2, _15)
-    assert ^_16
-    jmp bb12
-bb12:
-    _2 = ^_16
-    _17 = AddWithOverflow(_12, Val(Scalar(0x00000001), i32))
-    assert ^_17
-    jmp bb13
-bb13:
-    _12 = ^_17
-    jmp bb9
-bb14:
-    _20 = ^_18
-    jmp bb15
-bb15:
-    _22 = &_20 // mut-borrow (Phase1: & + Referee)
+    _18 = call @std_ops_Range_i32_as_std_iter_IntoIterator_into_iter(_19)
+    jmp L_bb14
+L_bb14:
+    _20 = _18
+    jmp L_bb15
+L_bb15:
+    // mut-borrow (Phase1: & + Referee)
+    _22 = &_20
     // MIR: <std::ops::Range<i32> as std::iter::Iterator>::next
     _21 = call @std_ops_Range_i32_as_std_iter_Iterator_next(_22)
-    jmp bb16
-bb16:
-    _23 = discriminant(_21) // enum tag read
-    _sw_bb16 = ^_23
-    br _sw_bb16 == 0 -> bb25
-    br _sw_bb16 == 1 -> bb17
-    jmp bb5
-bb17:
+    jmp L_bb16
+L_bb16:
+    _23 = load _21+0 as i64
+    _sw_bb16 = _23
+    _sw_bb16_eq_0 = eq _sw_bb16, 0
+    br _sw_bb16_eq_0 -> L_bb25, L_sw_bb16_0
+L_sw_bb16_0:
+    _sw_bb16_eq_1 = eq _sw_bb16, 1
+    br _sw_bb16_eq_1 -> L_bb17, L_bb5
+L_bb17:
     _24 = _21
     // aggregate Adt init @ _26 (p_layout v2: rustc layout)
     _agg_bb17 = alloc 8
@@ -361,849 +444,1080 @@ bb17:
     store _agg_bb17+4, 4 as i32
     _26 = _agg_bb17
     // MIR: <std::ops::Range<i32> as std::iter::IntoIterator>::into_iter
-    _25 = call @std_ops_Range_i32_as_std_iter_IntoIterator_into_iter(^_26)
-    jmp bb18
-bb18:
-    _27 = ^_25
-    jmp bb19
-bb19:
-    _29 = &_27 // mut-borrow (Phase1: & + Referee)
+    _25 = call @std_ops_Range_i32_as_std_iter_IntoIterator_into_iter(_26)
+    jmp L_bb18
+L_bb18:
+    _27 = _25
+    jmp L_bb19
+L_bb19:
+    // mut-borrow (Phase1: & + Referee)
+    _29 = &_27
     // MIR: <std::ops::Range<i32> as std::iter::Iterator>::next
     _28 = call @std_ops_Range_i32_as_std_iter_Iterator_next(_29)
-    jmp bb20
-bb20:
-    _30 = discriminant(_28) // enum tag read
-    _sw_bb20 = ^_30
-    br _sw_bb20 == 0 -> bb15
-    br _sw_bb20 == 1 -> bb21
-    jmp bb5
-bb21:
+    jmp L_bb20
+L_bb20:
+    _30 = load _28+0 as i64
+    _sw_bb20 = _30
+    _sw_bb20_eq_0 = eq _sw_bb20, 0
+    br _sw_bb20_eq_0 -> L_bb15, L_sw_bb20_0
+L_sw_bb20_0:
+    _sw_bb20_eq_1 = eq _sw_bb20, 1
+    br _sw_bb20_eq_1 -> L_bb21, L_bb5
+L_bb5:
+    // MIR unreachable (diverging path)
+    panic(1605)
+L_bb21:
     _31 = _28
-    _34 = AddWithOverflow(_24, _31)
-    assert ^_34
-    jmp bb22
-bb22:
-    _33 = ^_34
-    _32 = Gt(^_33, Val(Scalar(0x00000004), i32))
-    _sw_bb22 = ^_32
-    br _sw_bb22 == 0 -> bb23
-    jmp bb25
-bb23:
-    _35 = AddWithOverflow(_2, Val(Scalar(0x00000001), i32))
-    assert ^_35
-    jmp bb24
-bb24:
-    _2 = ^_35
-    jmp bb19
-bb25:
+    // UNSUPPORTED binop -> _34: AddWithOverflow(_24, _31)
+    _34 = 0
+    _as_bb21 = _34
+    _as_bb21_eq = eq _as_bb21, 0
+    br _as_bb21_eq -> L_bb22, L_as_bb21_fail
+L_as_bb21_fail:
+    // assert failed: Overflow(Add, copy _24, copy _31)
+    panic(1521)
+L_bb22:
+    _33 = _34
+    // UNSUPPORTED binop -> _32: Gt(_mv_bb22_0, 4)
+    _32 = 0
+    _sw_bb22 = _32
+    _sw_bb22_eq_0 = eq _sw_bb22, 0
+    br _sw_bb22_eq_0 -> L_bb23, L_bb25
+L_bb23:
+    // UNSUPPORTED binop -> _35: AddWithOverflow(_2, 1)
+    _35 = 0
+    _as_bb23 = _35
+    _as_bb23_eq = eq _as_bb23, 0
+    br _as_bb23_eq -> L_bb24, L_as_bb23_fail
+L_as_bb23_fail:
+    // assert failed: Overflow(Add, copy _2, const 1_i32)
+    panic(1523)
+L_bb24:
+    // UNSUPPORTED rebind -> _2 (already bound; keeping first value)
+    jmp L_bb19
+L_bb25:
     _0 = _2
     return 0
+L_bb11:
+    _15 = _12
+    // UNSUPPORTED binop -> _16: AddWithOverflow(_2, _15)
+    _16 = 0
+    _as_bb11 = _16
+    _as_bb11_eq = eq _as_bb11, 0
+    br _as_bb11_eq -> L_bb12, L_as_bb11_fail
+L_as_bb11_fail:
+    // assert failed: Overflow(Add, copy _2, move _15)
+    panic(1511)
+L_bb12:
+    // UNSUPPORTED rebind -> _2 (already bound; keeping first value)
+    // UNSUPPORTED binop -> _17: AddWithOverflow(_12, 1)
+    _17 = 0
+    _as_bb12 = _17
+    _as_bb12_eq = eq _as_bb12, 0
+    br _as_bb12_eq -> L_bb13, L_as_bb12_fail
+L_as_bb12_fail:
+    // assert failed: Overflow(Add, copy _12, const 1_i32)
+    panic(1512)
+L_bb13:
+    // UNSUPPORTED rebind -> _12 (already bound; keeping first value)
+    jmp L_bb9
 
-@f_closure() -> i32:
-bb0:
-    _2 = Val(Scalar(0x0000000a), i32)
+@f_closure(_1: ptr) -> ptr:
+L_bb0:
+    _2 = 10
     _4 = &_2
-    _3 = ^_4 // single-elem aggregate (exact)
+    // single-elem aggregate (exact)
+    _3 = _4
     // MIR: <std::vec::Vec<i32> as std::iter::IntoIterator>::into_iter
     _7 = call @std_vec_Vec_i32_as_std_iter_IntoIterator_into_iter(_1)
-    jmp bb1
-bb1:
+    jmp L_bb1
+L_bb1:
     // MIR: <std::vec::IntoIter<i32> as std::iter::Iterator>::map::<i32, {closure@/content/sa_all/sarust/corpus/
-    _6 = call @std_vec_IntoIter_i32_as_std_iter_Iterator_map_i32_closure_content_sa_all_sarust_(^_7, _3)
-    jmp bb2
-bb2:
+    _6 = call @std_vec_IntoIter_i32_as_std_iter_Iterator_map_i32_closure_content_sa_all_sarust_(_7, _3)
+    jmp L_bb2
+L_bb2:
     // MIR: <std::iter::Map<std::vec::IntoIter<i32>, {closure@/content/sa_all/sarust/corpus/src/main.rs:90:15: 9
-    _5 = call @std_iter_Map_std_vec_IntoIter_i32_closure_content_sa_all_sarust_corpus_src_main_(^_6)
-    jmp bb3
-bb3:
-    _8 = Val(Scalar(0x00000000), i32) // single-elem aggregate (exact)
-    _10 = &_5 // mut-borrow (Phase1: & + Referee)
-    _12 = &_8 // mut-borrow (Phase1: & + Referee)
-    _13 = Val(Scalar(0x00000001), i32) // single-elem aggregate (exact)
+    _5 = call @std_iter_Map_std_vec_IntoIter_i32_closure_content_sa_all_sarust_corpus_src_main_(_6)
+    jmp L_bb3
+L_bb3:
+    // single-elem aggregate (exact)
+    _8 = 0
+    // mut-borrow (Phase1: & + Referee)
+    _10 = &_5
+    // mut-borrow (Phase1: & + Referee)
+    _12 = &_8
+    // single-elem aggregate (exact)
+    _13 = 1
     // MIR: <{closure@/content/sa_all/sarust/corpus/src/main.rs:93:20: 93:33} as std::ops::FnMut<(i32,)>>::call_
-    _11 = call @closure_content_sa_all_sarust_corpus_src_main_rs_93_20_93_33_as_std_ops_FnMut_i3(^_12, ^_13)
-    jmp bb4
-bb4:
+    _11 = call @closure_content_sa_all_sarust_corpus_src_main_rs_93_20_93_33_as_std_ops_FnMut_i3(_12, _13)
+    jmp L_bb4
+L_bb4:
     // MIR: std::vec::Vec::<i32>::push
-    _9 = call @std_vec_Vec_i32_push(^_10, ^_11)
-    jmp bb5
-bb5:
-    _15 = &_5 // mut-borrow (Phase1: & + Referee)
-    _17 = &_8 // mut-borrow (Phase1: & + Referee)
-    _18 = Val(Scalar(0x00000002), i32) // single-elem aggregate (exact)
+    call @std_vec_Vec_i32_push(_10, _11)
+    // unit call result (exact: () carries no data)
+    _9 = 0
+    jmp L_bb5
+L_bb5:
+    // mut-borrow (Phase1: & + Referee)
+    _15 = &_5
+    // mut-borrow (Phase1: & + Referee)
+    _17 = &_8
+    // single-elem aggregate (exact)
+    _18 = 2
     // MIR: <{closure@/content/sa_all/sarust/corpus/src/main.rs:93:20: 93:33} as std::ops::FnMut<(i32,)>>::call_
-    _16 = call @closure_content_sa_all_sarust_corpus_src_main_rs_93_20_93_33_as_std_ops_FnMut_i3(^_17, ^_18)
-    jmp bb6
-bb6:
+    _16 = call @closure_content_sa_all_sarust_corpus_src_main_rs_93_20_93_33_as_std_ops_FnMut_i3(_17, _18)
+    jmp L_bb6
+L_bb6:
     // MIR: std::vec::Vec::<i32>::push
-    _14 = call @std_vec_Vec_i32_push(^_15, ^_16)
-    jmp bb7
-bb7:
-    _0 = ^_5
+    call @std_vec_Vec_i32_push(_15, _16)
+    // unit call result (exact: () carries no data)
+    _14 = 0
+    jmp L_bb7
+L_bb7:
+    _0 = _5
     return 0
-bb8:
+L_bb8:
     !_5
-    jmp bb9
-bb9:
-    panic("unwind-resume") // MIR Resume (cleanup path)
+    jmp L_bb9
+L_bb9:
+    // MIR Resume (cleanup path)
+    panic("unwind-resume")
 
-@{closure#0}() -> i32:
-bb0:
-    _5 = _proj
+@_closure_0_(_1: ptr, _2: i32) -> i32:
+L_bb0:
+    _5 = _1
     _3 = _5
-    _4 = AddWithOverflow(_2, _3)
-    assert ^_4
-    jmp bb1
-bb1:
-    _0 = ^_4
+    // UNSUPPORTED binop -> _4: AddWithOverflow(_2, _3)
+    _4 = 0
+    _as_bb0 = _4
+    _as_bb0_eq = eq _as_bb0, 0
+    br _as_bb0_eq -> L_bb1, L_as_bb0_fail
+L_as_bb0_fail:
+    // assert failed: Overflow(Add, copy _2, move _3)
+    panic(1500)
+L_bb1:
+    _0 = _4
     return 0
 
-@{closure#1}() -> i32:
-bb0:
-    _3 = AddWithOverflow(_proj, _2)
-    assert ^_3
-    jmp bb1
-bb1:
-    _proj = ^_3 // place: ((*_1).0: i32)
-    _0 = _proj
+@_closure_1_(_1: ptr, _2: i32) -> i32:
+L_bb0:
+    // UNSUPPORTED binop -> _3: AddWithOverflow(_1, _2)
+    _3 = 0
+    _as_bb0 = _3
+    _as_bb0_eq = eq _as_bb0, 0
+    br _as_bb0_eq -> L_bb1, L_as_bb0_fail
+L_as_bb0_fail:
+    // assert failed: Overflow(Add, copy ((*_1).0: i32), copy _2)
+    panic(1500)
+L_bb1:
+    // UNSUPPORTED rebind -> _1 (already bound; keeping first value)
+    _0 = _1
     return 0
 
-@f_generic() -> i32:
-bb0:
+@f_generic(_1: ptr) -> ptr:
+L_bb0:
     _3 = &_1
     // MIR: <T as std::clone::Clone>::clone
-    _2 = call @T_as_std_clone_Clone_clone(^_3)
-    jmp bb1
-bb1:
+    _2 = call @T_as_std_clone_Clone_clone(_3)
+    jmp L_bb1
+L_bb1:
     // MIR: <T as std::default::Default>::default
     _4 = call @T_as_std_default_Default_default()
-    jmp bb2
-bb2:
+    jmp L_bb2
+L_bb2:
     // aggregate Adt init @ _0 (p_layout v1: sla tuple/struct ABI)
     _agg_bb2 = alloc 16
     store _agg_bb2+0, ^_2 as u64
     store _agg_bb2+8, ^_4 as u64
     _0 = _agg_bb2
     !_1
-    jmp bb3
-bb3:
+    jmp L_bb3
+L_bb3:
     return 0
-bb4:
+L_bb4:
     !_2
-    jmp bb5
-bb5:
+    jmp L_bb5
+L_bb5:
     !_1
-    jmp bb6
-bb6:
-    panic("unwind-resume") // MIR Resume (cleanup path)
+    jmp L_bb6
+L_bb6:
+    // MIR Resume (cleanup path)
+    panic("unwind-resume")
 
-@shout() -> i32:
-bb0:
+@shout(_1: ptr) -> ptr:
+L_bb0:
     // MIR: <std::string::String as std::convert::From<&str>>::from
-    _0 = call @std_string_String_as_std_convert_From_str_from(Val(Slice { alloc_id: alloc20, meta: 4 }, &'{erased} str))
-    jmp bb1
-bb1:
+    // UNSUPPORTED call-args: unresolvable const (control preserved)
+    _0 = 0
+    jmp L_bb1
+L_bb1:
     return 0
 
-@shout() -> i32:
-bb0:
+@shout(_1: ptr) -> ptr:
+L_bb0:
     // MIR: <std::string::String as std::convert::From<&str>>::from
-    _0 = call @std_string_String_as_std_convert_From_str_from(Val(Slice { alloc_id: alloc21, meta: 4 }, &'{erased} str))
-    jmp bb1
-bb1:
+    // UNSUPPORTED call-args: unresolvable const (control preserved)
+    _0 = 0
+    jmp L_bb1
+L_bb1:
     return 0
 
-@f_dyn() -> i32:
-bb0:
+@f_dyn(_1: ptr) -> u64:
+L_bb0:
     // MIR: <dyn Shout as Shout>::shout
     _3 = call @dyn_Shout_as_Shout_shout(_1)
-    jmp bb1
-bb1:
+    jmp L_bb1
+L_bb1:
     _2 = &_3
     // MIR: std::string::String::len
-    _0 = call @std_string_String_len(^_2)
-    jmp bb2
-bb2:
+    _0 = call @std_string_String_len(_2)
+    jmp L_bb2
+L_bb2:
     !_3
-    jmp bb3
-bb3:
+    jmp L_bb3
+L_bb3:
     return 0
-bb4:
+L_bb4:
     !_3
-    jmp bb5
-bb5:
-    panic("unwind-resume") // MIR Resume (cleanup path)
+    jmp L_bb5
+L_bb5:
+    // MIR Resume (cleanup path)
+    panic("unwind-resume")
 
-@f_static_dispatch() -> i32:
-bb0:
+@f_static_dispatch(_1: ptr) -> u64:
+L_bb0:
     _4 = &_1
     // MIR: <T as Shout>::shout
-    _3 = call @T_as_Shout_shout(^_4)
-    jmp bb1
-bb1:
+    _3 = call @T_as_Shout_shout(_4)
+    jmp L_bb1
+L_bb1:
     _2 = &_3
     // MIR: std::string::String::len
-    _0 = call @std_string_String_len(^_2)
-    jmp bb2
-bb2:
+    _0 = call @std_string_String_len(_2)
+    jmp L_bb2
+L_bb2:
     !_3
-    jmp bb3
-bb3:
+    jmp L_bb3
+L_bb3:
     !_1
-    jmp bb4
-bb4:
+    jmp L_bb4
+L_bb4:
     return 0
-bb5:
+L_bb5:
     !_3
-    jmp bb6
-bb6:
+    jmp L_bb6
+L_bb6:
     !_1
-    jmp bb7
-bb7:
-    panic("unwind-resume") // MIR Resume (cleanup path)
+    jmp L_bb7
+L_bb7:
+    // MIR Resume (cleanup path)
+    panic("unwind-resume")
 
-@f_parse() -> i32:
-bb0:
+@f_parse(_1: ptr) -> ptr:
+L_bb0:
     // MIR: core::str::<impl str>::parse::<i32>
     _4 = call @core_str_impl_str_parse_i32(_1)
-    jmp bb1
-bb1:
+    jmp L_bb1
+L_bb1:
     // MIR: std::result::Result::<i32, std::num::ParseIntError>::map_err::<std::string::String, {closure@/conten
-    _3 = call @std_result_Result_i32_std_num_ParseIntError_map_err_std_string_String_closure_co(^_4, Val(ZeroSized, Closure(DefId(0:46 ~ main[a064]::f_parse::{cl)
-    jmp bb2
-bb2:
+    _3 = call @std_result_Result_i32_std_num_ParseIntError_map_err_std_string_String_closure_co(_4, 0)
+    jmp L_bb2
+L_bb2:
     // MIR: <std::result::Result<i32, std::string::String> as std::ops::Try>::branch
-    _2 = call @std_result_Result_i32_std_string_String_as_std_ops_Try_branch(^_3)
-    jmp bb3
-bb3:
-    _5 = discriminant(_2) // enum tag read
-    _sw_bb3 = ^_5
-    br _sw_bb3 == 0 -> bb5
-    br _sw_bb3 == 1 -> bb6
-    jmp bb4
-bb4:
-    unreachable
-bb5:
-    _7 = _2
-    _9 = MulWithOverflow(_7, Val(Scalar(0x00000002), i32))
-    assert ^_9
-    jmp bb7
-bb6:
-    _6 = ^_2
+    _2 = call @std_result_Result_i32_std_string_String_as_std_ops_Try_branch(_3)
+    jmp L_bb3
+L_bb3:
+    _5 = load _2+0 as i64
+    _sw_bb3 = _5
+    _sw_bb3_eq_0 = eq _sw_bb3, 0
+    br _sw_bb3_eq_0 -> L_bb5, L_sw_bb3_0
+L_sw_bb3_0:
+    _sw_bb3_eq_1 = eq _sw_bb3, 1
+    br _sw_bb3_eq_1 -> L_bb6, L_bb4
+L_bb4:
+    // MIR unreachable (diverging path)
+    panic(1604)
+L_bb6:
+    _6 = _2
     // MIR: <std::result::Result<i32, std::string::String> as std::ops::FromResidual<std::result::Result<!, std:
     _0 = call @std_result_Result_i32_std_string_String_as_std_ops_FromResidual_std_result_Resul(_6)
-    jmp bb8
-bb7:
-    _8 = ^_9
-    _0 = ^_8 // single-elem aggregate (exact)
-    jmp bb8
-bb8:
+    jmp L_bb8
+L_bb5:
+    _7 = _2
+    // UNSUPPORTED binop -> _9: MulWithOverflow(_7, 2)
+    _9 = 0
+    _as_bb5 = _9
+    _as_bb5_eq = eq _as_bb5, 0
+    br _as_bb5_eq -> L_bb7, L_as_bb5_fail
+L_as_bb5_fail:
+    // assert failed: Overflow(Mul, copy _7, const 2_i32)
+    panic(1505)
+L_bb7:
+    _8 = _9
+    // single-elem aggregate (exact)
+    _0 = _8
+    jmp L_bb8
+L_bb8:
     return 0
 
-@{closure#0}() -> i32:
-bb0:
+@_closure_0_(_1: ptr, _2: ptr) -> ptr:
+L_bb0:
     // MIR: <std::string::String as std::convert::From<&str>>::from
-    _0 = call @std_string_String_as_std_convert_From_str_from(Val(Slice { alloc_id: alloc22, meta: 3 }, &'{erased} str))
-    jmp bb1
-bb1:
+    // UNSUPPORTED call-args: unresolvable const (control preserved)
+    _0 = 0
+    jmp L_bb1
+L_bb1:
     return 0
 
-@f_box() -> i32:
-bb0:
+@f_box(_1: ptr) -> i32:
+L_bb0:
     // MIR: std::boxed::Box::<std::vec::Vec<i32>>::new
     _2 = call @std_boxed_Box_std_vec_Vec_i32_new(_1)
-    jmp bb1
-bb1:
-    _6 = *_2 // cast: *const std::vec::Vec<i32, std::alloc::Global>
-    _7 = *_6 // cast: *const ()
-    _8 = *_7 // cast: usize
-    _9 = Sub(Unevaluated(UnevaluatedConst { def: DefId(2:3023 ~ core[f1c6, Val(Scalar(0x0000000000000001), usize))
-    _10 = BitAnd(_8, _9)
-    _11 = Eq(_10, Val(Scalar(0x0000000000000000), usize))
-    assert _11
-    jmp bb8
-bb2:
+    jmp L_bb1
+L_bb1:
+    _6 = _2
+    _7 = _6
+    _8 = _7
+    // UNSUPPORTED const-value -> _9: unresolvable const Unevaluated(UnevaluatedConst { def: DefId(2:3023 ~ core[f1c6
+    _9 = 0
+    _10 = and _8, _9
+    _11 = eq _10, 0
+    _as_bb1_eq = eq _11, 1
+    br _as_bb1_eq -> L_bb8, L_as_bb1_fail
+L_as_bb1_fail:
+    // assert failed: MisalignedPointerDereference { required: const <std::vec::Vec<i32> as std::mem::
+    panic(1501)
+L_bb8:
+    _12 = _6
+    _13 = _12
+    _14 = eq _13, 0
+    _15 = and _14, 1
+    _16 = not _15
+    _as_bb8_eq = eq _16, 1
+    br _as_bb8_eq -> L_bb9, L_as_bb8_fail
+L_as_bb8_fail:
+    // assert failed: NullReferenceConstructed
+    panic(1508)
+L_bb9:
+    // via (*_6)
+    _5 = &_6
+    // MIR: <std::vec::Vec<i32> as std::ops::Deref>::deref
+    _4 = call @std_vec_Vec_i32_as_std_ops_Deref_deref(_5)
+    jmp L_bb2
+L_bb2:
     // MIR: core::slice::<impl [i32]>::iter
     _3 = call @core_slice_impl_i32_iter(_4)
-    jmp bb3
-bb3:
+    jmp L_bb3
+L_bb3:
     // MIR: <std::slice::Iter<'_, i32> as std::iter::Iterator>::sum::<i32>
-    _0 = call @std_slice_Iter___i32_as_std_iter_Iterator_sum_i32(^_3)
-    jmp bb4
-bb4:
+    _0 = call @std_slice_Iter___i32_as_std_iter_Iterator_sum_i32(_3)
+    jmp L_bb4
+L_bb4:
     !_2
-    jmp bb5
-bb5:
+    jmp L_bb5
+L_bb5:
     return 0
-bb6:
+L_bb6:
     !_2
-    jmp bb7
-bb7:
-    panic("unwind-resume") // MIR Resume (cleanup path)
-bb8:
-    _12 = *_6 // cast: *const ()
-    _13 = *_12 // cast: usize
-    _14 = Eq(_13, Val(Scalar(0x0000000000000000), usize))
-    _15 = BitAnd(_14, Val(Scalar(0x01), bool))
-    _16 = Not(_15)
-    assert _16
-    jmp bb9
-bb9:
-    _5 = &_6 // via (*_6)
-    // MIR: <std::vec::Vec<i32> as std::ops::Deref>::deref
-    _4 = call @std_vec_Vec_i32_as_std_ops_Deref_deref(^_5)
-    jmp bb2
+    jmp L_bb7
+L_bb7:
+    // MIR Resume (cleanup path)
+    panic("unwind-resume")
 
-@f_rc() -> i32:
-bb0:
+@f_rc(_1: ptr) -> u64:
+L_bb0:
     // MIR: <std::string::String as std::convert::From<&str>>::from
     _3 = call @std_string_String_as_std_convert_From_str_from(_1)
-    jmp bb1
-bb1:
+    jmp L_bb1
+L_bb1:
     // MIR: std::rc::Rc::<std::string::String>::new
-    _2 = call @std_rc_Rc_std_string_String_new(^_3)
-    jmp bb2
-bb2:
+    _2 = call @std_rc_Rc_std_string_String_new(_3)
+    jmp L_bb2
+L_bb2:
     _5 = &_2
     // MIR: <std::rc::Rc<std::string::String> as std::clone::Clone>::clone
     _4 = call @std_rc_Rc_std_string_String_as_std_clone_Clone_clone(_5)
-    jmp bb3
-bb3:
+    jmp L_bb3
+L_bb3:
     _8 = &_2
     // MIR: <std::rc::Rc<std::string::String> as std::ops::Deref>::deref
-    _7 = call @std_rc_Rc_std_string_String_as_std_ops_Deref_deref(^_8)
-    jmp bb4
-bb4:
+    _7 = call @std_rc_Rc_std_string_String_as_std_ops_Deref_deref(_8)
+    jmp L_bb4
+L_bb4:
     // MIR: std::string::String::len
     _6 = call @std_string_String_len(_7)
-    jmp bb5
-bb5:
+    jmp L_bb5
+L_bb5:
     _11 = &_4
     // MIR: <std::rc::Rc<std::string::String> as std::ops::Deref>::deref
-    _10 = call @std_rc_Rc_std_string_String_as_std_ops_Deref_deref(^_11)
-    jmp bb6
-bb6:
+    _10 = call @std_rc_Rc_std_string_String_as_std_ops_Deref_deref(_11)
+    jmp L_bb6
+L_bb6:
     // MIR: std::string::String::len
     _9 = call @std_string_String_len(_10)
-    jmp bb7
-bb7:
-    _12 = AddWithOverflow(_6, _9)
-    assert ^_12
-    jmp bb8
-bb8:
-    _0 = ^_12
+    jmp L_bb7
+L_bb7:
+    // UNSUPPORTED binop -> _12: AddWithOverflow(_6, _9)
+    _12 = 0
+    _as_bb7 = _12
+    _as_bb7_eq = eq _as_bb7, 0
+    br _as_bb7_eq -> L_bb8, L_as_bb7_fail
+L_as_bb7_fail:
+    // assert failed: Overflow(Add, move _6, move _9)
+    panic(1507)
+L_bb8:
+    _0 = _12
     !_4
-    jmp bb9
-bb9:
+    jmp L_bb9
+L_bb9:
     !_2
-    jmp bb10
-bb10:
+    jmp L_bb10
+L_bb10:
     return 0
-bb11:
+L_bb11:
     !_4
-    jmp bb12
-bb12:
+    jmp L_bb12
+L_bb12:
     !_2
-    jmp bb13
-bb13:
-    panic("unwind-resume") // MIR Resume (cleanup path)
+    jmp L_bb13
+L_bb13:
+    // MIR Resume (cleanup path)
+    panic("unwind-resume")
 
-@f_str() -> i32:
-bb0:
-    _2 = Val(Scalar(0x0000000000000000), usize)
+@f_str(_1: ptr) -> u64:
+L_bb0:
+    _2 = 0
     // MIR: core::str::<impl str>::chars
     _4 = call @core_str_impl_str_chars(_1)
-    jmp bb1
-bb1:
+    jmp L_bb1
+L_bb1:
     // MIR: <std::str::Chars<'_> as std::iter::IntoIterator>::into_iter
-    _3 = call @std_str_Chars___as_std_iter_IntoIterator_into_iter(^_4)
-    jmp bb2
-bb2:
-    _5 = ^_3
-    jmp bb3
-bb3:
-    _7 = &_5 // mut-borrow (Phase1: & + Referee)
+    _3 = call @std_str_Chars___as_std_iter_IntoIterator_into_iter(_4)
+    jmp L_bb2
+L_bb2:
+    _5 = _3
+    jmp L_bb3
+L_bb3:
+    // mut-borrow (Phase1: & + Referee)
+    _7 = &_5
     // MIR: <std::str::Chars<'_> as std::iter::Iterator>::next
     _6 = call @std_str_Chars___as_std_iter_Iterator_next(_7)
-    jmp bb4
-bb4:
-    _8 = discriminant(_6) // enum tag read
-    _sw_bb4 = ^_8
-    br _sw_bb4 == 0 -> bb7
-    br _sw_bb4 == 1 -> bb6
-    jmp bb5
-bb5:
-    unreachable
-bb6:
+    jmp L_bb4
+L_bb4:
+    _8 = load _6+0 as i64
+    _sw_bb4 = _8
+    _sw_bb4_eq_0 = eq _sw_bb4, 0
+    br _sw_bb4_eq_0 -> L_bb7, L_sw_bb4_0
+L_sw_bb4_0:
+    _sw_bb4_eq_1 = eq _sw_bb4, 1
+    br _sw_bb4_eq_1 -> L_bb6, L_bb5
+L_bb5:
+    // MIR unreachable (diverging path)
+    panic(1605)
+L_bb6:
     _9 = _6
     _11 = &_9
     // MIR: std::char::methods::<impl char>::is_ascii_alphabetic
-    _10 = call @std_char_methods_impl_char_is_ascii_alphabetic(^_11)
-    jmp bb8
-bb7:
+    _10 = call @std_char_methods_impl_char_is_ascii_alphabetic(_11)
+    jmp L_bb8
+L_bb8:
+    _sw_bb8 = _10
+    _sw_bb8_eq_0 = eq _sw_bb8, 0
+    br _sw_bb8_eq_0 -> L_bb3, L_bb9
+L_bb9:
+    // UNSUPPORTED binop -> _12: AddWithOverflow(_2, 1)
+    _12 = 0
+    _as_bb9 = _12
+    _as_bb9_eq = eq _as_bb9, 0
+    br _as_bb9_eq -> L_bb10, L_as_bb9_fail
+L_as_bb9_fail:
+    // assert failed: Overflow(Add, copy _2, const 1_usize)
+    panic(1509)
+L_bb10:
+    // UNSUPPORTED rebind -> _2 (already bound; keeping first value)
+    jmp L_bb3
+L_bb7:
     _0 = _2
     return 0
-bb8:
-    _sw_bb8 = ^_10
-    br _sw_bb8 == 0 -> bb3
-    jmp bb9
-bb9:
-    _12 = AddWithOverflow(_2, Val(Scalar(0x0000000000000001), usize))
-    assert ^_12
-    jmp bb10
-bb10:
-    _2 = ^_12
-    jmp bb3
 
-@f_cast() -> i32:
-bb0:
-    _4 = *_1 // cast: i32
-    _3 = *^_4 // cast: i64
-    _6 = *_2 // cast: i32
-    _5 = *^_6 // cast: i64
-    _9 = BitXor(_3, _5)
-    _8 = BitAnd(^_9, Val(Scalar(0x00000000000000ff), i64))
-    _11 = *Val(Scalar(0x00000002), i32) // cast: u32
-    _12 = Lt(^_11, Val(Scalar(0x00000040), u32))
-    assert ^_12
-    jmp bb1
-bb1:
-    _10 = Shl(_3, Val(Scalar(0x00000002), i32))
-    _7 = BitOr(^_8, ^_10)
-    _15 = *_5 // cast: u64
-    _16 = *Val(Scalar(0x00000001), i32) // cast: u32
-    _17 = Lt(^_16, Val(Scalar(0x00000040), u32))
-    assert ^_17
-    jmp bb2
-bb2:
-    _14 = Shr(^_15, Val(Scalar(0x00000001), i32))
-    _13 = *^_14 // cast: i64
-    _0 = BitOr(^_7, ^_13)
+@f_cast(_1: i64, _2: f64) -> i64:
+L_bb0:
+    _4 = trunc _1 as i32
+    _mv_bb0_0 = _4
+    _3 = sext _mv_bb0_0 as i64
+    _6 = fptosi _2 as i32
+    _mv_bb0_1 = _6
+    _5 = sext _mv_bb0_1 as i64
+    _9 = xor _3, _5
+    _mv_bb0_2 = _9
+    _8 = and _mv_bb0_2, 255
+    _11 = 2
+    // UNSUPPORTED binop -> _12: Lt(_mv_bb0_3, 64)
+    _12 = 0
+    _as_bb0 = _12
+    _as_bb0_eq = eq _as_bb0, 1
+    br _as_bb0_eq -> L_bb1, L_as_bb0_fail
+L_as_bb0_fail:
+    // assert failed: Overflow(Shl, copy _3, const 2_i32)
+    panic(1500)
+L_bb1:
+    _10 = shl _3, 2
+    _mv_bb1_0 = _8
+    _mv_bb1_1 = _10
+    _7 = or _mv_bb1_0, _mv_bb1_1
+    _15 = _5
+    _16 = 1
+    // UNSUPPORTED binop -> _17: Lt(_mv_bb1_2, 64)
+    _17 = 0
+    _as_bb1 = _17
+    _as_bb1_eq = eq _as_bb1, 1
+    br _as_bb1_eq -> L_bb2, L_as_bb1_fail
+L_as_bb1_fail:
+    // assert failed: Overflow(Shr, copy _15, const 1_i32)
+    panic(1501)
+L_bb2:
+    // UNSUPPORTED binop -> _14: Shr(_mv_bb2_0, 1)
+    _14 = 0
+    _mv_bb2_1 = _14
+    _13 = _mv_bb2_1
+    _mv_bb2_2 = _7
+    _mv_bb2_3 = _13
+    _0 = or _mv_bb2_2, _mv_bb2_3
     return 0
 
-@TLS_N() -> i32:
-bb0:
+@TLS_N() -> ptr:
+L_bb0:
     // nop: Discriminant(9)
     // MIR: std::thread::LocalKey::<std::cell::Cell<u32>>::new
-    _0 = call @std_thread_LocalKey_std_cell_Cell_u32_new(Unevaluated(UnevaluatedConst { def: DefId(0:64 ~ main[a064]:)
-    jmp bb1
-bb1:
+    // UNSUPPORTED call-args: unresolvable const (control preserved)
+    _0 = 0
+    jmp L_bb1
+L_bb1:
     return 0
 
-@__RUST_STD_INTERNAL_INIT() -> i32:
-bb0:
+@__RUST_STD_INTERNAL_INIT() -> ptr:
+L_bb0:
     // nop: Discriminant(9)
     // MIR: std::cell::Cell::<u32>::new
-    _0 = call @std_cell_Cell_u32_new(Val(Scalar(0x00000000), u32))
-    jmp bb1
-bb1:
+    _0 = call @std_cell_Cell_u32_new(0)
+    jmp L_bb1
+L_bb1:
     return 0
 
-@{constant#0}() -> i32:
-bb0:
+@_constant_0_() -> ptr:
+L_bb0:
     // StorageLive _1
     // nop: Discriminant(9)
     // MIR: std::mem::needs_drop::<std::cell::Cell<u32>>
     _1 = call @std_mem_needs_drop_std_cell_Cell_u32()
-    jmp bb1
-bb1:
-    _sw_bb1 = ^_1
-    br _sw_bb1 == 0 -> bb3
-    jmp bb2
-bb2:
+    jmp L_bb1
+L_bb1:
+    _sw_bb1 = _1
+    _sw_bb1_eq_0 = eq _sw_bb1, 0
+    br _sw_bb1_eq_0 -> L_bb3, L_bb2
+L_bb2:
     // StorageLive _2
-    _2 = 0 // zero-elem aggregate (unit/niche; tag via SetDisc when present)
-    _0 = *^_2 // cast: Binder { value: fn(std::option::Option<&'^0 mut std::option:
+    // zero-elem aggregate (unit/niche; tag via SetDisc when present)
+    _2 = 0
+    // UNSUPPORTED cast -> _0: _mv_bb2_0 as Binder { value: fn(std::option::Option<&'^0 mut std::option: (src Closure(DefId(0:65 ~ main[a064)
+    _0 = 0
     // StorageDead _2
-    jmp bb4
-bb3:
+    jmp L_bb4
+L_bb3:
     // StorageLive _3
-    _3 = 0 // zero-elem aggregate (unit/niche; tag via SetDisc when present)
-    _0 = *^_3 // cast: Binder { value: fn(std::option::Option<&'^0 mut std::option:
+    // zero-elem aggregate (unit/niche; tag via SetDisc when present)
+    _3 = 0
+    // UNSUPPORTED cast -> _0: _mv_bb3_0 as Binder { value: fn(std::option::Option<&'^0 mut std::option: (src Closure(DefId(0:67 ~ main[a064)
+    _0 = 0
     // StorageDead _3
-    jmp bb4
-bb4:
+    jmp L_bb4
+L_bb4:
     // StorageDead _1
     return 0
 
-@{closure#0}() -> i32:
-bb0:
-    _3 = call @sa_thread_local_slot(2502843649321046884) // thread-local: TLS_N::{constant#0}::{closure#0}::__RUST_STD_INTERNAL_VAL
+@_closure_0_(_1: ptr, _2: ptr) -> ptr:
+L_bb0:
+    // thread-local registry slot
+    _3 = call @sa_thread_local_slot(2502843649321046884)
     // MIR: std::thread::local_impl::EagerStorage::<std::cell::Cell<u32>>::get
     _0 = call @std_thread_local_impl_EagerStorage_std_cell_Cell_u32_get(_3)
-    jmp bb1
-bb1:
+    jmp L_bb1
+L_bb1:
     return 0
 
-@__RUST_STD_INTERNAL_VAL() -> i32:
-bb0:
+@__RUST_STD_INTERNAL_VAL() -> ptr:
+L_bb0:
     // nop: Discriminant(9)
     // MIR: std::thread::local_impl::EagerStorage::<std::cell::Cell<u32>>::new
-    _0 = call @std_thread_local_impl_EagerStorage_std_cell_Cell_u32_new(Unevaluated(UnevaluatedConst { def: DefId(0:63 ~ main[a064]:)
-    jmp bb1
-bb1:
+    // UNSUPPORTED call-args: unresolvable const (control preserved)
+    _0 = 0
+    jmp L_bb1
+L_bb1:
     return 0
 
-@{closure#1}() -> i32:
-bb0:
-    _3 = call @sa_thread_local_slot(18153923440919753515) // thread-local: TLS_N::{constant#0}::{closure#1}::__RUST_STD_INTERNAL_VAL
-    _0 = *_3 // raw-ptr const
+@_closure_1_(_1: ptr, _2: ptr) -> ptr:
+L_bb0:
+    // thread-local registry slot
+    _3 = call @sa_thread_local_slot(18153923440919753515)
+    _0 = _3
     return 0
 
-@__RUST_STD_INTERNAL_VAL() -> i32:
-bb0:
-    _0 = Unevaluated(UnevaluatedConst { def: DefId(0:63 ~ main[a064]:
+@__RUST_STD_INTERNAL_VAL() -> ptr:
+L_bb0:
+    // UNSUPPORTED const-value -> _0: unresolvable const Unevaluated(UnevaluatedConst { def: DefId(0:63 ~ main[a064]:
+    _0 = 0
     return 0
 
-@f_tls() -> i32:
-bb0:
-    _1 = Unevaluated(UnevaluatedConst { def: DefId(0:51 ~ main[a064]:
+@f_tls() -> u32:
+L_bb0:
+    // UNSUPPORTED const-value -> _1: unresolvable const Unevaluated(UnevaluatedConst { def: DefId(0:51 ~ main[a064]:
+    _1 = 0
     // MIR: std::thread::LocalKey::<std::cell::Cell<u32>>::with::<{closure@/content/sa_all/sarust/corpus/src/mai
-    _0 = call @std_thread_LocalKey_std_cell_Cell_u32_with_closure_content_sa_all_sarust_corpus_(^_1, Val(ZeroSized, Closure(DefId(0:52 ~ main[a064]::f_tls::{clos)
-    jmp bb1
-bb1:
+    _0 = call @std_thread_LocalKey_std_cell_Cell_u32_with_closure_content_sa_all_sarust_corpus_(_1, 0)
+    jmp L_bb1
+L_bb1:
     return 0
 
-@{closure#0}() -> i32:
-bb0:
+@_closure_0_(_1: ptr, _2: ptr) -> u32:
+L_bb0:
     // MIR: std::cell::Cell::<u32>::get
     _5 = call @std_cell_Cell_u32_get(_2)
-    jmp bb1
-bb1:
-    _6 = AddWithOverflow(_5, Val(Scalar(0x00000001), u32))
-    assert ^_6
-    jmp bb2
-bb2:
-    _4 = ^_6
+    jmp L_bb1
+L_bb1:
+    // UNSUPPORTED binop -> _6: AddWithOverflow(_5, 1)
+    _6 = 0
+    _as_bb1 = _6
+    _as_bb1_eq = eq _as_bb1, 0
+    br _as_bb1_eq -> L_bb2, L_as_bb1_fail
+L_as_bb1_fail:
+    // assert failed: Overflow(Add, move _5, const 1_u32)
+    panic(1501)
+L_bb2:
+    _4 = _6
     // MIR: std::cell::Cell::<u32>::set
-    _3 = call @std_cell_Cell_u32_set(_2, ^_4)
-    jmp bb3
-bb3:
+    call @std_cell_Cell_u32_set(_2, _4)
+    // unit call result (exact: () carries no data)
+    _3 = 0
+    jmp L_bb3
+L_bb3:
     // MIR: std::cell::Cell::<u32>::get
     _0 = call @std_cell_Cell_u32_get(_2)
-    jmp bb4
-bb4:
+    jmp L_bb4
+L_bb4:
     return 0
 
-@f_raw() -> i32:
-bb0:
-    _2 = *_1 // raw-ptr mut (assume_safe; Referee: UnsafeBinder)
-    _3 = *_2 // raw-ptr const
-    _12 = *_2 // cast: *const ()
-    _13 = *_12 // cast: usize
-    _14 = Sub(Unevaluated(UnevaluatedConst { def: DefId(2:3023 ~ core[f1c6, Val(Scalar(0x0000000000000001), usize))
-    _15 = BitAnd(_13, _14)
-    _16 = Eq(_15, Val(Scalar(0x0000000000000000), usize))
-    assert _16
-    jmp bb3
-bb1:
-    _0 = ^_6
-    return 0
-bb2:
-    _23 = *_3 // cast: *const ()
-    _24 = *_23 // cast: usize
-    _25 = Ne(Unevaluated(UnevaluatedConst { def: DefId(2:3022 ~ core[f1c6, Val(Scalar(0x0000000000000000), usize))
-    _26 = Eq(_24, Val(Scalar(0x0000000000000000), usize))
-    _27 = BitAnd(_26, _25)
-    _28 = Not(_27)
-    assert _28
-    jmp bb5
-bb3:
-    _17 = *_2 // cast: *const ()
-    _18 = *_17 // cast: usize
-    _19 = Ne(Unevaluated(UnevaluatedConst { def: DefId(2:3022 ~ core[f1c6, Val(Scalar(0x0000000000000000), usize))
-    _20 = Eq(_18, Val(Scalar(0x0000000000000000), usize))
-    _21 = BitAnd(_20, _19)
-    _22 = Not(_21)
-    assert _22
-    jmp bb4
-bb4:
+@f_raw(_1: ptr) -> i32:
+L_bb0:
+    _2 = _1
+    _3 = _2
+    _12 = _2
+    _13 = _12
+    // UNSUPPORTED const-value -> _14: unresolvable const Unevaluated(UnevaluatedConst { def: DefId(2:3023 ~ core[f1c6
+    _14 = 0
+    _15 = and _13, _14
+    _16 = eq _15, 0
+    _as_bb0_eq = eq _16, 1
+    br _as_bb0_eq -> L_bb3, L_as_bb0_fail
+L_as_bb0_fail:
+    // assert failed: MisalignedPointerDereference { required: const <i32 as std::mem::SizedTypeProper
+    panic(1500)
+L_bb3:
+    _17 = _2
+    _18 = _17
+    // UNSUPPORTED const-value -> _19: unresolvable const Unevaluated(UnevaluatedConst { def: DefId(2:3022 ~ core[f1c6
+    _19 = 0
+    _20 = eq _18, 0
+    _21 = and _20, _19
+    _22 = not _21
+    _as_bb3_eq = eq _22, 1
+    br _as_bb3_eq -> L_bb4, L_as_bb3_fail
+L_as_bb3_fail:
+    // assert failed: NullPointerDereference
+    panic(1503)
+L_bb4:
     _4 = _2
-    _7 = *_3 // cast: *const ()
-    _8 = *_7 // cast: usize
-    _9 = Sub(Unevaluated(UnevaluatedConst { def: DefId(2:3023 ~ core[f1c6, Val(Scalar(0x0000000000000001), usize))
-    _10 = BitAnd(_8, _9)
-    _11 = Eq(_10, Val(Scalar(0x0000000000000000), usize))
-    assert _11
-    jmp bb2
-bb5:
+    _7 = _3
+    _8 = _7
+    // UNSUPPORTED const-value -> _9: unresolvable const Unevaluated(UnevaluatedConst { def: DefId(2:3023 ~ core[f1c6
+    _9 = 0
+    _10 = and _8, _9
+    _11 = eq _10, 0
+    _as_bb4_eq = eq _11, 1
+    br _as_bb4_eq -> L_bb2, L_as_bb4_fail
+L_as_bb4_fail:
+    // assert failed: MisalignedPointerDereference { required: const <i32 as std::mem::SizedTypeProper
+    panic(1504)
+L_bb2:
+    _23 = _3
+    _24 = _23
+    // UNSUPPORTED const-value -> _25: unresolvable const Unevaluated(UnevaluatedConst { def: DefId(2:3022 ~ core[f1c6
+    _25 = 0
+    _26 = eq _24, 0
+    _27 = and _26, _25
+    _28 = not _27
+    _as_bb2_eq = eq _28, 1
+    br _as_bb2_eq -> L_bb5, L_as_bb2_fail
+L_as_bb2_fail:
+    // assert failed: NullPointerDereference
+    panic(1502)
+L_bb5:
     _5 = _3
-    _6 = AddWithOverflow(_4, _5)
-    assert ^_6
-    jmp bb1
+    // UNSUPPORTED binop -> _6: AddWithOverflow(_4, _5)
+    _6 = 0
+    _as_bb5 = _6
+    _as_bb5_eq = eq _as_bb5, 0
+    br _as_bb5_eq -> L_bb1, L_as_bb5_fail
+L_as_bb5_fail:
+    // assert failed: Overflow(Add, move _4, move _5)
+    panic(1505)
+L_bb1:
+    _0 = _6
+    return 0
 
-@f_asm() -> i32:
-bb0:
-    _2 = _1 // inline-asm mov (exact reg copy)
-bb1:
+@f_asm(_1: u64) -> u64:
+L_bb0:
+    // inline-asm mov (exact reg copy)
+    _2 = _1
+    jmp L_bb1
+L_bb1:
     _0 = _2
     return 0
 
-@f_underscore() -> i32:
-bb0:
+@f_underscore(_1: ptr) -> u64:
+L_bb0:
     _3 = &_1
     // MIR: std::string::String::len
-    _2 = call @std_string_String_len(^_3)
-    jmp bb1
-bb1:
+    _2 = call @std_string_String_len(_3)
+    jmp L_bb1
+L_bb1:
     // MIR: std::boxed::Box::<i32>::new
-    _4 = call @std_boxed_Box_i32_new(Val(Scalar(0x00000009), i32))
-    jmp bb2
-bb2:
-    _6 = *_4 // cast: *const i32
-    _7 = *_6 // cast: *const ()
-    _8 = *_7 // cast: usize
-    _9 = Sub(Unevaluated(UnevaluatedConst { def: DefId(2:3023 ~ core[f1c6, Val(Scalar(0x0000000000000001), usize))
-    _10 = BitAnd(_8, _9)
-    _11 = Eq(_10, Val(Scalar(0x0000000000000000), usize))
-    assert _11
-    jmp bb7
-bb3:
-    !_1
-    jmp bb4
-bb4:
-    return 0
-bb5:
-    !_1
-    jmp bb6
-bb6:
-    panic("unwind-resume") // MIR Resume (cleanup path)
-bb7:
-    _12 = *_6 // cast: *const ()
-    _13 = *_12 // cast: usize
-    _14 = Ne(Unevaluated(UnevaluatedConst { def: DefId(2:3022 ~ core[f1c6, Val(Scalar(0x0000000000000000), usize))
-    _15 = Eq(_13, Val(Scalar(0x0000000000000000), usize))
-    _16 = BitAnd(_15, _14)
-    _17 = Not(_16)
-    assert _17
-    jmp bb8
-bb8:
+    _4 = call @std_boxed_Box_i32_new(9)
+    jmp L_bb2
+L_bb2:
+    _6 = _4
+    _7 = _6
+    _8 = _7
+    // UNSUPPORTED const-value -> _9: unresolvable const Unevaluated(UnevaluatedConst { def: DefId(2:3023 ~ core[f1c6
+    _9 = 0
+    _10 = and _8, _9
+    _11 = eq _10, 0
+    _as_bb2_eq = eq _11, 1
+    br _as_bb2_eq -> L_bb7, L_as_bb2_fail
+L_as_bb2_fail:
+    // assert failed: MisalignedPointerDereference { required: const <i32 as std::mem::SizedTypeProper
+    panic(1502)
+L_bb7:
+    _12 = _6
+    _13 = _12
+    // UNSUPPORTED const-value -> _14: unresolvable const Unevaluated(UnevaluatedConst { def: DefId(2:3022 ~ core[f1c6
+    _14 = 0
+    _15 = eq _13, 0
+    _16 = and _15, _14
+    _17 = not _16
+    _as_bb7_eq = eq _17, 1
+    br _as_bb7_eq -> L_bb8, L_as_bb7_fail
+L_as_bb7_fail:
+    // assert failed: NullPointerDereference
+    panic(1507)
+L_bb8:
     _5 = _6
-    _0 = *_5 // cast: usize
+    _0 = sext _5 as u64
     !_4
-    jmp bb3
+    jmp L_bb3
+L_bb3:
+    !_1
+    jmp L_bb4
+L_bb4:
+    return 0
+L_bb5:
+    !_1
+    jmp L_bb6
+L_bb6:
+    // MIR Resume (cleanup path)
+    panic("unwind-resume")
 
-@f_thread_map() -> i32:
-bb0:
-    _17 = Val(Scalar(0x00), bool)
-    _16 = Val(Scalar(0x00), bool)
-    _17 = Val(Scalar(0x01), bool)
+@f_thread_map() -> u64:
+L_bb0:
+    _17 = 0
+    _16 = 0
+    // UNSUPPORTED rebind -> _17 (already bound; keeping first value)
     // MIR: std::thread::spawn::<{closure@/content/sa_all/sarust/corpus/src/main.rs:205:32: 205:34}, usize>
-    _1 = call @std_thread_spawn_closure_content_sa_all_sarust_corpus_src_main_rs_205_32_205_34_(Val(ZeroSized, Closure(DefId(0:57 ~ main[a064]::f_thread_map)
-    jmp bb1
-bb1:
+    _1 = call @std_thread_spawn_closure_content_sa_all_sarust_corpus_src_main_rs_205_32_205_34_(0)
+    jmp L_bb1
+L_bb1:
     // MIR: std::collections::HashMap::<std::string::String, usize>::new
     _2 = call @std_collections_HashMap_std_string_String_usize_new()
-    jmp bb2
-bb2:
-    _4 = &_2 // mut-borrow (Phase1: & + Referee)
+    jmp L_bb2
+L_bb2:
+    // mut-borrow (Phase1: & + Referee)
+    _4 = &_2
     // MIR: <std::string::String as std::convert::From<&str>>::from
-    _5 = call @std_string_String_as_std_convert_From_str_from(Val(Slice { alloc_id: alloc25, meta: 1 }, &'{erased} str))
-    jmp bb3
-bb3:
-    _16 = Val(Scalar(0x01), bool)
-    _17 = Val(Scalar(0x00), bool)
-    _8 = ^_1
+    // UNSUPPORTED call-args: unresolvable const (control preserved)
+    _5 = 0
+    jmp L_bb3
+L_bb3:
+    // UNSUPPORTED rebind -> _16 (already bound; keeping first value)
+    // UNSUPPORTED rebind -> _17 (already bound; keeping first value)
+    _8 = _1
     // MIR: std::thread::JoinHandle::<usize>::join
-    _7 = call @std_thread_JoinHandle_usize_join(^_8)
-    jmp bb4
-bb4:
+    _7 = call @std_thread_JoinHandle_usize_join(_8)
+    jmp L_bb4
+L_bb4:
     // MIR: std::result::Result::<usize, std::boxed::Box<dyn std::any::Any + std::marker::Send>>::unwrap
-    _6 = call @std_result_Result_usize_std_boxed_Box_dyn_std_any_Any_std_marker_Send_unwrap(^_7)
-    jmp bb5
-bb5:
-    _16 = Val(Scalar(0x00), bool)
+    _6 = call @std_result_Result_usize_std_boxed_Box_dyn_std_any_Any_std_marker_Send_unwrap(_7)
+    jmp L_bb5
+L_bb5:
+    // UNSUPPORTED rebind -> _16 (already bound; keeping first value)
     // MIR: std::collections::HashMap::<std::string::String, usize>::insert
-    _3 = call @std_collections_HashMap_std_string_String_usize_insert(^_4, ^_5, ^_6)
-    jmp bb6
-bb6:
-    _16 = Val(Scalar(0x00), bool)
-    _11 = &_2 // mut-borrow (Phase1: & + Referee)
+    _3 = call @std_collections_HashMap_std_string_String_usize_insert(_4, _5, _6)
+    jmp L_bb6
+L_bb6:
+    // UNSUPPORTED rebind -> _16 (already bound; keeping first value)
+    // mut-borrow (Phase1: & + Referee)
+    _11 = &_2
     // MIR: <std::string::String as std::convert::From<&str>>::from
-    _12 = call @std_string_String_as_std_convert_From_str_from(Val(Slice { alloc_id: alloc26, meta: 1 }, &'{erased} str))
-    jmp bb7
-bb7:
+    // UNSUPPORTED call-args: unresolvable const (control preserved)
+    _12 = 0
+    jmp L_bb7
+L_bb7:
     // MIR: std::collections::HashMap::<std::string::String, usize>::entry
-    _10 = call @std_collections_HashMap_std_string_String_usize_entry(^_11, ^_12)
-    jmp bb8
-bb8:
+    _10 = call @std_collections_HashMap_std_string_String_usize_entry(_11, _12)
+    jmp L_bb8
+L_bb8:
     // MIR: std::collections::hash_map::Entry::<'_, std::string::String, usize>::or_insert
-    _9 = call @std_collections_hash_map_Entry___std_string_String_usize_or_insert(^_10, Val(Scalar(0x0000000000000001), usize))
-    jmp bb9
-bb9:
-    _13 = AddWithOverflow(_9, Val(Scalar(0x0000000000000001), usize))
-    assert ^_13
-    jmp bb10
-bb10:
-    _9 = ^_13 // place: (*_9)
+    _9 = call @std_collections_hash_map_Entry___std_string_String_usize_or_insert(_10, 1)
+    jmp L_bb9
+L_bb9:
+    // UNSUPPORTED binop -> _13: AddWithOverflow(_9, 1)
+    _13 = 0
+    _as_bb9 = _13
+    _as_bb9_eq = eq _as_bb9, 0
+    br _as_bb9_eq -> L_bb10, L_as_bb9_fail
+L_as_bb9_fail:
+    // assert failed: Overflow(Add, copy (*_9), const 1_usize)
+    panic(1509)
+L_bb10:
+    // UNSUPPORTED rebind -> _9 (already bound; keeping first value)
     _15 = &_2
     // MIR: std::collections::HashMap::<std::string::String, usize>::values
-    _14 = call @std_collections_HashMap_std_string_String_usize_values(^_15)
-    jmp bb11
-bb11:
+    _14 = call @std_collections_HashMap_std_string_String_usize_values(_15)
+    jmp L_bb11
+L_bb11:
     // MIR: <std::collections::hash_map::Values<'_, std::string::String, usize> as std::iter::Iterator>::sum::<u
-    _0 = call @std_collections_hash_map_Values___std_string_String_usize_as_std_iter_Iterator_s(^_14)
-    jmp bb12
-bb12:
+    _0 = call @std_collections_hash_map_Values___std_string_String_usize_as_std_iter_Iterator_s(_14)
+    jmp L_bb12
+L_bb12:
     !_2
-    jmp bb13
-bb13:
-    _17 = Val(Scalar(0x00), bool)
+    jmp L_bb13
+L_bb13:
+    // UNSUPPORTED rebind -> _17 (already bound; keeping first value)
     return 0
-bb14:
+L_bb14:
     !_2
-    jmp bb19
-bb15:
-    panic("unwind-resume") // MIR Resume (cleanup path)
-bb16:
+    jmp L_bb19
+L_bb15:
+    // MIR Resume (cleanup path)
+    panic("unwind-resume")
+L_bb16:
     !_5
-    jmp bb14
-bb17:
-    br _16 == 0 -> bb14
-    jmp bb16
-bb18:
+    jmp L_bb14
+L_bb17:
+    _sw_bb17_eq_0 = eq _16, 0
+    br _sw_bb17_eq_0 -> L_bb14, L_bb16
+L_bb18:
     !_1
-    jmp bb15
-bb19:
-    br _17 == 0 -> bb15
-    jmp bb18
+    jmp L_bb15
+L_bb19:
+    _sw_bb19_eq_0 = eq _17, 0
+    br _sw_bb19_eq_0 -> L_bb15, L_bb18
 
-@{closure#0}() -> i32:
-bb0:
-    _2 = AddWithOverflow(Val(Scalar(0x0000000000000028), usize), Val(Scalar(0x0000000000000002), usize))
-    assert ^_2
-    jmp bb1
-bb1:
-    _0 = ^_2
+@_closure_0_(_1: ptr) -> u64:
+L_bb0:
+    // UNSUPPORTED binop -> _2: AddWithOverflow(40, 2)
+    _2 = 0
+    _as_bb0 = _2
+    _as_bb0_eq = eq _as_bb0, 0
+    br _as_bb0_eq -> L_bb1, L_as_bb0_fail
+L_as_bb0_fail:
+    // assert failed: Overflow(Add, const 40_usize, const 2_usize)
+    panic(1500)
+L_bb1:
+    _0 = _2
     return 0
 
-@f_async() -> i32:
-bb0:
-    _0 = _1 // single-elem aggregate (exact)
+@f_async(_1: i32) -> ptr:
+L_bb0:
+    // single-elem aggregate (exact)
+    _0 = _1
     return 0
 
-@{closure#0}() -> i32:
-bb0:
-    _11 = *^_2 // cast: std::ptr::NonNull<std::task::Context<'{erased}>>
-    _10 = ^_11 // single-elem aggregate (exact)
+@_closure_0_(_1: ptr, _2: ptr) -> ptr:
+L_bb0:
+    _mv_bb0_0 = _2
+    _11 = _mv_bb0_0
+    // single-elem aggregate (exact)
+    _10 = _11
     _9 = _1
-    _8 = discriminant(_9) // enum tag read
-    _sw_bb0 = ^_8
-    br _sw_bb0 == 0 -> bb7
-    br _sw_bb0 == 1 -> bb5
-    br _sw_bb0 == 2 -> bb4
-    jmp bb6
-bb1:
-    _4 = ^_5
-    _6 = MulWithOverflow(_4, Val(Scalar(0x00000002), i32))
-    assert ^_6
-    jmp bb2
-bb2:
-    _7 = ^_6
-    _0 = ^_7 // single-elem aggregate (exact)
-    store _9+0, 1 as i64 // set-discriminant (enum tag)
+    _8 = load _9+0 as i64
+    _sw_bb0 = _8
+    _sw_bb0_eq_0 = eq _sw_bb0, 0
+    br _sw_bb0_eq_0 -> L_bb7, L_sw_bb0_0
+L_sw_bb0_0:
+    _sw_bb0_eq_1 = eq _sw_bb0, 1
+    br _sw_bb0_eq_1 -> L_bb5, L_sw_bb0_1
+L_sw_bb0_1:
+    _sw_bb0_eq_2 = eq _sw_bb0, 2
+    br _sw_bb0_eq_2 -> L_bb4, L_bb6
+L_bb6:
+    // MIR unreachable (diverging path)
+    panic(1606)
+L_bb4:
+    _as_bb4_eq = eq 0, 1
+    br _as_bb4_eq -> L_bb4, L_as_bb4_fail
+L_as_bb4_fail:
+    // assert failed: ResumedAfterPanic(Desugared(Async, Fn))
+    panic(1504)
+L_bb5:
+    _as_bb5_eq = eq 0, 1
+    br _as_bb5_eq -> L_bb5, L_as_bb5_fail
+L_as_bb5_fail:
+    // assert failed: ResumedAfterReturn(Desugared(Async, Fn))
+    panic(1505)
+L_bb7:
+    _3 = _9
+    // UNSUPPORTED binop -> _5: AddWithOverflow(_3, 1)
+    _5 = 0
+    _as_bb7 = _5
+    _as_bb7_eq = eq _as_bb7, 0
+    br _as_bb7_eq -> L_bb1, L_as_bb7_fail
+L_as_bb7_fail:
+    // assert failed: Overflow(Add, copy _3, const 1_i32)
+    panic(1507)
+L_bb1:
+    _4 = _5
+    // UNSUPPORTED binop -> _6: MulWithOverflow(_4, 2)
+    _6 = 0
+    _as_bb1 = _6
+    _as_bb1_eq = eq _as_bb1, 0
+    br _as_bb1_eq -> L_bb2, L_as_bb1_fail
+L_as_bb1_fail:
+    // assert failed: Overflow(Mul, copy _4, const 2_i32)
+    panic(1501)
+L_bb2:
+    _7 = _6
+    // single-elem aggregate (exact)
+    _0 = _7
+    // set-discriminant (enum tag)
+    store _9+0, 1 as i64
     return 0
-bb3:
-    store _9+0, 2 as i64 // set-discriminant (enum tag)
-    panic("unwind-resume") // MIR Resume (cleanup path)
-bb4:
-    assert Val(Scalar(0x00), bool)
-    jmp bb4
-bb5:
-    assert Val(Scalar(0x00), bool)
-    jmp bb5
-bb6:
-    unreachable
-bb7:
-    _3 = _proj
-    _5 = AddWithOverflow(_3, Val(Scalar(0x00000001), i32))
-    assert ^_5
-    jmp bb1
+L_bb3:
+    // set-discriminant (enum tag)
+    store _9+0, 2 as i64
+    // MIR Resume (cleanup path)
+    panic("unwind-resume")
 
-@main() -> i32:
-bb0:
+@main() -> void:
+L_bb0:
     // aggregate Adt init @ _6 (p_layout v2: rustc layout)
     _agg_bb0 = alloc 12
     store _agg_bb0+4, 1 as i32
     store _agg_bb0+8, 2 as i32
     _6 = _agg_bb0
     // MIR: f_match
-    _5 = call @f_match(^_6)
-    jmp bb1
-bb1:
+    _5 = call @f_match(_6)
+    jmp L_bb1
+L_bb1:
     _4 = &_5
-    _3 = ^_4 // single-elem aggregate (exact)
+    // single-elem aggregate (exact)
+    _3 = _4
     _205 = _3
     // MIR: core::fmt::rt::Argument::<'_>::new_display::<i32>
     _8 = call @core_fmt_rt_Argument___new_display_i32(_205)
-    jmp bb2
-bb2:
-    _7 = ^_8 // single-elem aggregate (exact)
-    _9 = Val(Scalar(alloc27), &'{erased} [u8; 4_usize])
+    jmp L_bb2
+L_bb2:
+    // single-elem aggregate (exact)
+    _7 = _8
+    // UNSUPPORTED const-value -> _9: unresolvable const Val(Scalar(alloc27), &'{erased} [u8; 4_usize])
+    _9 = 0
     _10 = &_7
     // MIR: std::fmt::Arguments::<'_>::new::<4, 1>
-    _2 = call @std_fmt_Arguments___new_4_1(^_9, _10)
-    jmp bb3
-bb3:
+    _2 = call @std_fmt_Arguments___new_4_1(_9, _10)
+    jmp L_bb3
+L_bb3:
     // MIR: std::io::_print
-    _1 = call @std_io__print(^_2)
-    jmp bb4
-bb4:
-    _17 = Val(Scalar(0x00000000), i32) // single-elem aggregate (exact)
-    _16 = &_17 // mut-borrow (Phase1: & + Referee)
+    call @std_io__print(_2)
+    // unit call result (exact: () carries no data)
+    _1 = 0
+    jmp L_bb4
+L_bb4:
+    // single-elem aggregate (exact)
+    _17 = 0
+    // mut-borrow (Phase1: & + Referee)
+    _16 = &_17
     // MIR: f_opt_mutate
     _15 = call @f_opt_mutate(_16)
-    jmp bb5
-bb5:
+    jmp L_bb5
+L_bb5:
     _14 = &_15
-    _13 = ^_14 // single-elem aggregate (exact)
+    // single-elem aggregate (exact)
+    _13 = _14
     _206 = _13
     // MIR: core::fmt::rt::Argument::<'_>::new_display::<i32>
     _19 = call @core_fmt_rt_Argument___new_display_i32(_206)
-    jmp bb6
-bb6:
-    _18 = ^_19 // single-elem aggregate (exact)
-    _20 = Val(Scalar(alloc27), &'{erased} [u8; 4_usize])
+    jmp L_bb6
+L_bb6:
+    // single-elem aggregate (exact)
+    _18 = _19
+    // UNSUPPORTED const-value -> _20: unresolvable const Val(Scalar(alloc27), &'{erased} [u8; 4_usize])
+    _20 = 0
     _21 = &_18
     // MIR: std::fmt::Arguments::<'_>::new::<4, 1>
-    _12 = call @std_fmt_Arguments___new_4_1(^_20, _21)
-    jmp bb7
-bb7:
+    _12 = call @std_fmt_Arguments___new_4_1(_20, _21)
+    jmp L_bb7
+L_bb7:
     // MIR: std::io::_print
-    _11 = call @std_io__print(^_12)
-    jmp bb8
-bb8:
+    call @std_io__print(_12)
+    // unit call result (exact: () carries no data)
+    _11 = 0
+    jmp L_bb8
+L_bb8:
     // aggregate Adt init @ _27 (p_layout v2: rustc layout)
     _agg_bb8 = alloc 8
     store _agg_bb8+0, 1 as i32
     store _agg_bb8+4, 2 as i32
     _27 = _agg_bb8
     // MIR: f_struct
-    _26 = call @f_struct(^_27)
-    jmp bb9
-bb9:
+    _26 = call @f_struct(_27)
+    jmp L_bb9
+L_bb9:
     _25 = &_26
-    _24 = ^_25 // single-elem aggregate (exact)
+    // single-elem aggregate (exact)
+    _24 = _25
     _207 = _24
     // MIR: core::fmt::rt::Argument::<'_>::new_display::<i32>
     _29 = call @core_fmt_rt_Argument___new_display_i32(_207)
-    jmp bb10
-bb10:
-    _28 = ^_29 // single-elem aggregate (exact)
-    _30 = Val(Scalar(alloc27), &'{erased} [u8; 4_usize])
+    jmp L_bb10
+L_bb10:
+    // single-elem aggregate (exact)
+    _28 = _29
+    // UNSUPPORTED const-value -> _30: unresolvable const Val(Scalar(alloc27), &'{erased} [u8; 4_usize])
+    _30 = 0
     _31 = &_28
     // MIR: std::fmt::Arguments::<'_>::new::<4, 1>
-    _23 = call @std_fmt_Arguments___new_4_1(^_30, _31)
-    jmp bb11
-bb11:
+    _23 = call @std_fmt_Arguments___new_4_1(_30, _31)
+    jmp L_bb11
+L_bb11:
     // MIR: std::io::_print
-    _22 = call @std_io__print(^_23)
-    jmp bb12
-bb12:
+    call @std_io__print(_23)
+    // unit call result (exact: () carries no data)
+    _22 = 0
+    jmp L_bb12
+L_bb12:
     // MIR: <std::string::String as std::convert::From<&str>>::from
-    _38 = call @std_string_String_as_std_convert_From_str_from(Val(Slice { alloc_id: alloc28, meta: 2 }, &'{erased} str))
-    jmp bb13
-bb13:
+    // UNSUPPORTED call-args: unresolvable const (control preserved)
+    _38 = 0
+    jmp L_bb13
+L_bb13:
     // aggregate Adt init @ _37 (p_layout v2: rustc layout)
     _agg_bb13 = alloc 32
     store _agg_bb13+24, 1 as i32
@@ -1211,473 +1525,584 @@ bb13:
     store _agg_bb13+28, 1 as u8
     _37 = _agg_bb13
     // MIR: f_tuple
-    _36 = call @f_tuple(^_37)
-    jmp bb14
-bb14:
+    _36 = call @f_tuple(_37)
+    jmp L_bb14
+L_bb14:
     _35 = &_36
-    _34 = ^_35 // single-elem aggregate (exact)
+    // single-elem aggregate (exact)
+    _34 = _35
     _208 = _34
     // MIR: core::fmt::rt::Argument::<'_>::new_display::<usize>
     _40 = call @core_fmt_rt_Argument___new_display_usize(_208)
-    jmp bb15
-bb15:
-    _39 = ^_40 // single-elem aggregate (exact)
-    _41 = Val(Scalar(alloc27), &'{erased} [u8; 4_usize])
+    jmp L_bb15
+L_bb15:
+    // single-elem aggregate (exact)
+    _39 = _40
+    // UNSUPPORTED const-value -> _41: unresolvable const Val(Scalar(alloc27), &'{erased} [u8; 4_usize])
+    _41 = 0
     _42 = &_39
     // MIR: std::fmt::Arguments::<'_>::new::<4, 1>
-    _33 = call @std_fmt_Arguments___new_4_1(^_41, _42)
-    jmp bb16
-bb16:
+    _33 = call @std_fmt_Arguments___new_4_1(_41, _42)
+    jmp L_bb16
+L_bb16:
     // MIR: std::io::_print
-    _32 = call @std_io__print(^_33)
-    jmp bb17
-bb17:
+    call @std_io__print(_33)
+    // unit call result (exact: () carries no data)
+    _32 = 0
+    jmp L_bb17
+L_bb17:
     // aggregate Adt init @ _50 (p_layout v2: rustc layout)
     _agg_bb17 = alloc 12
     store _agg_bb17+0, 1 as i32
     store _agg_bb17+4, 2 as i32
     store _agg_bb17+8, 3 as i32
     _50 = _agg_bb17
-    _49 = &_50 // mut-borrow (Phase1: & + Referee)
-    _48 = *_49 // cast: &'{erased} mut [i32]
+    // mut-borrow (Phase1: & + Referee)
+    _49 = &_50
+    // UNSUPPORTED cast -> _48: _49 as &'{erased} mut [i32] (src &)
+    _48 = 0
     // MIR: f_slice
-    _47 = call @f_slice(^_48)
-    jmp bb18
-bb18:
+    _47 = call @f_slice(_48)
+    jmp L_bb18
+L_bb18:
     _46 = &_47
-    _45 = ^_46 // single-elem aggregate (exact)
+    // single-elem aggregate (exact)
+    _45 = _46
     _209 = _45
     // MIR: core::fmt::rt::Argument::<'_>::new_display::<i32>
     _52 = call @core_fmt_rt_Argument___new_display_i32(_209)
-    jmp bb19
-bb19:
-    _51 = ^_52 // single-elem aggregate (exact)
-    _53 = Val(Scalar(alloc27), &'{erased} [u8; 4_usize])
+    jmp L_bb19
+L_bb19:
+    // single-elem aggregate (exact)
+    _51 = _52
+    // UNSUPPORTED const-value -> _53: unresolvable const Val(Scalar(alloc27), &'{erased} [u8; 4_usize])
+    _53 = 0
     _54 = &_51
     // MIR: std::fmt::Arguments::<'_>::new::<4, 1>
-    _44 = call @std_fmt_Arguments___new_4_1(^_53, _54)
-    jmp bb20
-bb20:
+    _44 = call @std_fmt_Arguments___new_4_1(_53, _54)
+    jmp L_bb20
+L_bb20:
     // MIR: std::io::_print
-    _43 = call @std_io__print(^_44)
-    jmp bb21
-bb21:
+    call @std_io__print(_44)
+    // unit call result (exact: () carries no data)
+    _43 = 0
+    jmp L_bb21
+L_bb21:
     // MIR: f_repeat
     _59 = call @f_repeat()
-    jmp bb22
-bb22:
+    jmp L_bb22
+L_bb22:
     _58 = &_59
-    _57 = ^_58 // single-elem aggregate (exact)
+    // single-elem aggregate (exact)
+    _57 = _58
     _210 = _57
     // MIR: core::fmt::rt::Argument::<'_>::new_debug::<[u8; 8]>
     _61 = call @core_fmt_rt_Argument___new_debug_u8_8(_210)
-    jmp bb23
-bb23:
-    _60 = ^_61 // single-elem aggregate (exact)
-    _62 = Val(Scalar(alloc27), &'{erased} [u8; 4_usize])
+    jmp L_bb23
+L_bb23:
+    // single-elem aggregate (exact)
+    _60 = _61
+    // UNSUPPORTED const-value -> _62: unresolvable const Val(Scalar(alloc27), &'{erased} [u8; 4_usize])
+    _62 = 0
     _63 = &_60
     // MIR: std::fmt::Arguments::<'_>::new::<4, 1>
-    _56 = call @std_fmt_Arguments___new_4_1(^_62, _63)
-    jmp bb24
-bb24:
+    _56 = call @std_fmt_Arguments___new_4_1(_62, _63)
+    jmp L_bb24
+L_bb24:
     // MIR: std::io::_print
-    _55 = call @std_io__print(^_56)
-    jmp bb25
-bb25:
-    _70 = Unevaluated(UnevaluatedConst { def: DefId(0:61 ~ main[a064]:
-    _69 = *_70 // cast: &'{erased} [i32]
+    call @std_io__print(_56)
+    // unit call result (exact: () carries no data)
+    _55 = 0
+    jmp L_bb25
+L_bb25:
+    // UNSUPPORTED const-value -> _70: unresolvable const Unevaluated(UnevaluatedConst { def: DefId(0:61 ~ main[a064]:
+    _70 = 0
+    // UNSUPPORTED cast -> _69: _70 as &'{erased} [i32] (src &)
+    _69 = 0
     // MIR: f_loops
-    _68 = call @f_loops(^_69)
-    jmp bb26
-bb26:
+    _68 = call @f_loops(_69)
+    jmp L_bb26
+L_bb26:
     _67 = &_68
-    _66 = ^_67 // single-elem aggregate (exact)
+    // single-elem aggregate (exact)
+    _66 = _67
     _211 = _66
     // MIR: core::fmt::rt::Argument::<'_>::new_display::<i32>
     _72 = call @core_fmt_rt_Argument___new_display_i32(_211)
-    jmp bb27
-bb27:
-    _71 = ^_72 // single-elem aggregate (exact)
-    _73 = Val(Scalar(alloc27), &'{erased} [u8; 4_usize])
+    jmp L_bb27
+L_bb27:
+    // single-elem aggregate (exact)
+    _71 = _72
+    // UNSUPPORTED const-value -> _73: unresolvable const Val(Scalar(alloc27), &'{erased} [u8; 4_usize])
+    _73 = 0
     _74 = &_71
     // MIR: std::fmt::Arguments::<'_>::new::<4, 1>
-    _65 = call @std_fmt_Arguments___new_4_1(^_73, _74)
-    jmp bb28
-bb28:
+    _65 = call @std_fmt_Arguments___new_4_1(_73, _74)
+    jmp L_bb28
+L_bb28:
     // MIR: std::io::_print
-    _64 = call @std_io__print(^_65)
-    jmp bb29
-bb29:
+    call @std_io__print(_65)
+    // unit call result (exact: () carries no data)
+    _64 = 0
+    jmp L_bb29
+L_bb29:
     // MIR: std::boxed::Box::<[i32; 1]>::new_uninit
     _81 = call @std_boxed_Box_i32_1_new_uninit()
-    jmp bb30
-bb30:
-    _225 = *_81 // cast: *const std::mem::MaybeUninit<[i32; 1_usize]>
-    _232 = *_225 // cast: *const ()
-    _233 = *_232 // cast: usize
-    _234 = Sub(Unevaluated(UnevaluatedConst { def: DefId(2:3023 ~ core[f1c6, Val(Scalar(0x0000000000000001), usize))
-    _235 = BitAnd(_233, _234)
-    _236 = Eq(_235, Val(Scalar(0x0000000000000000), usize))
-    assert _236
-    jmp bb94
-bb31:
+    jmp L_bb30
+L_bb30:
+    _225 = _81
+    _232 = _225
+    _233 = _232
+    // UNSUPPORTED const-value -> _234: unresolvable const Unevaluated(UnevaluatedConst { def: DefId(2:3023 ~ core[f1c6
+    _234 = 0
+    _235 = and _233, _234
+    _236 = eq _235, 0
+    _as_bb30_eq = eq _236, 1
+    br _as_bb30_eq -> L_bb94, L_as_bb30_fail
+L_as_bb30_fail:
+    // assert failed: MisalignedPointerDereference { required: const <std::mem::MaybeUninit<[i32; 1]> 
+    panic(1530)
+L_bb94:
+    _237 = _225
+    _238 = _237
+    // UNSUPPORTED const-value -> _239: unresolvable const Unevaluated(UnevaluatedConst { def: DefId(2:3022 ~ core[f1c6
+    _239 = 0
+    _240 = eq _238, 0
+    _241 = and _240, _239
+    _242 = not _241
+    _as_bb94_eq = eq _242, 1
+    br _as_bb94_eq -> L_bb95, L_as_bb94_fail
+L_as_bb94_fail:
+    // assert failed: NullPointerDereference
+    panic(1594)
+L_bb95:
+    // UNSUPPORTED rebind -> _225 (already bound; keeping first value)
+    // MIR: std::boxed::box_assume_init_into_vec_unsafe::<i32, 1>
+    _80 = call @std_boxed_box_assume_init_into_vec_unsafe_i32_1(_81)
+    jmp L_bb31
+L_bb31:
     // MIR: f_closure
-    _79 = call @f_closure(^_80)
-    jmp bb32
-bb32:
+    _79 = call @f_closure(_80)
+    jmp L_bb32
+L_bb32:
     _78 = &_79
-    _77 = ^_78 // single-elem aggregate (exact)
+    // single-elem aggregate (exact)
+    _77 = _78
     _212 = _77
     // MIR: core::fmt::rt::Argument::<'_>::new_debug::<std::vec::Vec<i32>>
     _83 = call @core_fmt_rt_Argument___new_debug_std_vec_Vec_i32(_212)
-    jmp bb33
-bb33:
-    _82 = ^_83 // single-elem aggregate (exact)
-    _84 = Val(Scalar(alloc27), &'{erased} [u8; 4_usize])
+    jmp L_bb33
+L_bb33:
+    // single-elem aggregate (exact)
+    _82 = _83
+    // UNSUPPORTED const-value -> _84: unresolvable const Val(Scalar(alloc27), &'{erased} [u8; 4_usize])
+    _84 = 0
     _85 = &_82
     // MIR: std::fmt::Arguments::<'_>::new::<4, 1>
-    _76 = call @std_fmt_Arguments___new_4_1(^_84, _85)
-    jmp bb34
-bb34:
+    _76 = call @std_fmt_Arguments___new_4_1(_84, _85)
+    jmp L_bb34
+L_bb34:
     // MIR: std::io::_print
-    _75 = call @std_io__print(^_76)
-    jmp bb35
-bb35:
+    call @std_io__print(_76)
+    // unit call result (exact: () carries no data)
+    _75 = 0
+    jmp L_bb35
+L_bb35:
     !_79
-    jmp bb36
-bb36:
+    jmp L_bb36
+L_bb36:
     // MIR: f_generic::<i32>
-    _86 = call @f_generic_i32(Val(Scalar(0x00000005), i32))
-    jmp bb37
-bb37:
-    _93 = Unevaluated(UnevaluatedConst { def: DefId(0:61 ~ main[a064]:
-    _92 = *_93 // cast: &'{erased} dyn [Binder { value: Trait(Shout), bound_vars: []
+    _86 = call @f_generic_i32(5)
+    jmp L_bb37
+L_bb37:
+    // UNSUPPORTED const-value -> _93: unresolvable const Unevaluated(UnevaluatedConst { def: DefId(0:61 ~ main[a064]:
+    _93 = 0
+    // UNSUPPORTED cast -> _92: _93 as &'{erased} dyn [Binder { value: Trait(Shout), bound_vars: [] (src &)
+    _92 = 0
     // MIR: f_dyn
-    _91 = call @f_dyn(^_92)
-    jmp bb38
-bb38:
+    _91 = call @f_dyn(_92)
+    jmp L_bb38
+L_bb38:
     _90 = &_91
-    _89 = ^_90 // single-elem aggregate (exact)
+    // single-elem aggregate (exact)
+    _89 = _90
     _213 = _89
     // MIR: core::fmt::rt::Argument::<'_>::new_display::<usize>
     _95 = call @core_fmt_rt_Argument___new_display_usize(_213)
-    jmp bb39
-bb39:
-    _94 = ^_95 // single-elem aggregate (exact)
-    _96 = Val(Scalar(alloc27), &'{erased} [u8; 4_usize])
+    jmp L_bb39
+L_bb39:
+    // single-elem aggregate (exact)
+    _94 = _95
+    // UNSUPPORTED const-value -> _96: unresolvable const Val(Scalar(alloc27), &'{erased} [u8; 4_usize])
+    _96 = 0
     _97 = &_94
     // MIR: std::fmt::Arguments::<'_>::new::<4, 1>
-    _88 = call @std_fmt_Arguments___new_4_1(^_96, _97)
-    jmp bb40
-bb40:
+    _88 = call @std_fmt_Arguments___new_4_1(_96, _97)
+    jmp L_bb40
+L_bb40:
     // MIR: std::io::_print
-    _87 = call @std_io__print(^_88)
-    jmp bb41
-bb41:
+    call @std_io__print(_88)
+    // unit call result (exact: () carries no data)
+    _87 = 0
+    jmp L_bb41
+L_bb41:
     // MIR: f_static_dispatch::<Dog>
-    _102 = call @f_static_dispatch_Dog(Val(ZeroSized, Dog))
-    jmp bb42
-bb42:
+    _102 = call @f_static_dispatch_Dog(0)
+    jmp L_bb42
+L_bb42:
     _101 = &_102
-    _100 = ^_101 // single-elem aggregate (exact)
+    // single-elem aggregate (exact)
+    _100 = _101
     _214 = _100
     // MIR: core::fmt::rt::Argument::<'_>::new_display::<usize>
     _104 = call @core_fmt_rt_Argument___new_display_usize(_214)
-    jmp bb43
-bb43:
-    _103 = ^_104 // single-elem aggregate (exact)
-    _105 = Val(Scalar(alloc27), &'{erased} [u8; 4_usize])
+    jmp L_bb43
+L_bb43:
+    // single-elem aggregate (exact)
+    _103 = _104
+    // UNSUPPORTED const-value -> _105: unresolvable const Val(Scalar(alloc27), &'{erased} [u8; 4_usize])
+    _105 = 0
     _106 = &_103
     // MIR: std::fmt::Arguments::<'_>::new::<4, 1>
-    _99 = call @std_fmt_Arguments___new_4_1(^_105, _106)
-    jmp bb44
-bb44:
+    _99 = call @std_fmt_Arguments___new_4_1(_105, _106)
+    jmp L_bb44
+L_bb44:
     // MIR: std::io::_print
-    _98 = call @std_io__print(^_99)
-    jmp bb45
-bb45:
-    _112 = Val(Slice { alloc_id: alloc29, meta: 2 }, &'{erased} str)
+    call @std_io__print(_99)
+    // unit call result (exact: () carries no data)
+    _98 = 0
+    jmp L_bb45
+L_bb45:
+    // UNSUPPORTED const-value -> _112: unresolvable const Val(Slice { alloc_id: alloc29, meta: 2 }, &'{erased} str)
+    _112 = 0
     // MIR: f_parse
-    _111 = call @f_parse(^_112)
-    jmp bb46
-bb46:
+    _111 = call @f_parse(_112)
+    jmp L_bb46
+L_bb46:
     _110 = &_111
-    _109 = ^_110 // single-elem aggregate (exact)
+    // single-elem aggregate (exact)
+    _109 = _110
     _215 = _109
     // MIR: core::fmt::rt::Argument::<'_>::new_debug::<std::result::Result<i32, std::string::String>>
     _114 = call @core_fmt_rt_Argument___new_debug_std_result_Result_i32_std_string_String(_215)
-    jmp bb47
-bb47:
-    _113 = ^_114 // single-elem aggregate (exact)
-    _115 = Val(Scalar(alloc27), &'{erased} [u8; 4_usize])
+    jmp L_bb47
+L_bb47:
+    // single-elem aggregate (exact)
+    _113 = _114
+    // UNSUPPORTED const-value -> _115: unresolvable const Val(Scalar(alloc27), &'{erased} [u8; 4_usize])
+    _115 = 0
     _116 = &_113
     // MIR: std::fmt::Arguments::<'_>::new::<4, 1>
-    _108 = call @std_fmt_Arguments___new_4_1(^_115, _116)
-    jmp bb48
-bb48:
+    _108 = call @std_fmt_Arguments___new_4_1(_115, _116)
+    jmp L_bb48
+L_bb48:
     // MIR: std::io::_print
-    _107 = call @std_io__print(^_108)
-    jmp bb49
-bb49:
+    call @std_io__print(_108)
+    // unit call result (exact: () carries no data)
+    _107 = 0
+    jmp L_bb49
+L_bb49:
     !_111
-    jmp bb50
-bb50:
+    jmp L_bb50
+L_bb50:
     // MIR: std::boxed::Box::<[i32; 2]>::new_uninit
     _123 = call @std_boxed_Box_i32_2_new_uninit()
-    jmp bb51
-bb51:
-    _226 = *_123 // cast: *const std::mem::MaybeUninit<[i32; 2_usize]>
-    _227 = *_226 // cast: *const ()
-    _228 = *_227 // cast: usize
-    _229 = Sub(Unevaluated(UnevaluatedConst { def: DefId(2:3023 ~ core[f1c6, Val(Scalar(0x0000000000000001), usize))
-    _230 = BitAnd(_228, _229)
-    _231 = Eq(_230, Val(Scalar(0x0000000000000000), usize))
-    assert _231
-    jmp bb93
-bb52:
+    jmp L_bb51
+L_bb51:
+    _226 = _123
+    _227 = _226
+    _228 = _227
+    // UNSUPPORTED const-value -> _229: unresolvable const Unevaluated(UnevaluatedConst { def: DefId(2:3023 ~ core[f1c6
+    _229 = 0
+    _230 = and _228, _229
+    _231 = eq _230, 0
+    _as_bb51_eq = eq _231, 1
+    br _as_bb51_eq -> L_bb93, L_as_bb51_fail
+L_as_bb51_fail:
+    // assert failed: MisalignedPointerDereference { required: const <std::mem::MaybeUninit<[i32; 2]> 
+    panic(1551)
+L_bb93:
+    _243 = _226
+    _244 = _243
+    // UNSUPPORTED const-value -> _245: unresolvable const Unevaluated(UnevaluatedConst { def: DefId(2:3022 ~ core[f1c6
+    _245 = 0
+    _246 = eq _244, 0
+    _247 = and _246, _245
+    _248 = not _247
+    _as_bb93_eq = eq _248, 1
+    br _as_bb93_eq -> L_bb96, L_as_bb93_fail
+L_as_bb93_fail:
+    // assert failed: NullPointerDereference
+    panic(1593)
+L_bb96:
+    // UNSUPPORTED rebind -> _226 (already bound; keeping first value)
+    // MIR: std::boxed::box_assume_init_into_vec_unsafe::<i32, 2>
+    _122 = call @std_boxed_box_assume_init_into_vec_unsafe_i32_2(_123)
+    jmp L_bb52
+L_bb52:
     // MIR: f_box
-    _121 = call @f_box(^_122)
-    jmp bb53
-bb53:
+    _121 = call @f_box(_122)
+    jmp L_bb53
+L_bb53:
     _120 = &_121
-    _119 = ^_120 // single-elem aggregate (exact)
+    // single-elem aggregate (exact)
+    _119 = _120
     _216 = _119
     // MIR: core::fmt::rt::Argument::<'_>::new_display::<i32>
     _125 = call @core_fmt_rt_Argument___new_display_i32(_216)
-    jmp bb54
-bb54:
-    _124 = ^_125 // single-elem aggregate (exact)
-    _126 = Val(Scalar(alloc27), &'{erased} [u8; 4_usize])
+    jmp L_bb54
+L_bb54:
+    // single-elem aggregate (exact)
+    _124 = _125
+    // UNSUPPORTED const-value -> _126: unresolvable const Val(Scalar(alloc27), &'{erased} [u8; 4_usize])
+    _126 = 0
     _127 = &_124
     // MIR: std::fmt::Arguments::<'_>::new::<4, 1>
-    _118 = call @std_fmt_Arguments___new_4_1(^_126, _127)
-    jmp bb55
-bb55:
+    _118 = call @std_fmt_Arguments___new_4_1(_126, _127)
+    jmp L_bb55
+L_bb55:
     // MIR: std::io::_print
-    _117 = call @std_io__print(^_118)
-    jmp bb56
-bb56:
-    _133 = Val(Slice { alloc_id: alloc30, meta: 2 }, &'{erased} str)
+    call @std_io__print(_118)
+    // unit call result (exact: () carries no data)
+    _117 = 0
+    jmp L_bb56
+L_bb56:
+    // UNSUPPORTED const-value -> _133: unresolvable const Val(Slice { alloc_id: alloc30, meta: 2 }, &'{erased} str)
+    _133 = 0
     // MIR: f_rc
-    _132 = call @f_rc(^_133)
-    jmp bb57
-bb57:
+    _132 = call @f_rc(_133)
+    jmp L_bb57
+L_bb57:
     _131 = &_132
-    _130 = ^_131 // single-elem aggregate (exact)
+    // single-elem aggregate (exact)
+    _130 = _131
     _217 = _130
     // MIR: core::fmt::rt::Argument::<'_>::new_display::<usize>
     _135 = call @core_fmt_rt_Argument___new_display_usize(_217)
-    jmp bb58
-bb58:
-    _134 = ^_135 // single-elem aggregate (exact)
-    _136 = Val(Scalar(alloc27), &'{erased} [u8; 4_usize])
+    jmp L_bb58
+L_bb58:
+    // single-elem aggregate (exact)
+    _134 = _135
+    // UNSUPPORTED const-value -> _136: unresolvable const Val(Scalar(alloc27), &'{erased} [u8; 4_usize])
+    _136 = 0
     _137 = &_134
     // MIR: std::fmt::Arguments::<'_>::new::<4, 1>
-    _129 = call @std_fmt_Arguments___new_4_1(^_136, _137)
-    jmp bb59
-bb59:
+    _129 = call @std_fmt_Arguments___new_4_1(_136, _137)
+    jmp L_bb59
+L_bb59:
     // MIR: std::io::_print
-    _128 = call @std_io__print(^_129)
-    jmp bb60
-bb60:
-    _143 = Val(Slice { alloc_id: alloc31, meta: 3 }, &'{erased} str)
+    call @std_io__print(_129)
+    // unit call result (exact: () carries no data)
+    _128 = 0
+    jmp L_bb60
+L_bb60:
+    // UNSUPPORTED const-value -> _143: unresolvable const Val(Slice { alloc_id: alloc31, meta: 3 }, &'{erased} str)
+    _143 = 0
     // MIR: f_str
-    _142 = call @f_str(^_143)
-    jmp bb61
-bb61:
+    _142 = call @f_str(_143)
+    jmp L_bb61
+L_bb61:
     _141 = &_142
-    _140 = ^_141 // single-elem aggregate (exact)
+    // single-elem aggregate (exact)
+    _140 = _141
     _218 = _140
     // MIR: core::fmt::rt::Argument::<'_>::new_display::<usize>
     _145 = call @core_fmt_rt_Argument___new_display_usize(_218)
-    jmp bb62
-bb62:
-    _144 = ^_145 // single-elem aggregate (exact)
-    _146 = Val(Scalar(alloc27), &'{erased} [u8; 4_usize])
+    jmp L_bb62
+L_bb62:
+    // single-elem aggregate (exact)
+    _144 = _145
+    // UNSUPPORTED const-value -> _146: unresolvable const Val(Scalar(alloc27), &'{erased} [u8; 4_usize])
+    _146 = 0
     _147 = &_144
     // MIR: std::fmt::Arguments::<'_>::new::<4, 1>
-    _139 = call @std_fmt_Arguments___new_4_1(^_146, _147)
-    jmp bb63
-bb63:
+    _139 = call @std_fmt_Arguments___new_4_1(_146, _147)
+    jmp L_bb63
+L_bb63:
     // MIR: std::io::_print
-    _138 = call @std_io__print(^_139)
-    jmp bb64
-bb64:
+    call @std_io__print(_139)
+    // unit call result (exact: () carries no data)
+    _138 = 0
+    jmp L_bb64
+L_bb64:
     // MIR: f_cast
-    _152 = call @f_cast(Val(Scalar(0xfffffffffffffffd), i64), Val(Scalar(0x4004000000000000), f64))
-    jmp bb65
-bb65:
+    // UNSUPPORTED call-args: unresolvable const (control preserved)
+    _152 = 0
+    jmp L_bb65
+L_bb65:
     _151 = &_152
-    _150 = ^_151 // single-elem aggregate (exact)
+    // single-elem aggregate (exact)
+    _150 = _151
     _219 = _150
     // MIR: core::fmt::rt::Argument::<'_>::new_display::<i64>
     _154 = call @core_fmt_rt_Argument___new_display_i64(_219)
-    jmp bb66
-bb66:
-    _153 = ^_154 // single-elem aggregate (exact)
-    _155 = Val(Scalar(alloc27), &'{erased} [u8; 4_usize])
+    jmp L_bb66
+L_bb66:
+    // single-elem aggregate (exact)
+    _153 = _154
+    // UNSUPPORTED const-value -> _155: unresolvable const Val(Scalar(alloc27), &'{erased} [u8; 4_usize])
+    _155 = 0
     _156 = &_153
     // MIR: std::fmt::Arguments::<'_>::new::<4, 1>
-    _149 = call @std_fmt_Arguments___new_4_1(^_155, _156)
-    jmp bb67
-bb67:
+    _149 = call @std_fmt_Arguments___new_4_1(_155, _156)
+    jmp L_bb67
+L_bb67:
     // MIR: std::io::_print
-    _148 = call @std_io__print(^_149)
-    jmp bb68
-bb68:
+    call @std_io__print(_149)
+    // unit call result (exact: () carries no data)
+    _148 = 0
+    jmp L_bb68
+L_bb68:
     // MIR: f_tls
     _161 = call @f_tls()
-    jmp bb69
-bb69:
+    jmp L_bb69
+L_bb69:
     _160 = &_161
-    _159 = ^_160 // single-elem aggregate (exact)
+    // single-elem aggregate (exact)
+    _159 = _160
     _220 = _159
     // MIR: core::fmt::rt::Argument::<'_>::new_display::<u32>
     _163 = call @core_fmt_rt_Argument___new_display_u32(_220)
-    jmp bb70
-bb70:
-    _162 = ^_163 // single-elem aggregate (exact)
-    _164 = Val(Scalar(alloc27), &'{erased} [u8; 4_usize])
+    jmp L_bb70
+L_bb70:
+    // single-elem aggregate (exact)
+    _162 = _163
+    // UNSUPPORTED const-value -> _164: unresolvable const Val(Scalar(alloc27), &'{erased} [u8; 4_usize])
+    _164 = 0
     _165 = &_162
     // MIR: std::fmt::Arguments::<'_>::new::<4, 1>
-    _158 = call @std_fmt_Arguments___new_4_1(^_164, _165)
-    jmp bb71
-bb71:
+    _158 = call @std_fmt_Arguments___new_4_1(_164, _165)
+    jmp L_bb71
+L_bb71:
     // MIR: std::io::_print
-    _157 = call @std_io__print(^_158)
-    jmp bb72
-bb72:
-    _172 = Val(Scalar(0x00000004), i32)
-    _171 = &_172 // mut-borrow (Phase1: & + Referee)
+    call @std_io__print(_158)
+    // unit call result (exact: () carries no data)
+    _157 = 0
+    jmp L_bb72
+L_bb72:
+    _172 = 4
+    // mut-borrow (Phase1: & + Referee)
+    _171 = &_172
     // MIR: f_raw
     _170 = call @f_raw(_171)
-    jmp bb73
-bb73:
+    jmp L_bb73
+L_bb73:
     _169 = &_170
-    _168 = ^_169 // single-elem aggregate (exact)
+    // single-elem aggregate (exact)
+    _168 = _169
     _221 = _168
     // MIR: core::fmt::rt::Argument::<'_>::new_display::<i32>
     _174 = call @core_fmt_rt_Argument___new_display_i32(_221)
-    jmp bb74
-bb74:
-    _173 = ^_174 // single-elem aggregate (exact)
-    _175 = Val(Scalar(alloc27), &'{erased} [u8; 4_usize])
+    jmp L_bb74
+L_bb74:
+    // single-elem aggregate (exact)
+    _173 = _174
+    // UNSUPPORTED const-value -> _175: unresolvable const Val(Scalar(alloc27), &'{erased} [u8; 4_usize])
+    _175 = 0
     _176 = &_173
     // MIR: std::fmt::Arguments::<'_>::new::<4, 1>
-    _167 = call @std_fmt_Arguments___new_4_1(^_175, _176)
-    jmp bb75
-bb75:
+    _167 = call @std_fmt_Arguments___new_4_1(_175, _176)
+    jmp L_bb75
+L_bb75:
     // MIR: std::io::_print
-    _166 = call @std_io__print(^_167)
-    jmp bb76
-bb76:
+    call @std_io__print(_167)
+    // unit call result (exact: () carries no data)
+    _166 = 0
+    jmp L_bb76
+L_bb76:
     // MIR: f_asm
-    _181 = call @f_asm(Val(Scalar(0x0000000000000007), u64))
-    jmp bb77
-bb77:
+    _181 = call @f_asm(7)
+    jmp L_bb77
+L_bb77:
     _180 = &_181
-    _179 = ^_180 // single-elem aggregate (exact)
+    // single-elem aggregate (exact)
+    _179 = _180
     _222 = _179
     // MIR: core::fmt::rt::Argument::<'_>::new_display::<u64>
     _183 = call @core_fmt_rt_Argument___new_display_u64(_222)
-    jmp bb78
-bb78:
-    _182 = ^_183 // single-elem aggregate (exact)
-    _184 = Val(Scalar(alloc27), &'{erased} [u8; 4_usize])
+    jmp L_bb78
+L_bb78:
+    // single-elem aggregate (exact)
+    _182 = _183
+    // UNSUPPORTED const-value -> _184: unresolvable const Val(Scalar(alloc27), &'{erased} [u8; 4_usize])
+    _184 = 0
     _185 = &_182
     // MIR: std::fmt::Arguments::<'_>::new::<4, 1>
-    _178 = call @std_fmt_Arguments___new_4_1(^_184, _185)
-    jmp bb79
-bb79:
+    _178 = call @std_fmt_Arguments___new_4_1(_184, _185)
+    jmp L_bb79
+L_bb79:
     // MIR: std::io::_print
-    _177 = call @std_io__print(^_178)
-    jmp bb80
-bb80:
+    call @std_io__print(_178)
+    // unit call result (exact: () carries no data)
+    _177 = 0
+    jmp L_bb80
+L_bb80:
     // MIR: <std::string::String as std::convert::From<&str>>::from
-    _191 = call @std_string_String_as_std_convert_From_str_from(Val(Slice { alloc_id: alloc32, meta: 1 }, &'{erased} str))
-    jmp bb81
-bb81:
+    // UNSUPPORTED call-args: unresolvable const (control preserved)
+    _191 = 0
+    jmp L_bb81
+L_bb81:
     // MIR: f_underscore
-    _190 = call @f_underscore(^_191)
-    jmp bb82
-bb82:
+    _190 = call @f_underscore(_191)
+    jmp L_bb82
+L_bb82:
     _189 = &_190
-    _188 = ^_189 // single-elem aggregate (exact)
+    // single-elem aggregate (exact)
+    _188 = _189
     _223 = _188
     // MIR: core::fmt::rt::Argument::<'_>::new_display::<usize>
     _193 = call @core_fmt_rt_Argument___new_display_usize(_223)
-    jmp bb83
-bb83:
-    _192 = ^_193 // single-elem aggregate (exact)
-    _194 = Val(Scalar(alloc27), &'{erased} [u8; 4_usize])
+    jmp L_bb83
+L_bb83:
+    // single-elem aggregate (exact)
+    _192 = _193
+    // UNSUPPORTED const-value -> _194: unresolvable const Val(Scalar(alloc27), &'{erased} [u8; 4_usize])
+    _194 = 0
     _195 = &_192
     // MIR: std::fmt::Arguments::<'_>::new::<4, 1>
-    _187 = call @std_fmt_Arguments___new_4_1(^_194, _195)
-    jmp bb84
-bb84:
+    _187 = call @std_fmt_Arguments___new_4_1(_194, _195)
+    jmp L_bb84
+L_bb84:
     // MIR: std::io::_print
-    _186 = call @std_io__print(^_187)
-    jmp bb85
-bb85:
+    call @std_io__print(_187)
+    // unit call result (exact: () carries no data)
+    _186 = 0
+    jmp L_bb85
+L_bb85:
     // MIR: f_thread_map
     _200 = call @f_thread_map()
-    jmp bb86
-bb86:
+    jmp L_bb86
+L_bb86:
     _199 = &_200
-    _198 = ^_199 // single-elem aggregate (exact)
+    // single-elem aggregate (exact)
+    _198 = _199
     _224 = _198
     // MIR: core::fmt::rt::Argument::<'_>::new_display::<usize>
     _202 = call @core_fmt_rt_Argument___new_display_usize(_224)
-    jmp bb87
-bb87:
-    _201 = ^_202 // single-elem aggregate (exact)
-    _203 = Val(Scalar(alloc27), &'{erased} [u8; 4_usize])
+    jmp L_bb87
+L_bb87:
+    // single-elem aggregate (exact)
+    _201 = _202
+    // UNSUPPORTED const-value -> _203: unresolvable const Val(Scalar(alloc27), &'{erased} [u8; 4_usize])
+    _203 = 0
     _204 = &_201
     // MIR: std::fmt::Arguments::<'_>::new::<4, 1>
-    _197 = call @std_fmt_Arguments___new_4_1(^_203, _204)
-    jmp bb88
-bb88:
+    _197 = call @std_fmt_Arguments___new_4_1(_203, _204)
+    jmp L_bb88
+L_bb88:
     // MIR: std::io::_print
-    _196 = call @std_io__print(^_197)
-    jmp bb89
-bb89:
+    call @std_io__print(_197)
+    // unit call result (exact: () carries no data)
+    _196 = 0
+    jmp L_bb89
+L_bb89:
     return 0
-bb90:
+L_bb90:
     !_111
-    jmp bb92
-bb91:
+    jmp L_bb92
+L_bb91:
     !_79
-    jmp bb92
-bb92:
-    panic("unwind-resume") // MIR Resume (cleanup path)
-bb93:
-    _243 = *_226 // cast: *const ()
-    _244 = *_243 // cast: usize
-    _245 = Ne(Unevaluated(UnevaluatedConst { def: DefId(2:3022 ~ core[f1c6, Val(Scalar(0x0000000000000000), usize))
-    _246 = Eq(_244, Val(Scalar(0x0000000000000000), usize))
-    _247 = BitAnd(_246, _245)
-    _248 = Not(_247)
-    assert _248
-    jmp bb96
-bb94:
-    _237 = *_225 // cast: *const ()
-    _238 = *_237 // cast: usize
-    _239 = Ne(Unevaluated(UnevaluatedConst { def: DefId(2:3022 ~ core[f1c6, Val(Scalar(0x0000000000000000), usize))
-    _240 = Eq(_238, Val(Scalar(0x0000000000000000), usize))
-    _241 = BitAnd(_240, _239)
-    _242 = Not(_241)
-    assert _242
-    jmp bb95
-bb95:
-    _proj = Val(Scalar(0x00000001), i32) // single-elem aggregate (exact) // place: (((*_225).1: std::mem::ManuallyDrop<[i32; 1]>).0: [i32; 1])
-    // MIR: std::boxed::box_assume_init_into_vec_unsafe::<i32, 1>
-    _80 = call @std_boxed_box_assume_init_into_vec_unsafe_i32_1(_81)
-    jmp bb31
-bb96:
-    // aggregate (((*_226).1: std::mem::ManuallyDrop<[i32; 2]>).0: [i32; 2]) init i32; 2
-    _agg_bb96 = alloc 8
-    store _agg_bb96+0, 1 as i32
-    store _agg_bb96+4, 2 as i32
-    // MIR: std::boxed::box_assume_init_into_vec_unsafe::<i32, 2>
-    _122 = call @std_boxed_box_assume_init_into_vec_unsafe_i32_2(_123)
-    jmp bb52
+    jmp L_bb92
+L_bb92:
+    // MIR Resume (cleanup path)
+    panic("unwind-resume")

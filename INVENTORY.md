@@ -1,17 +1,42 @@
 # MIR 全 kind 清单与支持状态 (nightly-1.101 c1070d693 + driver 实测闭环)
 
 > 基线：语料库 `corpus/`（24 fns + closures + consts + statics，428 stmts + 317 terms）
-> `mir2sa coverage` = **100.0%**，零缺口。验收集：`sci/demos/rosetta`
-> 321 文件（6587 项）+ `sa_plugin_sla/demos/rosetta` 298 文件（9432 项）
-> 均为零缺口；两仓官方 rustc 拒收的非独立 demo（外部 crate/未完成 nightly
+> `mir2sa coverage` = **84.6%**（115 缺口，全部具名；见末尾）。
+> 验收集：`sci/demos/rosetta` 321 文件（6587 项，825 缺口）+
+> `sa_plugin_sla/demos/rosetta` 298 文件（9432 项，1959 缺口）。
+> 两仓官方 rustc 拒收的非独立 demo（外部 crate/未完成 nightly
 > 特性/缺构建产物）逐项定性（见 TEST_LOG T13），不计入。
 > driver 见到即命名，绝不静默吞掉。
+>
+> 口径说明（T14 起）：`coverage` 只数 MIR-kind 可判定项的时代结束。
+> `sa check`（汇编器）为准绳：凡发射行不能过 flatten/parse（ForbiddenSyntax、
+> UnknownRegister、CapabilityMismatch、IllegalUnsafeContext、UnsupportedType），
+> 一律大声计数——即使 MIR kind 已知。当前三集 parse-trap 归零（逐函数普查），
+> 剩余 trap 全部是 Referee 层（仿射/借用/泄漏，见 TEST_LOG T14），属下一阶段。
+
+## 模块地图（AGENTS.md 分模块规则）
+
+| 模块 | 职责 | 行数 |
+|---|---|---|
+| `driver/util.rs` | 文本工具（esc/trunc/sanitize/bb_name/local_name） | ~50 |
+| `driver/place.rs` | place 基 local 归一 + via 原文 | ~30 |
+| `driver/tyinfo.rs` | 类型布局与签名（layout_of/for_variant/签名映射/str 取字节/ZST 判定） | ~200 |
+| `driver/emit.rs` | mir.json 发射（operand/rvalue/terminator/body） | ~470 |
+| `mir.rs` | mir.json schema（Operand/Rvalue/Stmt/Term/签名/布局） | ~170 |
+| `parse.rs` | `-Zunpretty` 文本 → mir.json + kind 分类 | ~420 |
+| `render_util.rs` | 标识符/标签/十进制化/门控谓词（loud 判定） | ~200 |
+| `render.rs` | Rvalue → SA 行（调用/二元/转换/聚合/Discriminant/RawPtr/Repeat/TLS） | ~170 |
+| `layout.rs` | 数组/Adt 物化（alloc+store）+ FNV/field 计划 | ~220 |
+| `asm.rs` | asm 门控（mov/inout）+ cast 决策 + 标量宽度 | ~210 |
+| `order.rs` | RPO 排放序 + 支配集 bound 种子 | ~230 |
+| `lower.rs` | 函数装配（头/块/终结符/extern/占位/重绑定） | ~440 |
+| `main.rs` | CLI + coverage 镜像 + 单测 | ~700（含单测；逻辑约 400） |
 
 ## StatementKind
 
 | kind | 状态 | SA 落法 |
 |---|---|---|
-| Assign | ✅ | 按 Rvalue 表 |
+| Assign | ✅ loud-完备 | 按 Rvalue 表；重绑定/不可判定常量走占位+计数 |
 | StorageLive / StorageDead | ✅ | `//` 注释（栈槽标记） |
 | Nop / ConstEvalCounter / Coverage | ✅ | `// nop:` 注释，不计数 |
 | FakeRead | ➖ | 未在 optimized MIR 出现；出现即 UnsupportedStmt |
@@ -25,21 +50,21 @@
 
 | kind | 状态 | SA 落法 |
 |---|---|---|
-| Use | ✅ | `=` / `^` |
-| Ref (Shared) | ✅ | `&`；Mut 降级 `&` + 注释（Phase1，与 sla 一致） |
-| BinaryOp (26 种全透传) | ✅ | `dest = Op(l, r)` |
-| UnOp (Not/Neg/PtrMetadata) | ✅ | `dest = Op(x)` |
-| Cast (12 种全透传) | ✅ | `dest = *op // cast: T`（取真目标类型） |
-| Discriminant | ✅ | `discriminant(p)` |
+| Use | ✅ | `=`（SA `=` 本身即 move；`^` 仅合法于 call 实参/store 值位） |
+| Ref (Shared) | ✅ | `&`；Mut 降级 `&` + 注释（Phase1，与 sla 一致）；ZST 被借用 → `= 0`（无存储 exact） |
+| BinaryOp（符号无关子集） | ✅/🔶 | Add/Sub/Mul/BitAnd/BitOr/BitXor/Shl/Eq/Ne → 同名小写指令；`*WithOverflow`、有序比较、Shr 等需符号/溢出语义 → 大声（Move 操作数先绑临时） |
+| UnOp | ✅/🔶 | Not→`not`、Neg→`neg`；PtrMetadata 等 → 大声 |
+| Cast | ✅/🔶 | kind+源类型双定：同宽/指针恒等→plain copy；变宽按符号 `sext/zext/trunc`；float 交叉 `fptosi/sitofp/uitofp`；Unsize/fn-ptr → 大声 |
+| Discriminant | ✅ | `load place+0 as i64`（与 SetDisc 对偶；旧 `discriminant()` 伪指令非法已删） |
 | Aggregate 零元素 | ✅ | `dest = 0`（unit/niche；tag 另由 SetDisc 写入） |
 | Aggregate 单元素 | ✅ | 直接赋值（exact） |
 | Aggregate 数组 `[T; N]` 全 Const | ✅ | `alloc` + `store`（sla/vec.sa 惯例） |
 | Aggregate struct/tuple/range/enum | ✅ | `alloc` + 逐字段 `store`（p_layout v2：driver 下发真 `size/offsets`，`dest = _agg_bbN`；缺布局回退 v1 sla ABI） |
 | Aggregate ZST 字段（PhantomData/Pinned） | ✅ | 占 0 字节，不发射 `store`（exact；全 ZST 则 `dest = 0`） |
 | Aggregate 含 Slice/alloc 常量 | ✅ | driver 解析 `Const::Val(Slice)` 取真字节（`&str`+UTF-8 才下发 `str_bytes/str_len`，他形缺席保旧 fixture 字节兼容）；mir2sa ≤64B 内联字节缓冲 + (ptr,len) 双 `store`（slice.sal 布局）；超长/计数失配大声（`cargo test` 2 用例锁定） |
-| Repeat `[c; N]` u8/i8 Const | ✅ | `alloc` + `call @sa_mem_set` |
+| Repeat `[c; N]` u8/i8 Const | ✅ | `alloc` + `call @sa_mem_set` + `dest = _rep` 绑定（旧版漏绑已修） |
 | Repeat 其他 | 🔶 | 具名 + 计数（非常量元素需循环） |
-| RawPtr | ✅ | `*p // raw-ptr`（Referee: UnsafeBinder 语义） |
+| RawPtr | ✅ | thin 指针 plain copy（exact；`*p` 在非 ffi 上下文非法已删） |
 | ThreadLocalRef | ✅ | `dest = call @sa_thread_local_slot(FNV1a(DefPath))`（注册表在 `sci/sa_std/thread_local.sai`，真 per-thread 隔离；语料库 2 处已落） |
 | CopyForDeref | ➖ | 未出现；出现即 Unsupported（deref 语义待 p_layout 的 Deref 投影） |
 | WrapUnsafeBinder / Reborrow | ➖ | 未出现；出现即 Unsupported |
@@ -56,11 +81,12 @@
 
 | kind | 状态 | SA 落法 |
 |---|---|---|
-| Goto / Return / Unreachable | ✅ | `jmp` / `return 0` / `unreachable` |
-| Call（含 diverging） | ✅ | `dest = call @f(args)` + `jmp`；callee 名经 `def_path_str` |
+| Goto / Return / Resume-Redirect | ✅ | `jmp` / `return 0`（多 return 合法）/ Resume→`panic` |
+| Unreachable | ✅ | `panic(16xx)` 大声中止（裸 `unreachable` 会终结 SA 函数文本，禁排后继） |
+| Call（含 diverging） | ✅/🔶 | 类型化 `@extern`（driver 下发 callee sig；`void` 调用裸写）+ `jmp`；无 sig/坏常量参数 → 大声保控制 |
 | Drop | ✅ | `!p` |
-| SwitchInt | ✅ | Move discriminant 单绑 `_sw_bbN` 后扇出（修过 double-move） |
-| Assert | ✅ | `assert` + `jmp` |
+| SwitchInt | ✅ | eq+双目标 br 链（行内 `==` 非法已删）；Move discriminant 单绑；RPO 保证文本序 |
+| Assert | ✅ | 无 `assert` 指令：`eq`+`br`+数字 `panic`（复用 sa_core ASSERT_EQ 形）；expected 由 driver 下发 |
 | UnwindResume | ✅ | `panic("unwind-resume")` |
 | FalseEdge / FalseUnwind | ✅ | `Goto(real_target)`（语义即 goto） |
 | TailCall | ➖ | 未出现（需 `become` nightly feature）；出现即 Unsupported |
@@ -73,36 +99,39 @@
 ## Place ProjectionElem（p_layout 主战场）
 
 `Deref / Field / Index / ConstantIndex / Subslice / Downcast / OpaqueCast / UnwrapUnsafeBinder / PhantomDeref`：
-当前 driver 一律归一到基 local（`base_local`），读.f_struct/.f_slice 等因
-optimized MIR 已把常用投影展开而恰好全过；v1 曾用 sla ABI 启发式关闭
-7 个 Aggregate + 2 个 SetDisc。v2（本轮）：driver 内 `place.ty()` +
+driver 以 `p.local` 精确取基 local（替换旧 Debug 启发式；双括号形曾漏网出
+`_proj` 未定义寄存器，已修；全集零 `_proj`）。读.f_struct/.f_slice 等因
+optimized MIR 已把常用投影展开而恰好全过；v2（本轮）：driver 内 `place.ty()` +
 `tcx.layout_of()`（`TypingEnv::fully_monomorphized`；枚举经
 `AggregateKind::Adt` variant 走 `for_variant` 取 payload 布局；Primitive/
 Union/失配一律回退，驱动永不因子布局失败）下发真 `size/offsets`，
 mir2sa 覆盖偏移原文使用（reorder 非升序与枚举 tag-gap 绝对偏移皆 exact；
-逐元渲染仍复用 v1：Const 按后缀十进制化，Move/Copy 作 u64 槽保 `^` 可见；
+逐元渲染仍复用 v1：Const 按后缀十进制化，Move/Copy 作 u64 槽；
 `total` 取 max(启发式, 真值）防缩水）。泛型单态（`f_generic`）无布局，
 诚实回退 v1。
 
-## 当前缺口（corpus 基线）
+## 当前缺口（corpus 基线，T14 口径：汇编器为准）
 
-无。`mir2sa coverage` **100.0%**（428 stmts + 317 terms，UNSUPPORTED=0）。
+`mir2sa coverage` **84.6%**（428 stmts + 317 terms，115 缺口，全部具名）：
 
-已关闭（p_layout v1）：Aggregate struct/tuple/range ×7 + SetDisc ×2，另
-0-elem Aggregate（unit/niche）3 处一并 exact 化。
-已关闭（TLS 注册表）：ThreadLocal ×2 → `sa_thread_local_slot`
-（`sci` 侧 `d7c5c812` 真 per-thread 注册表 + `thread_local.sai/.sa`）。
-已关闭（asm 精确门控，本轮）：InlineAsm ×1 → driver v2 结构化下发
-（`template/options/outs/ins`，span 剥离保可移植）+ mir2sa `mov {0},{1}`
-exact 拷贝（空 options/无修饰符/单 out/单 Copy-Move-Const in 四重门；
-他形仍大声 UNSUPPORTED 并计数）。
-`cargo test` 11/11；`examples/corpus.{mir.json,sa,coverage.txt}` 为锁定产物
-（本轮由 nightly-1.101 c1070d693 真驱动重提：顺带洗掉旧 `sa_plugin_rsc`
-路径残留，闭包修饰名按现路径重截断，无 MIR 语义漂移，stmt/term 总数不变）。
+| 类别 | 数 | 出路 |
+|---|---|---|
+| ConstValue（Unevaluated/byte-ref 标量位） | 38 | driver const-eval（`const_eval_resolve`）+ `&[u8;N]` 字节提升 |
+| Rebind（同路重定义） | 23 | SSA 版本改写 + join-phi（Referee 程序） |
+| `*WithOverflow` BinOp | 27 | 元组解构 + 溢出断言重写（Referee 程序） |
+| CallConstValue（调用实参） | 10 | 实参提升 + 胖指针展开（多行，外加元数改写） |
+| 有序比较/移位（Lt/Gt/Ge/Shr） | 9 | driver 下发符号性 |
+| PointerCoercion（Unsize/fn-ptr） | 5 | 胖指针构造/intrinsic 策略 |
+| UnOp-PtrMetadata | 3 | driver fat-meta 解析 |
+| FnSig（128 位） | 0（corpus） | 已有计数器；rosetta-09 触发 1 次 |
 
-## 保真（corpus 全量对账）
+历史 100%（T13）为 MIR-kind 口径；T14 起以 `sa check` 为准绳，
+上述缺口此前以不可汇编形态静默存在，现全部大声。`cargo test` 30/30；
+`examples/corpus.{mir.json,sa,coverage.txt}` 为锁定产物。
 
-MIR 245 move / 69 borrow / 29 drop == SA `^`245 / `&`70（含 1 处
-`call @sa_mem_set(&_rep_…)` 合成借用，无 MIR 对应，历史文件亦同）/ `!`29
-（逐 place multiset 全等）。`&(*_p)` 解引用再借用归基 local + `via` 原文，
-零 `_proj` 残留。`examples/corpus.{mir.json,sa,coverage.txt}` 为锁定产物。
+## 保真（corpus 全量对账，T14 口径）
+
+MIR 245 move / 69 borrow / 29 drop。SA 侧：rvalue 位 move 已改裸写
+（`_x = ^_y` 非法；`=` 本身即 move），`^` 仅保留于 call 实参（已删：与
+plain-param 声明 mismatch，改裸写）与 store 值位；`&`70（含合成借用）；
+`!`29。`&(*_p)` 解引用再借用归基 local + `via` 原文。`examples/corpus.{mir.json,sa,coverage.txt}` 为锁定产物。

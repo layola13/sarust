@@ -1,21 +1,48 @@
 @import "sa_std/io/print.sai"
 
 // MIR callees (map to sci/sa_std per STD_MAP.md):
-@extern sa_print_string()
-@extern string_from()
+@extern core_fmt_rt_Argument___new_display_std_string_String(_a0: ptr) -> ptr
+@extern std_fmt_Arguments___new_4_1(_a0: ptr, _a1: ptr) -> ptr
+@extern std_io__print(_a0: ptr) -> void
+@extern std_string_String_as_std_convert_From_str_from(_a0: ptr) -> ptr
 
-@main() -> i32:
-L_ENTRY:
-    // StorageLive _1
-    _1 = call @string_from(utf8:"hi")
-    jmp L_PRINT
-L_PRINT:
-    _2 = &_1
-    _0 = call @sa_print_string(^_2)
-    jmp L_DROP
-L_DROP:
+@main() -> void:
+L_bb0:
+    // MIR: <std::string::String as std::convert::From<&str>>::from
+    // UNSUPPORTED call-args: unresolvable const (control preserved)
+    _1 = 0
+    jmp L_bb1
+L_bb1:
+    _5 = &_1
+    // single-elem aggregate (exact)
+    _4 = _5
+    _10 = _4
+    // MIR: core::fmt::rt::Argument::<'_>::new_display::<std::string::String>
+    _7 = call @core_fmt_rt_Argument___new_display_std_string_String(_10)
+    jmp L_bb2
+L_bb2:
+    // single-elem aggregate (exact)
+    _6 = _7
+    // UNSUPPORTED const-value -> _8: unresolvable const Val(Scalar(alloc2), &'{erased} [u8; 4_usize])
+    _8 = 0
+    _9 = &_6
+    // MIR: std::fmt::Arguments::<'_>::new::<4, 1>
+    _3 = call @std_fmt_Arguments___new_4_1(_8, _9)
+    jmp L_bb3
+L_bb3:
+    // MIR: std::io::_print
+    call @std_io__print(_3)
+    // unit call result (exact: () carries no data)
+    _2 = 0
+    jmp L_bb4
+L_bb4:
     !_1
-    jmp L_RET
-L_RET:
-    // StorageDead _1
+    jmp L_bb5
+L_bb5:
     return 0
+L_bb6:
+    !_1
+    jmp L_bb7
+L_bb7:
+    // MIR Resume (cleanup path)
+    panic("unwind-resume")

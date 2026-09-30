@@ -286,8 +286,7 @@ L_bb4:
     !_mv_bb2_0
     return 0
 L_bb5:
-    // UNSUPPORTED drop-borrow-live -> _1 (borrow outlives; not provably endable)
-    !_1
+    // cleanup drop _1 (omitted: main path owns the release)
     jmp L_bb6
 L_bb6:
     // MIR Resume (cleanup path)
@@ -670,8 +669,7 @@ L_bb7:
     !_8
     return 0
 L_bb8:
-    // UNSUPPORTED drop-borrow-live -> _5 (borrow outlives; not provably endable)
-    !_5
+    // cleanup drop _5 (omitted: main path owns the release)
     jmp L_bb9
 L_bb9:
     // MIR Resume (cleanup path)
@@ -738,14 +736,14 @@ L_bb2:
     jmp L_bb3
 L_bb3:
     !_0
+    !_2
     !_4
     return 0
 L_bb4:
-    !_2
+    // cleanup drop _2 (omitted: main path owns the release)
     jmp L_bb5
 L_bb5:
-    // UNSUPPORTED drop-borrow-live -> _1 (borrow outlives; not provably endable)
-    !_1
+    // cleanup drop _1 (omitted: main path owns the release)
     jmp L_bb6
 L_bb6:
     // MIR Resume (cleanup path)
@@ -790,8 +788,7 @@ L_bb3:
     !_1
     return 0
 L_bb4:
-    // UNSUPPORTED drop-borrow-live -> _3 (borrow outlives; not provably endable)
-    !_3
+    // cleanup drop _3 (omitted: main path owns the release)
     jmp L_bb5
 L_bb5:
     // MIR Resume (cleanup path)
@@ -820,12 +817,10 @@ L_bb4:
     !_0
     return 0
 L_bb5:
-    // UNSUPPORTED drop-borrow-live -> _3 (borrow outlives; not provably endable)
-    !_3
+    // cleanup drop _3 (omitted: main path owns the release)
     jmp L_bb6
 L_bb6:
-    // UNSUPPORTED drop-borrow-live -> _1 (borrow outlives; not provably endable)
-    !_1
+    // cleanup drop _1 (omitted: main path owns the release)
     jmp L_bb7
 L_bb7:
     // MIR Resume (cleanup path)
@@ -961,7 +956,7 @@ L_bb5:
     !_as_bb8_eq
     return 0
 L_bb6:
-    !_2
+    // cleanup drop _2 (omitted: main path owns the release)
     jmp L_bb7
 L_bb7:
     // MIR Resume (cleanup path)
@@ -1030,12 +1025,10 @@ L_bb10:
     !_as_bb7_eq
     return 0
 L_bb11:
-    // UNSUPPORTED drop-borrow-live -> _4 (borrow outlives; not provably endable)
-    !_4
+    // cleanup drop _4 (omitted: main path owns the release)
     jmp L_bb12
 L_bb12:
-    // UNSUPPORTED drop-borrow-live -> _2 (borrow outlives; not provably endable)
-    !_2
+    // cleanup drop _2 (omitted: main path owns the release)
     jmp L_bb13
 L_bb13:
     // MIR Resume (cleanup path)
@@ -1482,8 +1475,7 @@ L_bb4:
     !_as_bb7_eq
     return 0
 L_bb5:
-    // UNSUPPORTED drop-borrow-live -> _1 (borrow outlives; not provably endable)
-    !_1
+    // cleanup drop _1 (omitted: main path owns the release)
     jmp L_bb6
 L_bb6:
     // MIR Resume (cleanup path)
@@ -1587,20 +1579,19 @@ L_bb13:
     !_as_bb9_eq
     return 0
 L_bb14:
-    // UNSUPPORTED drop-borrow-live -> _2 (borrow outlives; not provably endable)
-    !_2
+    // cleanup drop _2 (omitted: main path owns the release)
     jmp L_bb19
 L_bb15:
     // MIR Resume (cleanup path)
     panic("unwind-resume")
 L_bb16:
-    !_5
+    // cleanup drop _5 (omitted: main path owns the release)
     jmp L_bb14
 L_bb17:
     // UNSUPPORTED switch-discr: unresolvable const (control preserved)
     jmp L_bb16
 L_bb18:
-    !_1
+    // cleanup drop _1 (omitted: main path owns the release)
     jmp L_bb15
 L_bb19:
     // UNSUPPORTED switch-discr: unresolvable const (control preserved)
@@ -2575,12 +2566,10 @@ L_bb89:
     !_94
     return 0
 L_bb90:
-    // UNSUPPORTED drop-borrow-live -> _111 (borrow outlives; not provably endable)
-    !_111
+    // cleanup drop _111 (omitted: main path owns the release)
     jmp L_bb92
 L_bb91:
-    // UNSUPPORTED drop-borrow-live -> _79 (borrow outlives; not provably endable)
-    !_79
+    // cleanup drop _79 (omitted: main path owns the release)
     jmp L_bb92
 L_bb92:
     // MIR Resume (cleanup path)

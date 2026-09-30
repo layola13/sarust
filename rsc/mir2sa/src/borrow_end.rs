@@ -20,6 +20,17 @@
 //! would still trap); otherwise the site keeps its old shape and is counted
 //! loud (`DropBorrowLive`) — never a new trap, never silent.
 //!
+//! Phase 2 — cleanup dedup. rustc's unwind cleanup path repeats every drop
+//! of the normal path; those blocks are unreachable from the entry (the
+//! driver emits no unwind edges) and end in `panic("unwind-resume")`.
+//! Runtime never executes them (panic aborts; `sa check` probes: panic path
+//! skips leak checks, `fu` shows a fresh def after `return` is fine), yet SA
+//!'s Referee keeps scanning past `return` and sees the duplicate `!p` as a
+//! second release (UseAfterMove). So an UNREACHABLE Drop site emits no `!p`
+//! at all (`cleanup` set below): the main path already freed it, and the
+//! cleanup path owns nothing to free. Sound because unwinding is not modelled
+//! in phase 1 (`Resume` already lowers to `panic`).
+//!
 //! Operates on the versioned MIR (same input lower and coverage share, so
 //! parity holds by construction). Text-level passes (drop.rs) see the
 //! inserted `!b` lines as ordinary frees and skip `b` at exits.
@@ -30,9 +41,11 @@ use crate::mir::{Block, Operand, Rvalue, Stmt, Term};
 
 /// Drop-block index -> borrower regs to free first (sorted, independent).
 /// Drop-block index -> live borrow we cannot provably end (loud).
+/// Drop-block index -> release omitted (unreachable cleanup duplicate).
 pub struct DropPlan {
     pub ends: BTreeMap<usize, Vec<String>>,
     pub loud: BTreeSet<usize>,
+    pub cleanup: BTreeSet<usize>,
 }
 
 /// Successor table (same edges as order.rs: explicit terminator targets;
@@ -243,7 +256,7 @@ pub fn plan_drops(blocks: &[Block], doms: &[HashSet<usize>]) -> DropPlan {
             _ => {}
         }
     }
-    let mut plan = DropPlan { ends: BTreeMap::new(), loud: BTreeSet::new() };
+    let mut plan = DropPlan { ends: BTreeMap::new(), loud: BTreeSet::new(), cleanup: BTreeSet::new() };
     // Borrowers already ended (per borrower, at most one end per CFG path:
     // a second end downstream would double-free).
     let mut ended_at: BTreeMap<String, Vec<usize>> = BTreeMap::new();
@@ -259,6 +272,14 @@ pub fn plan_drops(blocks: &[Block], doms: &[HashSet<usize>]) -> DropPlan {
             _ => continue,
         };
         if place == "__VERSION_CONFLICT__" {
+            continue;
+        }
+        // Cleanup dedup (phase 2) first: the release is a duplicate of a
+        // reachable path, so nothing is freed here. Detected before the
+        // borrow gates because an unreachable site never executes a borrow
+        // end either.
+        if !entry_reach.contains(&di) {
+            plan.cleanup.insert(di);
             continue;
         }
         // Borrowers of this place (self-borrows veto the whole site).
@@ -277,11 +298,6 @@ pub fn plan_drops(blocks: &[Block], doms: &[HashSet<usize>]) -> DropPlan {
             if self_borrow {
                 plan.loud.insert(di);
             }
-            continue;
-        }
-        if !entry_reach.contains(&di) {
-            // Cleanup-path duplicate: unconditional ends unsound here.
-            plan.loud.insert(di);
             continue;
         }
         let after = reachable_from(&succ, di);
@@ -321,12 +337,10 @@ pub fn plan_drops(blocks: &[Block], doms: &[HashSet<usize>]) -> DropPlan {
             plan.loud.insert(di);
         }
     }
-    // A site downstream of an end needs no loud mark when the end dominates
-    // it (every path already ended the borrow); otherwise it stays loud.
-    // (Ends dominate their site by construction only when the borrower def
-    // dominates; downstream non-dominated sites were marked loud above, and
-    // dominated ones cannot occur without the borrower also being endable —
-    // so no post-pass adjustment is needed for phase 1.)
+    // Phase-2 note: a site downstream of an end needs no loud mark when the
+    // end dominates it (every path already ended the borrow); dominated
+    // downstream sites cannot exist without the borrower also being endable,
+    // so no post-pass adjustment is needed.
     plan
 }
 
@@ -405,13 +419,30 @@ mod borrow_end_tests {
 
     #[test]
     fn unreachable_drop_stays_loud() {
-        // Cleanup duplicate unreachable from entry: no unconditional end.
+        // Cleanup duplicate unreachable from entry: no `!b`, no `!p` (phase 2).
         let mut blocks = lin();
         blocks.push(blk("bb9", vec![], Term::Drop { place: "_1".to_string(), target: "bb2".to_string() }));
         let plan = plan_drops(&blocks, &doms(&blocks));
         assert_eq!(plan.ends.get(&1), Some(&vec!["_2".to_string()]));
         assert!(!plan.ends.contains_key(&3));
-        assert!(plan.loud.contains(&3));
+        assert!(plan.cleanup.contains(&3), "unreachable drop deduped");
+        assert!(!plan.loud.contains(&3), "dedup is not a gap");
+        assert!(plan.loud.is_empty());
+    }
+
+    #[test]
+    fn cleanup_without_borrow_also_deduped() {
+        // No borrowers -> phase 1 skips the site, but the release is still a
+        // duplicate of the main path, so phase 2 must omit it.
+        let mut blocks = vec![
+            blk("bb0", vec![], Term::Drop { place: "_1".to_string(), target: "bb1".to_string() }),
+            blk("bb1", vec![], Term::Return),
+            blk("bb9", vec![], Term::Drop { place: "_1".to_string(), target: "bb1".to_string() }),
+        ];
+        let plan = plan_drops(&blocks, &doms(&blocks));
+        assert!(plan.ends.is_empty());
+        assert_eq!(plan.cleanup.iter().copied().collect::<Vec<_>>(), vec![2]);
+        assert!(plan.loud.is_empty());
     }
 
     #[test]

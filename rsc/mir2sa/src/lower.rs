@@ -219,6 +219,11 @@ pub fn lower_function(f: &Function, unsup: &mut Vec<String>) -> String {    // T
                 if place == "__VERSION_CONFLICT__" {
                     unsup.push(format!("{}: DropConflict", b.id));
                     out.push("    // UNSUPPORTED drop: version conflict at join (multiple reaching defs)".to_string());
+                } else if borrow_plan.cleanup.contains(&bi) {
+                    // Cleanup duplicate (see borrow_end.rs phase 2): the main
+                    // path already freed this place and the unwind path never
+                    // runs, so no second `!p` (Referee scans past `return`).
+                    out.push(format!("    // cleanup drop {} (omitted: main path owns the release)", place));
                 } else {
                     // Borrow-end (see borrow_end.rs): NLL-dead borrowers end
                     // here so `!p` doesn't trap BorrowConflict. Unresolvable

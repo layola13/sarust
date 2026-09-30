@@ -30,7 +30,7 @@
 | `asm.rs` | asm 门控（mov/inout）+ cast 决策 + 标量宽度 | ~210 |
 | `order.rs` | RPO 排放序 + 支配集 bound 种子 | ~230 |
 | `version.rs` | SSA 版本化（重命名+reaching-definitions+冲突哨兵） | ~630 |
-| `borrow_end.rs` | Drop 点借用终结（支配门控+可达性+单定义+死后无用；T18 WIP） | ~330 |
+| `borrow_end.rs` | Drop 点借用终结 + cleanup 去重（支配门控+可达性+单定义+死后无用；T18/T18b） | ~470 |
 | `lower.rs` | 函数装配（头/块/终结符/extern/占位/重绑定） | ~440 |
 | `drop.rs` | 出口释放插入（支配感知+借用拓扑） | ~340 |
 | `spill.rs` | 多用值 reload 槽（合成缓冲/call 结果） | ~200 |
@@ -109,8 +109,8 @@ Referee 层由前端负责（sala 03 模型：Drop 插入与 Phi 由上游负责
 | trap | corpus 40fn | sci 321 | sla 298 | 出路 |
 |---|---|---|---|---|
 | MemoryLeak | 0（10→0） | 1（185→1） | 1（60→1） | `drop.rs` 出口释放（本轮）；残 2 需 use-analysis |
-| UseAfterMove | 14（14→9→14，+5 为 cleanup 重复 Drop 被 Borrow 修后显形，T18 待去重） | 57（102→57） | 61（104→61） | const-prop + spill（本轮）；残留需版本化/重借 |
-| BorrowConflict | 0（4→5→0，T18 borrow-end 关闭 corpus 5 处） | 14（9→14） | 21（16→21） | borrow-end 分析（先释借用再释源；rosetta 待重跑） |
+| UseAfterMove | 9（14→9，T18/T18b 收口） | 57（102→57） | 61（104→61） | const-prop + spill（本轮）；残留需版本化/重借 |
+| BorrowConflict | 0（4→5→0，T18 borrow-end + T18b cleanup 去重） | 14（9→14） | 21（16→21） | borrow-end 分析（先释借用再释源；rosetta 待重跑） |
 | PhiStateConflict | 3（2→3） | 21（20→21） | 22（114→22） | 路径敏感清理（join 状态对齐） |
 | RegisterRedefinition | 0 | 0 | 0 | 版本化+支配集重绑定检测已覆盖 |
 | 全绿文件 | 23（3→23） | 228（5→228） | 180（4→180） | — |
@@ -136,7 +136,7 @@ mir2sa 覆盖偏移原文使用（reorder 非升序与枚举 tag-gap 绝对偏�
 
 ## 当前缺口（corpus 基线，T14 口径：汇编器为准）
 
-`mir2sa coverage` **84.4%**（428 stmts + 317 terms，116 缺口，全部具名）：
+`mir2sa coverage` **86.0%**（428 stmts + 317 terms，104 缺口，全部具名）：
 
 | 类别 | 数 | 出路 |
 |---|---|---|
@@ -147,11 +147,10 @@ mir2sa 覆盖偏移原文使用（reorder 非升序与枚举 tag-gap 绝对偏�
 | 有序比较/移位（Lt/Gt/Ge/Shr） | 9 | driver 下发符号性 |
 | PointerCoercion（Unsize/fn-ptr） | 5 | 胖指针构造/intrinsic 策略 |
 | UnOp-PtrMetadata | 3 | driver fat-meta 解析 |
-| DropBorrowLive（T18 新口径） | 12 | 可达不可终结 + cleanup 重复 Drop（下期去重关闭后回落） |
 | FnSig（128 位） | 0（corpus） | 已有计数器；rosetta-09 触发 1 次 |
 
 历史 100%（T13）为 MIR-kind 口径；T14 起以 `sa check` 为准绳，
-上述缺口此前以不可汇编形态静默存在，现全部大声。`cargo test` 50/50；
+上述缺口此前以不可汇编形态静默存在，现全部大声。`cargo test` 51/51；
 `examples/corpus.{mir.json,sa,coverage.txt}` 为锁定产物。
 
 ## 保真（corpus 全量对账，T14 口径）

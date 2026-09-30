@@ -141,11 +141,13 @@ fn cmd_coverage(args: &[String]) -> ExitCode {
             }
             // Conflict-marked drops (see version.rs) go loud like lower().
             // Borrow-live drops lower() cannot provably end go loud too.
+            // Cleanup duplicates are deduped by lower() (borrow_end phase 2)
+            // and are NOT a gap, so they are not counted.
             if let Term::Drop { place, .. } = &b.terminator {
                 if place == "__VERSION_CONFLICT__" {
                     tot_unsup += 1;
                     unsup.push(format!("{}: T/DropConflict", b.id));
-                } else if bend.loud.contains(&bi) {
+                } else if !bend.cleanup.contains(&bi) && bend.loud.contains(&bi) {
                     tot_unsup += 1;
                     unsup.push(format!("{}: T/DropBorrowLive", b.id));
                 }

@@ -396,3 +396,26 @@ targets 的 bug，Rust 版已修正；另 `(_4.0: T)` 投影归一到基 local�
   届时 UAM 回落、Borrow 保持 0。停工前未做，保持树为诚实 WIP。
 - `examples/corpus.{sa,coverage.txt}` 已重落（锁定产物含新 `!b` 行与
   drop-borrow-live 注释）；`hi.sa` 零改动。
+
+## T18b cleanup 去重（phase 2：不可达 Drop 站省略释放）
+
+- 判据（全部由 `sa check` 微探针取证，探针件见下）：(1) `bt1`/`dd` 菱形
+  两臂各释一次合法（真赋值即可，非路径敏感）；(2) `pl` panic 路径不查泄漏；
+  (3) `fu` return 后新定义合法 → 判定 Referee 为「return 之后仍 fallthrough
+  线性扫描」而非路径敏感；(4) `ft` 同处再释同一 reg 报 UAM。据此：cleanup
+  块运行时不可达（`panic` 中止，一期无 unwinding），而 Referee 仍会看到其
+  重复 `!p` 报 UAM——唯一出路是**不发这条 `!p`**。
+- 实现：`borrow_end.rs` 增 `DropPlan.cleanup`（entry 不可达的 Drop 站），
+  在借用门控**之前**判定（不可达站也无需释借用）：lower 省略释放、发注释
+  `// cleanup drop _p (omitted: main path owns the release)`；coverage 对称
+  不记缺口（去重是修复不是缺口）。新增单测
+  `cleanup_without_borrow_also_deduped`（+1 → **51/51**）。
+- 实测（corpus 40fn）：BorrowConflict **0**、UseAfterMove **9**（回到 T17
+  基线，T18 的 +5 假回归消解）、全绿函数 **23→28**（5 个 borrow 函数由红转
+  绿）、PhiStateConflict 3 不变、parse-trap 归零；`cargo test` **51/51**；
+  lower UNSUPPORTED **116→104**（12 条记账缺口清零，与 T17 基线持平）；
+  corpus.sa 删 29 行（16 处 cleanup 去重 + 13 处 `!b` 前置位置修正）。
+- 探针件（`scratch/probes/*.sa`，scratch/ 已 gitignore，结论已抄入本节与
+  `borrow_end.rs` 模块文档）：bt1/dd/pl/fu/ft/g1/g2/g3/pb1..pb4/t1..t3。
+- 残留不变：UAM 9（borrow-copy 与计算值复用类，见 INVENTORY）、
+  PhiStateConflict 3（合流/循环携带 Conflict，需 phi 范式）。

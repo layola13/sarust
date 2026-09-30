@@ -210,7 +210,14 @@ pub fn lower_function(f: &Function, unsup: &mut Vec<String>) -> String {    // T
                 }
             }
             Term::Drop { place, target } => {
-                out.push(format!("    !{}", place));
+                // Conflicted drops carry a marker (see version.rs): loud here,
+                // control preserved via the original target.
+                if place == "__VERSION_CONFLICT__" {
+                    unsup.push(format!("{}: DropConflict", b.id));
+                    out.push("    // UNSUPPORTED drop: version conflict at join (multiple reaching defs)".to_string());
+                } else {
+                    out.push(format!("    !{}", place));
+                }
                 out.push(format!("    jmp {}", sa_label(target)));
             }
             Term::SwitchInt { discr, targets, otherwise } => {
@@ -444,6 +451,11 @@ pub fn cmd_lower(args: &[String]) -> ExitCode {
     let mir: MirFile = match serde_json::from_str(&text) {
         Ok(m) => m,
         Err(e) => { eprintln!("bad mir.json: {}", e); return ExitCode::from(2); }
+    };
+    // SSA versioning (see version.rs): same transform coverage applies.
+    let mir = MirFile {
+        source: mir.source.clone(),
+        functions: mir.functions.iter().map(crate::version::version_function).collect(),
     };
     let mut unsup = vec![];
     // Bodies joined by "\n"; each body already ends with one trailing newline.

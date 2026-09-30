@@ -29,6 +29,8 @@
 | `layout.rs` | 数组/Adt 物化（alloc+store）+ FNV/field 计划 | ~220 |
 | `asm.rs` | asm 门控（mov/inout）+ cast 决策 + 标量宽度 | ~210 |
 | `order.rs` | RPO 排放序 + 支配集 bound 种子 | ~230 |
+| `version.rs` | SSA 版本化（重命名+reaching-definitions+冲突哨兵） | ~630 |
+| `version.rs` | SSA 版本化（重命名+reaching-definitions+冲突哨兵） | ~630 |
 | `lower.rs` | 函数装配（头/块/终结符/extern/占位/重绑定） | ~440 |
 | `drop.rs` | 出口释放插入（支配感知+借用拓扑） | ~340 |
 | `spill.rs` | 多用值 reload 槽（合成缓冲/call 结果） | ~200 |
@@ -109,9 +111,9 @@ Referee 层由前端负责（sala 03 模型：Drop 插入与 Phi 由上游负责
 | MemoryLeak | 0（10→0） | 1（185→1） | 1（60→1） | `drop.rs` 出口释放（本轮）；残 2 需 use-analysis |
 | UseAfterMove | 9（14→9） | 57（102→57） | 61（104→61） | const-prop + spill（本轮）；残留需版本化/重借 |
 | BorrowConflict | 5（4→5） | 14（9→14） | 21（16→21） | borrow-end 分析（先释借用再释源） |
-| PhiStateConflict | 3（2→3） | 22（20→22） | 25（114→25） | 路径敏感清理（join 状态对齐） |
-| RegisterRedefinition | 0 | 0 | 0 | 支配集重绑定检测已覆盖 |
-| 全绿文件 | 23（3→23） | 226（5→226） | 177（4→177） | — |
+| PhiStateConflict | 3（2→3） | 21（20→21） | 22（114→22） | 路径敏感清理（join 状态对齐） |
+| RegisterRedefinition | 0 | 0 | 0 | 版本化+支配集重绑定检测已覆盖 |
+| 全绿文件 | 23（3→23） | 228（5→228） | 180（4→180） | — |
 
 仿射消费表（探针取证）：`x = y` 移动源；call/store/eq/load/br 共享读；
 `&y` 锁定源（生借用未释禁 `!y`）；`!r` 释放；`^` 仅 call 实参/store 值位合法。

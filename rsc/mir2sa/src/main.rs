@@ -20,6 +20,7 @@ mod parse;
 mod render;
 mod render_util;
 mod spill;
+mod version;
 
 use std::process::ExitCode;
 
@@ -30,6 +31,7 @@ use crate::lower::*;
 use crate::mir::*;
 use crate::parse::*;
 use crate::render_util::*;
+use crate::version::version_function;
 fn cmd_coverage(args: &[String]) -> ExitCode {
     let input = args.iter().find(|a| !a.starts_with("--")).cloned();
     let input = match input {
@@ -45,6 +47,12 @@ fn cmd_coverage(args: &[String]) -> ExitCode {
         Err(e) => { eprintln!("bad mir.json: {}", e); return ExitCode::from(2); }
     };
     let (mut tot_stmts, mut tot_terms, mut tot_unsup) = (0usize, 0usize, 0usize);
+    // SSA versioning (see version.rs): multi-def locals renamed, join
+    // conflicts marked — lower and coverage share the identical input.
+    let mir = MirFile {
+        source: mir.source.clone(),
+        functions: mir.functions.iter().map(version_function).collect(),
+    };
     for f in &mir.functions {
         let mut kinds = std::collections::BTreeMap::<String, usize>::new();
         let mut unsup = vec![];
@@ -127,6 +135,13 @@ fn cmd_coverage(args: &[String]) -> ExitCode {
             if let Term::Unsupported { text } = &b.terminator {
                 tot_unsup += 1;
                 unsup.push(format!("{}: T/Unsupported({})", b.id, text.chars().take(60).collect::<String>()));
+            }
+            // Conflict-marked drops (see version.rs) go loud like lower().
+            if let Term::Drop { place, .. } = &b.terminator {
+                if place == "__VERSION_CONFLICT__" {
+                    tot_unsup += 1;
+                    unsup.push(format!("{}: T/DropConflict", b.id));
+                }
             }
             // Scalar-position consts mirror lower()'s loud pre-checks.
             // Calls without signatures mirror lower()'s CallNoSig rule.
@@ -477,6 +492,22 @@ mod tests {
         assert_eq!(asm_inout(Some("/* nop */"), Some(""), true, true, &["_1"], &ins), None);
         // Bad dest -> loud.
         assert_eq!(asm_inout(Some("/* nop */"), Some(""), false, true, &["_proj"], &ins), None);
+    }
+
+    #[test]
+    fn asm_versioned_names_pass_gates() {
+        // Versioned renames (`_1_v1`) are plain locals for gate purposes;
+        // otherwise versioning would silence every gated pattern.
+        let ins = vec![Operand::Copy { place: "_1_v0".to_string() }];
+        assert_eq!(
+            asm_inout(Some("/* nop */"), Some(""), false, true, &["_1_v1"], &ins),
+            Some((Some("_1_v1".to_string()), Some("_1_v0".to_string())))
+        );
+        let outs: Vec<String> = vec!["_2_v0".to_string()];
+        let ins2 = vec![Operand::Copy { place: "_1_v0".to_string() }];
+        assert!(crate::asm::asm_mov_copy(
+            Some("mov {0}, {1}"), Some(""), false, false, &outs, &ins2
+        ).is_some());
     }
 
     #[test]

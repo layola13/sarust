@@ -132,10 +132,19 @@ pub fn lower_cast(kind: &str, src_ty: &str, dst_ty: &str) -> Option<CastLower> {
     None
 }
 
-/// Plain `_N` local (matches mir2sa parse's base_local contract).
+/// Plain `_N` local or a versioned `_N_vK` rename (see version.rs).
+/// Matches mir2sa parse's base_local contract on unversioned names.
 pub fn is_plain_local(s: &str) -> bool {
     let s = s.strip_prefix('_').unwrap_or("");
-    !s.is_empty() && s.chars().all(|c| c.is_ascii_digit())
+    if s.is_empty() {
+        return false;
+    }
+    // Strip an optional `_vK` version suffix first.
+    let core = match s.rfind("_v") {
+        Some(i) if s[i + 2..].chars().all(|c| c.is_ascii_digit()) && !s[i + 2..].is_empty() => &s[..i],
+        _ => s,
+    };
+    !core.is_empty() && core.chars().all(|c| c.is_ascii_digit())
 }
 
 /// Strip C block comments (`/* … */`, non-nesting) from an asm template;

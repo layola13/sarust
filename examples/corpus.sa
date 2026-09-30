@@ -127,7 +127,7 @@ L_as_bb6_fail:
     // assert failed: Overflow(Sub, copy _6, copy _8)
     panic(1506)
 L_bb8:
-    _0 = 0
+    _0_v0 = 0
     jmp L_bb10
 L_bb7:
     _14 = _1
@@ -141,7 +141,7 @@ L_as_bb7_fail:
     // assert failed: Overflow(Add, copy _14, copy _15)
     panic(1507)
 L_bb9:
-    _0 = 0
+    _0_v1 = 0
     jmp L_bb10
 L_bb3:
     _3 = _1
@@ -155,10 +155,10 @@ L_as_bb3_fail:
     // assert failed: Overflow(Add, copy _3, copy _4)
     panic(1503)
 L_bb5:
-    _0 = 0
+    _0_v2 = 0
     jmp L_bb10
 L_bb4:
-    _0 = 0
+    _0_v3 = 0
     jmp L_bb10
 L_bb10:
     !_sw_bb0
@@ -169,28 +169,28 @@ L_bb10:
 L_bb0:
     // single-elem aggregate (exact)
     _2 = 41
-    // UNSUPPORTED rebind -> _1 (already bound; keeping first value)
+    _1_v0 = _2
     // zero-elem aggregate (unit/niche; tag via SetDisc when present)
     _3 = 0
-    // UNSUPPORTED rebind -> _1 (already bound; keeping first value)
+    _1_v1 = _3
     // single-elem aggregate (exact)
     _4 = 1
-    // UNSUPPORTED rebind -> _1 (already bound; keeping first value)
-    _5 = _1
+    _1_v2 = _4
+    _5 = _1_v2
     // MIR: std::option::Option::<i32>::unwrap_or
     _0 = call @std_option_Option_i32_unwrap_or(_5, 0)
     jmp L_bb1
 L_bb1:
     !_0
-    !_2
-    !_3
-    !_4
+    !_1
+    !_1_v0
+    !_1_v1
     !_5
     return 0
 
 @f_struct(_1: ptr) -> i32:
 L_bb0:
-    // UNSUPPORTED binop -> _2: AddWithOverflow(_1, 1)
+    // UNSUPPORTED const-value -> _2: version conflict at join (multiple reaching defs of _1)
     _2 = 0
     _as_bb0 = _2
     _as_bb0_eq = eq _as_bb0, 0
@@ -199,8 +199,8 @@ L_as_bb0_fail:
     // assert failed: Overflow(Add, copy (_1.0: i32), const 1_i32)
     panic(1500)
 L_bb1:
-    // UNSUPPORTED rebind -> _1 (already bound; keeping first value)
-    // UNSUPPORTED binop -> _3: MulWithOverflow(_1, 2)
+    _1_v0 = 0
+    // UNSUPPORTED binop -> _3: MulWithOverflow(_1_v0, 2)
     _3 = 0
     _as_bb1 = _3
     _as_bb1_eq = eq _as_bb1, 0
@@ -209,9 +209,9 @@ L_as_bb1_fail:
     // assert failed: Overflow(Mul, copy (_1.1: i32), const 2_i32)
     panic(1501)
 L_bb2:
-    // UNSUPPORTED rebind -> _1 (already bound; keeping first value)
-    _4 = _1
-    _5 = _1
+    _1_v1 = 0
+    _4 = _1_v1
+    _5 = _1_v1
     // UNSUPPORTED binop -> _6: SubWithOverflow(_4, _5)
     _6 = 0
     _as_bb2 = _6
@@ -223,6 +223,8 @@ L_as_bb2_fail:
 L_bb3:
     _0 = 0
     !_0
+    !_1
+    !_1_v0
     !_4
     !_5
     !_as_bb0
@@ -292,22 +294,24 @@ L_bb6:
 
 @f_slice(_1: ptr) -> i32:
 L_bb0:
-    _2 = 0
+    _2_v0 = 0
     // zero-sized borrow (no storage)
     _4 = 0
     // UNSUPPORTED unop -> _3: PtrMetadata(_mv_bb0_0)
     _3 = 0
-    _5 = 0
+    _5_v0 = 0
     jmp L_bb1
 L_bb1:
-    _7 = _5
+    // UNSUPPORTED const-value -> _7: version conflict at join (multiple reaching defs of _5)
+    _7 = 0
     // UNSUPPORTED binop -> _6: Lt(_mv_bb1_0, _3)
     _6 = 0
     _sw_bb1 = _6
     _sw_bb1_eq_0 = eq _sw_bb1, 0
     br _sw_bb1_eq_0 -> L_bb8, L_bb2
 L_bb2:
-    _8 = _5
+    // UNSUPPORTED const-value -> _8: version conflict at join (multiple reaching defs of _5)
+    _8 = 0
     _9 = _1
     // UNSUPPORTED unop -> _10: PtrMetadata(_mv_bb2_0)
     _10 = 0
@@ -330,7 +334,8 @@ L_as_bb3_fail:
     panic(1503)
 L_bb4:
     // UNSUPPORTED rebind -> _1 (already bound; keeping first value)
-    _14 = _5
+    // UNSUPPORTED const-value -> _14: version conflict at join (multiple reaching defs of _5)
+    _14 = 0
     _15 = _1
     // UNSUPPORTED unop -> _16: PtrMetadata(_mv_bb4_0)
     _16 = 0
@@ -344,7 +349,7 @@ L_as_bb4_fail:
     panic(1504)
 L_bb5:
     _13 = _1
-    // UNSUPPORTED binop -> _18: AddWithOverflow(_2, _13)
+    // UNSUPPORTED const-value -> _18: version conflict at join (multiple reaching defs of _2)
     _18 = 0
     _as_bb5 = _18
     _as_bb5_eq = eq _as_bb5, 0
@@ -353,8 +358,8 @@ L_as_bb5_fail:
     // assert failed: Overflow(Add, copy _2, move _13)
     panic(1505)
 L_bb6:
-    // UNSUPPORTED rebind -> _2 (already bound; keeping first value)
-    // UNSUPPORTED binop -> _19: AddWithOverflow(_5, 1)
+    _2_v1 = 0
+    // UNSUPPORTED const-value -> _19: version conflict at join (multiple reaching defs of _5)
     _19 = 0
     _as_bb6 = _19
     _as_bb6_eq = eq _as_bb6, 0
@@ -363,13 +368,16 @@ L_as_bb6_fail:
     // assert failed: Overflow(Add, copy _5, const 1_usize)
     panic(1506)
 L_bb7:
-    // UNSUPPORTED rebind -> _5 (already bound; keeping first value)
+    _5_v1 = 0
     jmp L_bb1
 L_bb8:
-    _0 = _2
+    // UNSUPPORTED const-value -> _0: version conflict at join (multiple reaching defs of _2)
+    _0 = 0
     !_0
+    !_2_v0
     !_3
     !_4
+    !_5_v0
     !_7
     !_sw_bb1
     !_sw_bb1_eq_0
@@ -398,7 +406,7 @@ L_bb0:
 
 @f_loops(_1: ptr) -> i32:
 L_bb0:
-    _2 = 0
+    _2_v0 = 0
     // MIR: core::slice::<impl [i32]>::iter
     _4 = call @core_slice_impl_i32_iter(_1)
     jmp L_bb1
@@ -428,7 +436,7 @@ L_sw_bb4_0:
 L_bb6:
     _9 = load _6_spill+0 as ptr
     _10 = _9
-    // UNSUPPORTED binop -> _11: AddWithOverflow(_2, _10)
+    // UNSUPPORTED const-value -> _11: version conflict at join (multiple reaching defs of _2)
     _11 = 0
     _as_bb6 = _11
     _as_bb6_eq = eq _as_bb6, 0
@@ -437,13 +445,14 @@ L_as_bb6_fail:
     // assert failed: Overflow(Add, copy _2, move _10)
     panic(1506)
 L_bb8:
-    // UNSUPPORTED rebind -> _2 (already bound; keeping first value)
+    _2_v1 = 0
     jmp L_bb3
 L_bb7:
-    _12 = 0
+    _12_v0 = 0
     jmp L_bb9
 L_bb9:
-    _14 = _12
+    // UNSUPPORTED const-value -> _14: version conflict at join (multiple reaching defs of _12)
+    _14 = 0
     // UNSUPPORTED binop -> _13: Ge(_mv_bb9_0, 3)
     _13 = 0
     _sw_bb9 = _13
@@ -527,7 +536,7 @@ L_bb22:
     _sw_bb22_eq_0 = eq _sw_bb22, 0
     br _sw_bb22_eq_0 -> L_bb23, L_bb25
 L_bb23:
-    // UNSUPPORTED binop -> _35: AddWithOverflow(_2, 1)
+    // UNSUPPORTED const-value -> _35: version conflict at join (multiple reaching defs of _2)
     _35 = 0
     _as_bb23 = _35
     _as_bb23_eq = eq _as_bb23, 0
@@ -536,17 +545,20 @@ L_as_bb23_fail:
     // assert failed: Overflow(Add, copy _2, const 1_i32)
     panic(1523)
 L_bb24:
-    // UNSUPPORTED rebind -> _2 (already bound; keeping first value)
+    _2_v2 = 0
     jmp L_bb19
 L_bb25:
-    _0 = _2
+    // UNSUPPORTED const-value -> _0: version conflict at join (multiple reaching defs of _2)
+    _0 = 0
     !_0
     !_1
+    !_12_v0
     !_14
     !_19
     !_21
     !_21_spill
     !_22
+    !_2_v0
     !_4
     !_6
     !_6_spill
@@ -561,8 +573,9 @@ L_bb25:
     !_5
     return 0
 L_bb11:
-    _15 = _12
-    // UNSUPPORTED binop -> _16: AddWithOverflow(_2, _15)
+    // UNSUPPORTED const-value -> _15: version conflict at join (multiple reaching defs of _12)
+    _15 = 0
+    // UNSUPPORTED const-value -> _16: version conflict at join (multiple reaching defs of _2)
     _16 = 0
     _as_bb11 = _16
     _as_bb11_eq = eq _as_bb11, 0
@@ -571,8 +584,8 @@ L_as_bb11_fail:
     // assert failed: Overflow(Add, copy _2, move _15)
     panic(1511)
 L_bb12:
-    // UNSUPPORTED rebind -> _2 (already bound; keeping first value)
-    // UNSUPPORTED binop -> _17: AddWithOverflow(_12, 1)
+    _2_v3 = 0
+    // UNSUPPORTED const-value -> _17: version conflict at join (multiple reaching defs of _12)
     _17 = 0
     _as_bb12 = _17
     _as_bb12_eq = eq _as_bb12, 0
@@ -581,7 +594,7 @@ L_as_bb12_fail:
     // assert failed: Overflow(Add, copy _12, const 1_i32)
     panic(1512)
 L_bb13:
-    // UNSUPPORTED rebind -> _12 (already bound; keeping first value)
+    _12_v1 = 0
     jmp L_bb9
 
 @f_closure(_1: ptr) -> ptr:
@@ -841,7 +854,7 @@ L_bb4:
 L_bb6:
     _6 = _2
     // MIR: <std::result::Result<i32, std::string::String> as std::ops::FromResidual<std::result::Result<!, std:
-    _0 = call @std_result_Result_i32_std_string_String_as_std_ops_FromResidual_std_result_Resul(_6)
+    _0_v0 = call @std_result_Result_i32_std_string_String_as_std_ops_FromResidual_std_result_Resul(_6)
     jmp L_bb8
 L_bb5:
     _7 = load _2_spill+0 as ptr
@@ -856,7 +869,7 @@ L_as_bb5_fail:
 L_bb7:
     _8 = 0
     // single-elem aggregate (exact)
-    _0 = _8
+    _0_v1 = _8
     jmp L_bb8
 L_bb8:
     !_1
@@ -1022,7 +1035,7 @@ L_bb13:
 
 @f_str(_1: ptr) -> u64:
 L_bb0:
-    _2 = 0
+    _2_v0 = 0
     // MIR: core::str::<impl str>::chars
     _4 = call @core_str_impl_str_chars(_1)
     jmp L_bb1
@@ -1063,7 +1076,7 @@ L_bb8:
     _sw_bb8_eq_0 = eq _sw_bb8, 0
     br _sw_bb8_eq_0 -> L_bb3, L_bb9
 L_bb9:
-    // UNSUPPORTED binop -> _12: AddWithOverflow(_2, 1)
+    // UNSUPPORTED const-value -> _12: version conflict at join (multiple reaching defs of _2)
     _12 = 0
     _as_bb9 = _12
     _as_bb9_eq = eq _as_bb9, 0
@@ -1072,12 +1085,14 @@ L_as_bb9_fail:
     // assert failed: Overflow(Add, copy _2, const 1_usize)
     panic(1509)
 L_bb10:
-    // UNSUPPORTED rebind -> _2 (already bound; keeping first value)
+    _2_v1 = 0
     jmp L_bb3
 L_bb7:
-    _0 = _2
+    // UNSUPPORTED const-value -> _0: version conflict at join (multiple reaching defs of _2)
+    _0 = 0
     !_0
     !_1
+    !_2_v0
     !_4
     !_6
     !_6_spill
@@ -1185,16 +1200,16 @@ L_bb2:
     // StorageLive _2
     // zero-elem aggregate (unit/niche; tag via SetDisc when present)
     _2 = 0
-    // UNSUPPORTED cast -> _0: _mv_bb2_0 as Binder { value: fn(std::option::Option<&'^0 mut std::option: (src Closure(DefId(0:65 ~ main[a064)
-    _0 = 0
+    // UNSUPPORTED cast -> _0_v0: _mv_bb2_0 as Binder { value: fn(std::option::Option<&'^0 mut std::option: (src Closure(DefId(0:65 ~ main[a064)
+    _0_v0 = 0
     // StorageDead _2
     jmp L_bb4
 L_bb3:
     // StorageLive _3
     // zero-elem aggregate (unit/niche; tag via SetDisc when present)
     _3 = 0
-    // UNSUPPORTED cast -> _0: _mv_bb3_0 as Binder { value: fn(std::option::Option<&'^0 mut std::option: (src Closure(DefId(0:67 ~ main[a064)
-    _0 = 0
+    // UNSUPPORTED cast -> _0_v1: _mv_bb3_0 as Binder { value: fn(std::option::Option<&'^0 mut std::option: (src Closure(DefId(0:67 ~ main[a064)
+    _0_v1 = 0
     // StorageDead _3
     jmp L_bb4
 L_bb4:
@@ -1467,9 +1482,9 @@ L_bb6:
 
 @f_thread_map() -> u64:
 L_bb0:
-    _17 = 0
-    _16 = 0
-    // UNSUPPORTED rebind -> _17 (already bound; keeping first value)
+    _17_v0 = 0
+    _16_v0 = 0
+    _17_v1 = 1
     // MIR: std::thread::spawn::<{closure@/content/sa_all/sarust/corpus/src/main.rs:205:32: 205:34}, usize>
     _1 = call @std_thread_spawn_closure_content_sa_all_sarust_corpus_src_main_rs_205_32_205_34_(0)
     jmp L_bb1
@@ -1485,8 +1500,8 @@ L_bb2:
     _5 = 0
     jmp L_bb3
 L_bb3:
-    // UNSUPPORTED rebind -> _16 (already bound; keeping first value)
-    // UNSUPPORTED rebind -> _17 (already bound; keeping first value)
+    _16_v1 = 1
+    _17_v2 = 0
     _8 = _1
     // MIR: std::thread::JoinHandle::<usize>::join
     _7 = call @std_thread_JoinHandle_usize_join(_8)
@@ -1496,12 +1511,12 @@ L_bb4:
     _6 = call @std_result_Result_usize_std_boxed_Box_dyn_std_any_Any_std_marker_Send_unwrap(_7)
     jmp L_bb5
 L_bb5:
-    // UNSUPPORTED rebind -> _16 (already bound; keeping first value)
+    _16_v2 = 0
     // MIR: std::collections::HashMap::<std::string::String, usize>::insert
     _3 = call @std_collections_HashMap_std_string_String_usize_insert(_4, _5, _6)
     jmp L_bb6
 L_bb6:
-    // UNSUPPORTED rebind -> _16 (already bound; keeping first value)
+    _16_v3 = 0
     // mut-borrow (Phase1: & + Referee)
     _11 = &_2
     // MIR: <std::string::String as std::convert::From<&str>>::from
@@ -1514,10 +1529,10 @@ L_bb7:
     jmp L_bb8
 L_bb8:
     // MIR: std::collections::hash_map::Entry::<'_, std::string::String, usize>::or_insert
-    _9 = call @std_collections_hash_map_Entry___std_string_String_usize_or_insert(_10, 1)
+    _9_v0 = call @std_collections_hash_map_Entry___std_string_String_usize_or_insert(_10, 1)
     jmp L_bb9
 L_bb9:
-    // UNSUPPORTED binop -> _13: AddWithOverflow(_9, 1)
+    // UNSUPPORTED binop -> _13: AddWithOverflow(_9_v0, 1)
     _13 = 0
     _as_bb9 = _13
     _as_bb9_eq = eq _as_bb9, 0
@@ -1526,7 +1541,7 @@ L_as_bb9_fail:
     // assert failed: Overflow(Add, copy (*_9), const 1_usize)
     panic(1509)
 L_bb10:
-    // UNSUPPORTED rebind -> _9 (already bound; keeping first value)
+    _9_v1 = 0
     _15 = &_2
     // MIR: std::collections::HashMap::<std::string::String, usize>::values
     _14 = call @std_collections_HashMap_std_string_String_usize_values(_15)
@@ -1539,18 +1554,24 @@ L_bb12:
     !_2
     jmp L_bb13
 L_bb13:
-    // UNSUPPORTED rebind -> _17 (already bound; keeping first value)
+    _17_v3 = 0
     !_0
     !_10
     !_14
     !_15
-    !_16
-    !_17
+    !_16_v0
+    !_16_v1
+    !_16_v2
+    !_17_v0
+    !_17_v1
+    !_17_v2
+    !_17_v3
     !_3
     !_6
     !_7
     !_8
-    !_9
+    !_9_v0
+    !_9_v1
     !_as_bb9
     !_as_bb9_eq
     return 0
@@ -1564,14 +1585,14 @@ L_bb16:
     !_5
     jmp L_bb14
 L_bb17:
-    _sw_bb17_eq_0 = eq _16, 0
-    br _sw_bb17_eq_0 -> L_bb14, L_bb16
+    // UNSUPPORTED switch-discr: unresolvable const (control preserved)
+    jmp L_bb16
 L_bb18:
     !_1
     jmp L_bb15
 L_bb19:
-    _sw_bb19_eq_0 = eq _17, 0
-    br _sw_bb19_eq_0 -> L_bb15, L_bb18
+    // UNSUPPORTED switch-discr: unresolvable const (control preserved)
+    jmp L_bb18
 
 @_closure_0_(_1: ptr) -> u64:
 L_bb0:
@@ -1907,8 +1928,8 @@ L_bb29:
     _81 = call @std_boxed_Box_i32_1_new_uninit()
     jmp L_bb30
 L_bb30:
-    _225 = _81
-    _232 = _225
+    _225_v0 = _81
+    _232 = _225_v0
     _233 = _232
     // UNSUPPORTED const-value -> _234: unresolvable const Unevaluated(UnevaluatedConst { def: DefId(2:3023 ~ core[f1c6
     _234 = 0
@@ -1920,7 +1941,7 @@ L_as_bb30_fail:
     // assert failed: MisalignedPointerDereference { required: const <std::mem::MaybeUninit<[i32; 1]> 
     panic(1530)
 L_bb94:
-    _237 = _225
+    _237 = _225_v0
     _238 = _237
     // UNSUPPORTED const-value -> _239: unresolvable const Unevaluated(UnevaluatedConst { def: DefId(2:3022 ~ core[f1c6
     _239 = 0
@@ -1933,7 +1954,8 @@ L_as_bb94_fail:
     // assert failed: NullPointerDereference
     panic(1594)
 L_bb95:
-    // UNSUPPORTED rebind -> _225 (already bound; keeping first value)
+    // single-elem aggregate (exact)
+    _225_v1 = 1
     // MIR: std::boxed::box_assume_init_into_vec_unsafe::<i32, 1>
     _80 = call @std_boxed_box_assume_init_into_vec_unsafe_i32_1(_81)
     jmp L_bb31
@@ -2066,8 +2088,8 @@ L_bb50:
     _123 = call @std_boxed_Box_i32_2_new_uninit()
     jmp L_bb51
 L_bb51:
-    _226 = _123
-    _227 = _226
+    _226_v0 = _123
+    _227 = _226_v0
     _228 = _227
     // UNSUPPORTED const-value -> _229: unresolvable const Unevaluated(UnevaluatedConst { def: DefId(2:3023 ~ core[f1c6
     _229 = 0
@@ -2079,7 +2101,7 @@ L_as_bb51_fail:
     // assert failed: MisalignedPointerDereference { required: const <std::mem::MaybeUninit<[i32; 2]> 
     panic(1551)
 L_bb93:
-    _243 = _226
+    _243 = _226_v0
     _244 = _243
     // UNSUPPORTED const-value -> _245: unresolvable const Unevaluated(UnevaluatedConst { def: DefId(2:3022 ~ core[f1c6
     _245 = 0
@@ -2092,7 +2114,10 @@ L_as_bb93_fail:
     // assert failed: NullPointerDereference
     panic(1593)
 L_bb96:
-    // UNSUPPORTED rebind -> _226 (already bound; keeping first value)
+    // aggregate (((*_226).1: std::mem::ManuallyDrop<[i32; 2]>).0: [i32; 2]) init i32; 2
+    _agg_bb96 = alloc 8
+    store _agg_bb96+0, 1 as i32
+    store _agg_bb96+4, 2 as i32
     // MIR: std::boxed::box_assume_init_into_vec_unsafe::<i32, 2>
     _122 = call @std_boxed_box_assume_init_into_vec_unsafe_i32_2(_123)
     jmp L_bb52
@@ -2439,6 +2464,7 @@ L_bb89:
     !_222
     !_223
     !_224
+    !_225_v1
     !_228
     !_229
     !_23
@@ -2505,6 +2531,7 @@ L_bb89:
     !_97
     !_98
     !_99
+    !_agg_bb96
     !_as_bb30_eq
     !_as_bb51_eq
     !_as_bb93_eq

@@ -24,6 +24,7 @@ pub fn lower_array_init(bid: &str, dest_place: &str, elems: &[Operand]) -> Optio
             Operand::Const { value, .. } => {
                 vals.push(const_array_elem(value, ty, size)?);
             }
+            Operand::Conflict { .. } => return None, // join-ambiguous: loud.
             _ => return None, // Moves/Copies must stay visible; never hide them in a store.
         }
     }
@@ -66,6 +67,7 @@ pub fn lower_adt_init(
     let mut plans: Vec<FieldPlan> = Vec::with_capacity(elems.len());
     for e in elems {
         match e {
+            Operand::Conflict { .. } => return None, // join-ambiguous: loud.
             Operand::Const { value, .. } if value.trim_start().starts_with("Val(ZeroSized") => {
                 plans.push(FieldPlan::Store { text: None, sa_ty: "u8", size: 0 });
             }

@@ -41,6 +41,8 @@ pub fn flat_comment(s: &str) -> String {
 /// `{}`/spaces that are ForbiddenSyntax in SA code positions).
 pub fn const_needs_loud(op: &Operand) -> bool {
     match op {
+        // Join-ambiguous uses (version.rs) always go loud.
+        Operand::Conflict { .. } => true,
         Operand::Const { value, str_bytes, .. } => {
             if value.trim_start().starts_with("Val(ZeroSized") {
                 return false;
@@ -78,6 +80,9 @@ pub fn assign_loud_const(rv: &Rvalue) -> Option<String> {
         _ => None,
     };
     hit.map(|op| match op {
+        Operand::Conflict { place } => {
+            format!("version conflict at join (multiple reaching defs of {})", place)
+        }
         Operand::Const { value, .. } => format!("unresolvable const {}", value.chars().take(60).collect::<String>()),
         _ => "unresolvable const".to_string(),
     })
@@ -130,6 +135,9 @@ pub fn render_operand(op: &Operand) -> String {
     match op {
         Operand::Move { place } => place.clone(),
         Operand::Copy { place } => place.clone(),
+        // Conflict sentinels never reach here (intercepted loud upstream);
+        // the fallback keeps rendering total.
+        Operand::Conflict { place } => place.clone(),
         Operand::Const { value, .. } => {
             // Zero-sized values carry no data: bind a null marker (exact).
             if value.trim_start().starts_with("Val(ZeroSized") {
@@ -217,6 +225,9 @@ pub fn build_constmap<'a>(
         if let Stmt::Assign { dest, rvalue, .. } = st {
             match rvalue {
                 Rvalue::Use { op } => match op {
+                    Operand::Conflict { .. } => {
+                        map.remove(dest);
+                    }
                     Operand::Const { value, .. } => {
                         if let Some(d) = const_scalar_text(value) {
                             map.insert(dest.clone(), d);

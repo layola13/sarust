@@ -5,14 +5,14 @@ use serde::{Deserialize, Serialize};
 // mir.json schema (same keys as the retired prototype so old JSON keeps working)
 // ---------------------------------------------------------------------------
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct MirFile {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
     pub functions: Vec<Function>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct Function {
     pub name: String,
     #[serde(default)]
@@ -30,7 +30,7 @@ pub fn default_sig_ok() -> bool {
     true
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct Block {
     pub id: String,
     #[serde(default)]
@@ -43,7 +43,7 @@ pub fn default_return() -> Term {
     Term::Return
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 #[serde(tag = "kind")]
 pub enum Stmt {
     Assign { dest: String, #[serde(default)] dest_place: Option<String>, rvalue: Rvalue },
@@ -54,7 +54,7 @@ pub enum Stmt {
     UnsupportedStmt { text: String },
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct AdtLayout {
     pub size: u64,
     #[serde(default)]
@@ -75,7 +75,7 @@ pub fn default_sig_ret() -> String {
     "i32".to_string()
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 #[serde(tag = "kind")]
 pub enum Rvalue {
     Use { op: Operand },
@@ -124,13 +124,18 @@ pub enum Operand {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         str_len: Option<u64>,
     },
+    /// Join-ambiguous use inserted by `version.rs`: two or more reaching
+    /// definitions with no dominance order (needs phi nodes, which SA lacks).
+    /// Never renders to a real read: `const_needs_loud` maps it loud, and
+    /// both lower and coverage count it through the shared predicate.
+    Conflict { place: String },
 }
 
 /// Max string-literal bytes materialized inline per `&str` field (byte-wise
 /// `store`s; longer literals stay loud UNSUPPORTED).
 pub const STR_INLINE_MAX: u64 = 64;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 #[serde(tag = "kind")]
 pub enum Term {
     Goto { target: String },

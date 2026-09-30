@@ -81,7 +81,7 @@ targets 的 bug，Rust 版已修正；另 `(_4.0: T)` 投影归一到基 local�
 - 未知 stmt kind → `bad mir.json: unknown variant …`，`RC=2`。
 - `--strict` 下有 UNSUPPORTED → `RC=1`。
 - `hi.mir.json → hi.sa`：`UNSUPPORTED=0`。
-- `cargo test` 38：`scalar_hex_driver_form`、`const_elem_both_forms`、
+- `cargo test` 44：`scalar_hex_driver_form`、`const_elem_both_forms`、
   `array_init_bb30_shape`（array-init 回归锁）、`repeat_forms`（repeat lowering 锁）、
   `adt_range_two_i32`（Range 2×i32）、`adt_mixed_move_const_bool`（move 混排对齐）、
   `adt_generic_two_moves`（泛型元组双 move 可见）、
@@ -99,7 +99,10 @@ targets 的 bug，Rust 版已修正；另 `(_4.0: T)` 投影归一到基 local�
   `frees_simple_leak` / `borrow_ordering` / `moved_not_freed` /
   `branch_local_never_freed_at_join`（drop 五锁，`drop.rs` 内）、
   `call_spill_ty_maps` / `synth_base_spills_as_ptr` / `no_copies_no_spill`
-  （spill 三锁，`spill.rs` 内）。
+  （spill 三锁，`spill.rs` 内）、`single_def_passthrough` /
+  `chain_versions` / `join_conflict_sentinel` / `stmt_plus_asm_out_reaches` /
+  `loop_carried_conflicts` / `asm_versioned_names_pass_gates`
+  （version 六锁，`version.rs` 内）。
 
 ## T7 p_layout v1（本轮：sala/sla 对齐的通用 Adt 落法）
 
@@ -355,3 +358,19 @@ targets 的 bug，Rust 版已修正；另 `(_4.0: T)` 投影归一到基 local�
 - 残留 UAM 全系多定义/版本化类（param 重写、分支 join、循环携带）与
   重借类（borrow-copy），下期（sla merge-slot 范式：分支写槽/join 重载，
   需 driver 局部宽度表）。
+
+## T17 versioning（本轮：SSA 版本化改写， rebinding 归零）
+
+- `version.rs`（新模块）：MIR→MIR 预变换。收集 def 点（Assign/Call/asm-outs）→
+  RPO 定编号（`_N_vK`）→ reaching-definitions 数据流（OUT=块内最新，IN=前驱
+  合并，fixpoint）→ 改写 uses（同块程序序优先，否则 IN 唯一版；零/多版
+  分走 keep-name/Conflict 哨兵）；place 位冲突提为整 rvalue/stmt/终结符
+  Unsupported（place 无哨兵形）；Ref 空臂、asm-out 查找、`is_plain_local`
+  版本名（`_1_v1` 过门）三 bug 修。
+- lower/coverage 同构消费版本化 MIR（parity by construction）；单定义函数
+  零改动快通（锁文件稳定）。
+- 实测：corpus loud 115→104（Rebind 23→2）；sci 全绿 226→228；
+  sla 全绿 177→180；117/21 等版本冲突文件转全绿或诚实大声；
+  parse-trap 保持归零；`cargo test` 44/44（含 version 5 锁）。
+- 残留：合流/循环携带的 Conflict 大声（需 phi，sla merge-slot 范式为远期
+  答案）；UAM 余量为 borrow-copy 与计算值复用类。

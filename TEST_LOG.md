@@ -535,3 +535,22 @@ targets 的 bug，Rust 版已修正；另 `(_4.0: T)` 投影归一到基 local�
 - corpus 不变（本集无字节字面量常量），已重落确认 loud 107 / 85.6%。
 - 下一步（T21b）：`CallConstValue`（sla 803 项）——调用实参位同样可内联
   字节缓冲并传薄指针，是当前最大单一缺口。
+
+## T21b-1 胖指针 meta 读取（UnOp::PtrMetadata，sci 13 + sla 5 项归零）
+
+- 定性：rosetta 的 `CallConstValue`（sla 803）主类是 **`&str` 胖指针实参**，
+  定长 `&[u8; N]` 只占少数（3 例样本全为 str）。而 `sci/sa_std` 的字符串
+  API 一律是**两寄存器胖指针 ABI**（`sa_json_stream_new(&json_bytes: ptr,
+  len: u64)`、`sa_json_object_get_string(..., &key: ptr, key_len: u64, ...)`），
+  即胖指针必须传 (ptr, u64)——探针 t1 证实该形状合法（仅剩探针固有的未用
+  参数泄漏）。这意味着当前把 `&str` 形参声明成单个 `ptr` 是**真 ABI 缺陷**
+  （既少传长度也与 sa_std 不匹配），T21b-2 要按 sa_std 约定端到端改造。
+- 本轮先做前置小件：`UnOp::PtrMetadata` 之前一律大声（胖指针取长度没有
+  指令）。按 slice.sal 的 (ptr,len) 布局，meta 恒在 +8，故精确落为
+  `_x = load p+8 as u64`（Move 操作数先绑临时量）。探针 m1/m2 取证形状合法。
+  加锁单测 `ptr_metadata_reads_offset_8`（**62/62**）。
+- 实测：sci UnOp-PtrMetadata 13→0、sla 5→0；loud/全绿/trap 谱均不变
+  （该 rvalue 原先只影响记账，不影响可汇编性——修正记账即 honesty）。
+- 结论已写入 INVENTORY：T21b-2 需要 **driver + 后端协同**的胖指针 ABI
+  改造（形参 1→2 展开、实参 1→2 展开、常量与局部两种来源），单点改动会引
+  入 CapabilityMismatch，故排为独立一轮。

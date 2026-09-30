@@ -143,7 +143,7 @@ pub fn lower_function(f: &Function, unsup: &mut Vec<String>) -> String {    // T
                 // to the `0` marker when unresolved, void, conflicting, or not
                 // definitely bound here — the marker is always parse-clean.
                 let is_void = f.ret.as_deref() == Some("void");
-                let live = ret.as_deref().filter(|r| !is_void).filter(|r| {
+                let live = ret.as_deref().filter(|_| !is_void).filter(|r| {
                     *r != "__VERSION_CONFLICT__" && bound.contains(*r)
                 });
                 match live {

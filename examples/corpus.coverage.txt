@@ -42,7 +42,7 @@ fn f_tuple: blocks=7 stmts+terms=16 unsupported=2
        1 T/Return
     ?? bb1:_7 BinOp/AddWithOverflow()
     ?? bb2:_10 BinOp/AddWithOverflow()
-fn f_slice: blocks=9 stmts+terms=31 unsupported=14
+fn f_slice: blocks=9 stmts+terms=31 unsupported=11
        3 Assign/BinOp/AddWithOverflow
        3 Assign/BinOp/Lt
        2 Assign/RawPtr
@@ -53,16 +53,13 @@ fn f_slice: blocks=9 stmts+terms=31 unsupported=14
        2 T/Goto
        1 T/Return
        1 T/SwitchInt
-    ?? bb0:_3 UnOp/PtrMetadata()
     ?? bb1:_7 Use()
     ?? bb1:_6 BinOp/Lt()
     ?? bb2:_8 Use()
-    ?? bb2:_10 UnOp/PtrMetadata()
     ?? bb2:_11 BinOp/Lt()
     ?? bb3:_12 BinOp/AddWithOverflow()
     ?? bb4:_1 Rebind
     ?? bb4:_14 Use()
-    ?? bb4:_16 UnOp/PtrMetadata()
     ?? bb4:_17 BinOp/Lt()
     ?? bb5:_18 BinOp/AddWithOverflow()
     ?? bb6:_19 BinOp/AddWithOverflow()
@@ -391,4 +388,4 @@ fn main: blocks=97 stmts+terms=260 unsupported=35
     ?? bb87:_203 Use()
     ?? bb93:_245 BinOp/Ne()
     ?? bb94:_239 BinOp/Ne()
-TOTAL stmts=428 terms=317 unsupported=107 coverage=85.6%
+TOTAL stmts=428 terms=317 unsupported=104 coverage=86.0%

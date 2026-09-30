@@ -130,6 +130,16 @@ pub fn render_rvalue(
             }
         }
         Rvalue::UnOp { op, operand } => {
+            // Fat-pointer metadata lives at offset 8 of the (ptr,len) pair —
+            // the same layout `slice.sal` uses for string fields — so the meta
+            // read is an exact `load p+8` (no mnemonic exists for it).
+            if *op == "PtrMetadata" {
+                let mut idx = 0usize;
+                let (pre, t) = bind_move_operand(operand, bid, &mut idx);
+                let mut lines = pre;
+                lines.push(format!("{} = load {}+8 as u64", dest, t));
+                return lines.join("\n");
+            }
             let mut idx = 0usize;
             let (pre, t) = bind_move_operand(operand, bid, &mut idx);
             match unop_mnemonic(op) {

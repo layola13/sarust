@@ -151,10 +151,10 @@ mir2sa 覆盖偏移原文使用（reorder 非升序与枚举 tag-gap 绝对偏�
 | ConstValue（Unevaluated/byte-ref 标量位） | 38 | 驱动 const-eval（`const_eval_resolve`）；`&[u8;N]` 字节提升已于 T21a 落地（值位） |
 | Rebind（同路重定义） | 23 | SSA 版本改写 + join-phi（Referee 程序） |
 | `*WithOverflow` BinOp | 27 | 元组解构 + 溢出断言重写（Referee 程序） |
-| CallConstValue（调用实参） | 10 | 实参位字节内联（T21b）+ 胖指针展开（多行，外加元数改写） |
+| CallConstValue（调用实参） | 10 | 实参位胖指针 ABI：按 `sci/sa_std` 约定 1 形参→(ptr,u64) 双寄存器展开（driver 声明 + 后端传参协同，T21b-2）；定长 `&[u8;N]` 可直接内联薄指针 |
 | 有序比较/移位（Lt/Gt/Ge/Shr） | 9 | driver 下发符号性 |
 | PointerCoercion（Unsize/fn-ptr） | 5 | 胖指针构造/intrinsic 策略 |
-| UnOp-PtrMetadata | 3 | driver fat-meta 解析 |
+| UnOp-PtrMetadata | 0（3→0，T21b-1 落为 `load p+8`） | 0（13→0） | 0（5→0） | 已落地：slice.sal (ptr,len) 布局 meta 恒在 +8 |
 | FnSig（128 位） | 0（corpus） | 已有计数器；rosetta-09 触发 1 次 |
 
 历史 100%（T13）为 MIR-kind 口径；T14 起以 `sa check` 为准绳，

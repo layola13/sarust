@@ -93,7 +93,7 @@ fn cmd_coverage(args: &[String]) -> ExitCode {
                                 Rvalue::Unsupported { .. } => true,
                                 // ThreadLocal lowers to sa_thread_local_slot (sci registry).
                                 Rvalue::BinOp { op, .. } => binop_mnemonic(op).is_none(),
-                                Rvalue::UnOp { op, .. } => unop_mnemonic(op).is_none(),
+                                Rvalue::UnOp { op, .. } => unop_needs_loud(op),
                                 Rvalue::Cast { castkind, src_ty, ty, .. } => {
                                     match (castkind.as_deref(), src_ty.as_deref()) {
                                         (Some(k), Some(s)) => lower_cast(k, s, &cast_dst_short(ty)).is_none(),
@@ -749,6 +749,36 @@ mod tests {
         let mut unsup = vec![];
         let _ = lower_function(&cases[2].0, &mut unsup);
         assert_eq!(unsup, vec!["bb0: ReturnConflict".to_string()]);
+    }
+
+    #[test]
+    fn ptr_metadata_reads_offset_8() {
+        // Fat-pointer meta is the (ptr,len) tail: exact `load p+8` (no SA
+        // mnemonic exists). Probe m1/m2 confirm the shape assembles.
+        let mut idx = 0usize;
+        let mut unsup = vec![];
+        let line = render_rvalue(
+            &Rvalue::UnOp {
+                op: "PtrMetadata".to_string(),
+                operand: Box::new(Operand::Copy { place: "_3".to_string() }),
+            },
+            "_2", Some("_2"), &mut unsup, "bb0", &mut idx,
+            &std::collections::HashMap::new(), &std::collections::BTreeMap::new(),
+        );
+        assert!(unsup.is_empty(), "{:?}", unsup);
+        assert_eq!(line, "_2 = load _3+8 as u64");
+        // A Move operand binds a temp first (plain `=` moves).
+        let mut idx = 0usize;
+        let mut unsup = vec![];
+        let line = render_rvalue(
+            &Rvalue::UnOp {
+                op: "PtrMetadata".to_string(),
+                operand: Box::new(Operand::Move { place: "_3".to_string() }),
+            },
+            "_2", Some("_2"), &mut unsup, "bb0", &mut idx,
+            &std::collections::HashMap::new(), &std::collections::BTreeMap::new(),
+        );
+        assert_eq!(line, "_mv_bb0_0 = _3\n_2 = load _mv_bb0_0+8 as u64");
     }
 
     #[test]

@@ -300,8 +300,8 @@ L_bb0:
     _2_v0 = 0
     // zero-sized borrow (no storage)
     _4 = 0
-    // UNSUPPORTED unop -> _3: PtrMetadata(_mv_bb0_0)
-    _3 = 0
+    _mv_bb0_0 = _4
+    _3 = load _mv_bb0_0+8 as u64
     _5_v0 = 0
     jmp L_bb1
 L_bb1:
@@ -316,8 +316,8 @@ L_bb2:
     // UNSUPPORTED const-value -> _8: version conflict at join (multiple reaching defs of _5)
     _8 = 0
     _9 = _1
-    // UNSUPPORTED unop -> _10: PtrMetadata(_mv_bb2_0)
-    _10 = 0
+    _mv_bb2_0 = _9
+    _10 = load _mv_bb2_0+8 as u64
     // UNSUPPORTED binop -> _11: Lt(_8, _10)
     _11 = 0
     _as_bb2 = _11
@@ -340,8 +340,8 @@ L_bb4:
     // UNSUPPORTED const-value -> _14: version conflict at join (multiple reaching defs of _5)
     _14 = 0
     _15 = _1
-    // UNSUPPORTED unop -> _16: PtrMetadata(_mv_bb4_0)
-    _16 = 0
+    _mv_bb4_0 = _15
+    _16 = load _mv_bb4_0+8 as u64
     // UNSUPPORTED binop -> _17: Lt(_14, _16)
     _17 = 0
     _as_bb4 = _17
@@ -378,9 +378,9 @@ L_bb8:
     _0 = 0
     !_2_v0
     !_3
-    !_4
     !_5_v0
     !_7
+    !_mv_bb0_0
     !_sw_bb1
     !_sw_bb1_eq_0
     return _0

@@ -206,6 +206,16 @@ pub fn unop_mnemonic(op: &str) -> Option<&'static str> {
     }
 }
 
+/// Loud verdict for a UnOp, shared by lower and coverage (parity by
+/// construction). `PtrMetadata` is exact (`load p+8`, slice.sal layout) and
+/// handled before the mnemonic lookup; everything else needs a mnemonic.
+pub fn unop_needs_loud(op: &str) -> bool {
+    if op == "PtrMetadata" {
+        return false;
+    }
+    unop_mnemonic(op).is_none()
+}
+
 /// Bind a Move operand to a fresh temp (plain `=` already moves; `^` is
 /// legal only in call args / store values); everything else renders inline.
 /// Returns (preamble lines, operand text).

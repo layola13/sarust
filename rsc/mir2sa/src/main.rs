@@ -130,6 +130,8 @@ enum Term {
         #[serde(default)]
         modifiers: bool,
         #[serde(default)]
+        inout: bool,
+        #[serde(default)]
         outs: Vec<String>,
         #[serde(default)]
         ins: Vec<Operand>,
@@ -561,9 +563,13 @@ fn asm_mov_copy(
     template: Option<&str>,
     options: Option<&str>,
     modifiers: bool,
+    inout: bool,
     outs: &[String],
     ins: &[Operand],
 ) -> Option<(String, String)> {
+    if inout {
+        return None;
+    }
     let t = template?.trim().to_lowercase();
     if t != "mov {0}, {1}" {
         return None;
@@ -591,6 +597,70 @@ fn asm_mov_copy(
 fn is_plain_local(s: &str) -> bool {
     let s = s.strip_prefix('_').unwrap_or("");
     !s.is_empty() && s.chars().all(|c| c.is_ascii_digit())
+}
+
+/// Strip C block comments (`/* … */`, non-nesting) from an asm template;
+/// unclosed comment -> None (caller stays loud). Placeholders survive
+/// stripping (they render into comments, never into emitted code).
+fn strip_asm_comments(template: &str) -> Option<String> {
+    let mut out = String::new();
+    let mut rest = template;
+    loop {
+        match rest.find("/*") {
+            None => {
+                out.push_str(rest);
+                break;
+            }
+            Some(i) => {
+                out.push_str(&rest[..i]);
+                let after = &rest[i + 2..];
+                match after.find("*/") {
+                    None => return None,
+                    Some(j) => rest = &after[j + 2..],
+                }
+            }
+        }
+    }
+    Some(out)
+}
+
+/// Exact-gate for a value-stable `inout` escape (sla-117 shape): comment-only
+/// template (nothing emitted), empty options, single plain-local out, single
+/// Copy/Move/Const in. With no emitted code the register still holds the
+/// input, so the output equals the input: same-place outs emit only a
+/// passthrough comment, split places emit `out = in` (operand kind
+/// preserved, `^` stays visible). Anything else -> None (loud, counted).
+fn asm_inout_passthrough(
+    template: Option<&str>,
+    options: Option<&str>,
+    modifiers: bool,
+    inout: bool,
+    outs: &[String],
+    ins: &[Operand],
+) -> Option<(Option<String>, Option<String>)> {
+    if !inout || modifiers {
+        return None;
+    }
+    let stripped = strip_asm_comments(template?)?;
+    if !stripped.trim().is_empty() {
+        return None;
+    }
+    if options.map(|o| !o.trim().is_empty()).unwrap_or(false) {
+        return None;
+    }
+    if outs.len() != 1 || ins.len() != 1 {
+        return None;
+    }
+    let dest = outs[0].trim();
+    if !is_plain_local(dest) {
+        return None;
+    }
+    if matches!(&ins[0], Operand::Copy { place } | Operand::Move { place } if place == dest) {
+        // Same local in and out: value already home, comment only.
+        return Some((None, None));
+    }
+    // Split places (or an immediate): materialize the passthrough copy.
+    Some((Some(dest.to_string()), Some(render_operand(&ins[0]))))
 }
 
 fn render_rvalue(
@@ -765,15 +835,25 @@ fn lower_function(f: &Function, unsup: &mut Vec<String>) -> String {
                 out.push(format!("    jmp {}", target));
             }
             Term::Unreachable => out.push("    unreachable".to_string()),
-            Term::InlineAsm { text, template, options, modifiers, outs, ins } => {
-                match asm_mov_copy(template.as_deref(), options.as_deref(), *modifiers, outs, ins) {
+            Term::InlineAsm { text, template, options, modifiers, inout, outs, ins } => {
+                let t = template.as_deref();
+                let o = options.as_deref();
+                match asm_mov_copy(t, o, *modifiers, *inout, outs, ins) {
                     Some((dest, src)) => {
                         out.push(format!("    {} = {} // inline-asm mov (exact reg copy)", dest, src));
                     }
-                    None => {
-                        unsup.push(format!("{}: InlineAsm", b.id));
-                        out.push(format!("    // UNSUPPORTED inline-asm: {} (no SA equivalent; extern/intrinsic TBD)", text));
-                    }
+                    None => match asm_inout_passthrough(t, o, *modifiers, *inout, outs, ins) {
+                        Some((None, None)) => {
+                            out.push("    // inline-asm inout passthrough (value-stable escape, sla-117)".to_string());
+                        }
+                        Some((Some(dest), Some(src))) => {
+                            out.push(format!("    {} = {} // inline-asm inout passthrough (value-stable escape)", dest, src));
+                        }
+                        _ => {
+                            unsup.push(format!("{}: InlineAsm", b.id));
+                            out.push(format!("    // UNSUPPORTED inline-asm: {} (no SA equivalent; extern/intrinsic TBD)", text));
+                        }
+                    },
                 }
             }
             Term::Unsupported { text } => {
@@ -1346,9 +1426,13 @@ fn cmd_coverage(args: &[String]) -> ExitCode {
                 tot_unsup += 1;
                 unsup.push(format!("{}: T/Unsupported({})", b.id, text.chars().take(60).collect::<String>()));
             }
-            if let Term::InlineAsm { text, template, options, modifiers, outs, ins } = &b.terminator {
-                // Mirror lower(): the exact-mov pattern is emitted, the rest is counted.
-                if asm_mov_copy(template.as_deref(), options.as_deref(), *modifiers, outs, ins).is_none() {
+            if let Term::InlineAsm { text, template, options, modifiers, inout, outs, ins } = &b.terminator {
+                // Mirror lower(): exact-mov and value-stable inout pass, the rest is counted.
+                let t = template.as_deref();
+                let o = options.as_deref();
+                let ok = asm_mov_copy(t, o, *modifiers, *inout, outs, ins).is_some()
+                    || asm_inout_passthrough(t, o, *modifiers, *inout, outs, ins).is_some();
+                if !ok {
                     tot_unsup += 1;
                     unsup.push(format!("{}: T/InlineAsm({})", b.id, text.chars().take(60).collect::<String>()));
                 }
@@ -1554,7 +1638,19 @@ mod tests {
         ins: &[Operand],
     ) -> Option<(String, String)> {
         let outs: Vec<String> = outs.iter().map(|s| s.to_string()).collect();
-        asm_mov_copy(template, options, modifiers, &outs, ins)
+        asm_mov_copy(template, options, modifiers, false, &outs, ins)
+    }
+
+    fn asm_inout(
+        template: Option<&str>,
+        options: Option<&str>,
+        modifiers: bool,
+        inout: bool,
+        outs: &[&str],
+        ins: &[Operand],
+    ) -> Option<(Option<String>, Option<String>)> {
+        let outs: Vec<String> = outs.iter().map(|s| s.to_string()).collect();
+        asm_inout_passthrough(template, options, modifiers, inout, &outs, ins)
     }
 
     #[test]
@@ -1585,6 +1681,43 @@ mod tests {
         assert!(asm_mov(Some("mov {0}, {1}"), Some(""), true, &["_2"], &ins).is_none());
         assert!(asm_mov(Some("mov {0}, {1}"), Some(""), false, &["_proj"], &ins).is_none());
         assert!(asm_mov(Some("mov {0}, {1}"), Some(""), false, &["_2", "_3"], &ins).is_none());
+    }
+
+    #[test]
+    fn asm_inout_passthrough_117() {
+        // sla-117 shape: comment-only template, inout same local -> comment, no instr.
+        let ins = vec![Operand::Copy { place: "_1".to_string() }];
+        assert_eq!(
+            asm_inout(Some("/* native escape */"), Some(""), false, true, &["_1"], &ins),
+            Some((None, None))
+        );
+    }
+
+    #[test]
+    fn asm_inout_split_places() {
+        // Same gate, split places -> materialized copy (move stays visible).
+        let ins = vec![Operand::Move { place: "_1".to_string() }];
+        assert_eq!(
+            asm_inout(Some("/* nop */"), Some(""), false, true, &["_2"], &ins),
+            Some((Some("_2".to_string()), Some("^_1".to_string())))
+        );
+    }
+
+    #[test]
+    fn asm_inout_non_passthrough_stays_loud() {
+        let ins = vec![Operand::Copy { place: "_1".to_string() }];
+        // Not inout -> the inout gate refuses (mov gate may still apply elsewhere).
+        assert_eq!(asm_inout(Some("mov {0}, {1}"), Some(""), false, false, &["_2"], &ins), None);
+        // Real instruction in template -> loud.
+        assert_eq!(asm_inout(Some("xchg {0}, {1}"), Some(""), false, true, &["_1"], &ins), None);
+        // Unclosed comment -> loud.
+        assert_eq!(asm_inout(Some("/* oops"), Some(""), false, true, &["_1"], &ins), None);
+        // Options set -> loud.
+        assert_eq!(asm_inout(Some("/* nop */"), Some("NOMEM"), false, true, &["_1"], &ins), None);
+        // Modifiers set -> loud.
+        assert_eq!(asm_inout(Some("/* nop */"), Some(""), true, true, &["_1"], &ins), None);
+        // Bad dest -> loud.
+        assert_eq!(asm_inout(Some("/* nop */"), Some(""), false, true, &["_proj"], &ins), None);
     }
 
     #[test]

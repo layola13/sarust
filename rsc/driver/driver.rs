@@ -532,8 +532,8 @@ fn body_json<'tcx>(
             }
             TerminatorKind::InlineAsm { template, operands, options, .. } => {
                 // v2 structured capture (spans stripped for hermetic fixtures).
-                // mir2sa gates exactly one exact pattern on these fields
-                // (`mov {0}, {1}` reg-copy); everything else stays loud.
+                // mir2sa gates exact patterns on these fields (`mov` reg-copy,
+                // comment-only inout passthrough); everything else stays loud.
                 let mut joined = String::new();
                 let mut modifiers = false;
                 for p in template.iter() {
@@ -549,6 +549,7 @@ fn body_json<'tcx>(
                 }
                 let mut outs: Vec<String> = vec![];
                 let mut ins: Vec<String> = vec![];
+                let mut inout = false;
                 for op in operands.iter() {
                     match op {
                         InlineAsmOperand::Out { place: Some(p), .. } => {
@@ -562,8 +563,29 @@ fn body_json<'tcx>(
                             operand_json(value, tcx, &mut tmp);
                             ins.push(tmp);
                         }
-                        _ => {
-                            ins.push("{\"kind\": \"Const\", \"value\": \"asm-operand-unsupported\"}".to_string());
+                        InlineAsmOperand::InOut { in_value, out_place, .. } => {
+                            // Single-register passthrough (sla-117 shape): the
+                            // value flows in and back out through one reg.
+                            inout = true;
+                            match out_place {
+                                Some(p) => outs.push(place_name(p).0),
+                                None => outs.push("_proj".to_string()),
+                            }
+                            let mut tmp = String::new();
+                            operand_json(in_value, tcx, &mut tmp);
+                            ins.push(tmp);
+                        }
+                        InlineAsmOperand::Const { .. } => {
+                            ins.push("{\"kind\": \"Const\", \"value\": \"asm-operand-const\"}".to_string());
+                        }
+                        InlineAsmOperand::SymFn { .. } => {
+                            ins.push("{\"kind\": \"Const\", \"value\": \"asm-operand-symfn\"}".to_string());
+                        }
+                        InlineAsmOperand::SymStatic { .. } => {
+                            ins.push("{\"kind\": \"Const\", \"value\": \"asm-operand-symstatic\"}".to_string());
+                        }
+                        InlineAsmOperand::Label { .. } => {
+                            ins.push("{\"kind\": \"Const\", \"value\": \"asm-operand-label\"}".to_string());
                         }
                     }
                 }
@@ -573,7 +595,7 @@ fn body_json<'tcx>(
                 esc(&trunc(joined, 120), into);
                 into.push_str("\", \"options\": \"");
                 esc(&trunc(format!("{:?}", options), 80), into);
-                into.push_str(&format!("\", \"modifiers\": {}, \"outs\": [", modifiers));
+                into.push_str(&format!("\", \"modifiers\": {}, \"inout\": {}, \"outs\": [", modifiers, inout));
                 for (i, o) in outs.iter().enumerate() {
                     if i > 0 {
                         into.push_str(", ");

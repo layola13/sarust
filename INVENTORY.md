@@ -1,8 +1,11 @@
 # MIR 全 kind 清单与支持状态 (nightly-1.101 c1070d693 + driver 实测闭环)
 
 > 基线：语料库 `corpus/`（24 fns + closures + consts + statics，428 stmts + 317 terms）
-> `mir2sa coverage` = **100.0%**，零缺口。driver 见到即命名，
-> 绝不静默吞掉。
+> `mir2sa coverage` = **100.0%**，零缺口。验收集：`sci/demos/rosetta`
+> 321 文件（6587 项）+ `sa_plugin_sla/demos/rosetta` 298 文件（9432 项）
+> 均为零缺口；两仓官方 rustc 拒收的非独立 demo（外部 crate/未完成 nightly
+> 特性/缺构建产物）逐项定性（见 TEST_LOG T13），不计入。
+> driver 见到即命名，绝不静默吞掉。
 
 ## StatementKind
 
@@ -64,7 +67,8 @@
 | Yield / CoroutineDrop | ➖ | 语料库 async fn 未产生（被降解）；出现即 Unsupported，目标对接 `sa_std/libsa_async.sa` |
 | UnwindTerminate | ➖ | 出现即 Unsupported |
 | InlineAsm（纯 `mov` 拷贝形） | ✅ | driver 下发 `template/options/outs/ins`（span 已剥离）；`mov {0},{1}` + 空 options + 单 out/in → `dest = src` exact（Copy/Move 保持原样，`cargo test` 3 用例锁定） |
-| InlineAsm（其他） | 🔶 | 具名 + 计数，大声 UNSUPPORTED（SA 无内联汇编；extern/intrinsic 策略 TBD；语料库零残留） |
+| InlineAsm（值稳定 `inout` 逃逸） | ✅ | driver 下发 `inout` + 双边（sla-117 形）；注释-only 模板 + 空 options + 单 out/in → 同 local 零指令（注释），分 local 补 `out = in` 拷贝；他形大声（`cargo test` 3 用例锁定） |
+| InlineAsm（其他） | 🔶 | 具名 + 计数，大声 UNSUPPORTED（SA 无内联汇编；extern/intrinsic 策略 TBD；两仓 619 文件零残留） |
 
 ## Place ProjectionElem（p_layout 主战场）
 

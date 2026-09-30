@@ -78,13 +78,17 @@ targets 的 bug，Rust 版已修正；另 `(_4.0: T)` 投影归一到基 local�
 - 未知 stmt kind → `bad mir.json: unknown variant …`，`RC=2`。
 - `--strict` 下有 UNSUPPORTED → `RC=1`。
 - `hi.mir.json → hi.sa`：`UNSUPPORTED=0`。
-- `cargo test` 11/11：`scalar_hex_driver_form`、`const_elem_both_forms`、
+- `cargo test` 20/20：`scalar_hex_driver_form`、`const_elem_both_forms`、
   `array_init_bb30_shape`（array-init 回归锁）、`repeat_forms`（repeat lowering 锁）、
   `adt_range_two_i32`（Range 2×i32）、`adt_mixed_move_const_bool`（move 混排对齐）、
   `adt_generic_two_moves`（泛型元组双 move 可见）、
   `thread_local_registry_call`（FNV-1a 键稳定 + 注册表调用形状）、
   `asm_mov_copy_exact` / `asm_mov_keeps_move_visible` /
-  `asm_non_mov_stays_loud`（asm 精确门控三锁：exact 形、move 可见、他形大声）。
+  `asm_non_mov_stays_loud`（asm 精确门控三锁）、`adt_zst_skipped`、
+  `adt_v2_reordered_tuple` / `adt_v2_enum_payload_absolute` /
+  `adt_v2_arity_mismatch_falls_back`（v2 三锁）、`adt_str_lit_fat_ptr` /
+  `adt_str_lit_gates`（str 内联两锁）、`asm_inout_passthrough_117` /
+  `asm_inout_split_places` / `asm_inout_non_passthrough_stays_loud`（inout 三锁）。
 
 ## T7 p_layout v1（本轮：sala/sla 对齐的通用 Adt 落法）
 
@@ -174,10 +178,9 @@ targets 的 bug，Rust 版已修正；另 `(_4.0: T)` 投影归一到基 local�
 2. `&mut` Phase1 降级为 `&` + Referee（与 `sa_plugin_sla` 已知局限一致）。
 3. `alloc <数字>` 直接量与 `store` 元素类型写法待 `sa` 汇编器到货后做汇编级校验
    （当前以 `sci/sa_std/alloc/vec.sa` 现行写法为对齐依据）。
-4. rosetta 8 处 Slice-const Aggregate（字符串字面量 `Val(Slice{alloc…})`，
-   需 const-eval 提升 alloc 内容；driver const-table 后续工作）与
-   p_layout v2（v1 启发式按源码序排布，mixed-size struct/tuple 若被 rustc
-   重排则 pad 有差；rosetta 320 文件未发现反例，但理论缺口仍在）。
+4. 两仓官方拒收 demo（T13 已逐项定性：外部 crate / 未完成 nightly 特性 /
+   方言示意 / 缺构建产物）：输入在 rustc 即无 MIR，属管线射程之外；
+   其中可 cargo 化的（tokio 系）待 `rsc build` 工程模式立项。
 
 ## T12 Slice-const 内联（本轮：rosetta 9 → 1，全部可判定缺口关闭）
 
@@ -237,3 +240,31 @@ targets 的 bug，Rust 版已修正；另 `(_4.0: T)` 投影归一到基 local�
   （6 v2 + 1 v1=`f_generic` 无布局诚实回退）；保真 `^`245 / `&`70 /
   `!`29 不变；rosetta 320 文件重跑缺口 9 → 9（零回归；11 驱动失败集不变）；
   `cargo test` 15/15。
+
+## T13 验收：两仓 Rust demo 全支持（inout 门控 + 全量测量 + 失败定性）
+
+- 验收口径：`sci/demos/rosetta` 与 `sa_plugin_sla/demos/rosetta` 的全部
+  `main.rs`（合计 346 个独立目录）经新驱动直提 + 新 mir2sa `coverage`，
+  rustc 自身可独立编译的 demo 必须零缺口。
+- inout 门控（关最后一个 sci 缺口）：sla-117 的 `.sla` 镜像与 README 定调
+  为“value-stable escape”（测试断言 `got == 7`，`main.sa` 直接消解）。
+  driver：`InOut{in_value,out_place}` 双边下发 + `inout` 标记（余下
+  `Const/SymFn/SymStatic/Label` 具名标记，`mir/syntax.rs:1056` 全变体覆盖）；
+  mir2sa：注释-only 模板（`/*…*/` 剥离，非闭合大声）+ 空 options +
+  单 out/in → 同 local 零指令（注释），分 local 补 `out = in`（`^` 可见）；
+  mov 门收紧（拒 inout）。`cargo test` 新增三锁，20/20。
+- 全量：sci 集 321 文件 6587 项零缺口；sla 集 298 文件 9432 项零缺口；
+  corpus 745 项零缺口。合计实测 619 文件、16764 项、`UNSUPPORTED=0`。
+- harness 修正：`OUT_DIR=<demo dir>` 透传（修 `195`，demo 自带
+  `generated.rs`；sla/195 未带产物，仍不可独立编译，见下）。
+- 失败定性（逐项经官方 rustc 复验，均拒收，与驱动无关）：
+  - 外部 crate（需 cargo 工程）：sci×5 + sla×5（tokio/futures 系）；
+  - 未完成 nightly 特性：sci×4 + sla×4（specialization / negative_impls /
+    TAIT / try_blocks）；
+  - 自定义属性宏（需 proc-macro crate）：sla/193；
+  - demo 自身类型错：sci/161（rustc 同拒）；
+  - sla 方言示意文件（非合法 Rust）：310/311/312；
+  - 缺构建产物：sla/195（无 shipped generated.rs）；
+  - 无 main.rs：sla/314/315（纯 `.sla`，无 Rust 输入）。
+- backlog 更新：corpus/rosetta 两仓零缺口后，剩余 p_layout v2 已落地；
+  通用未竟：`sa` 汇编级校验（缺口 #3）、`&mut` Phase2（sla 触发）。

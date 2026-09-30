@@ -143,7 +143,7 @@ bb10:
 bb0:
     _2 = Val(Scalar(0x00000029), i32) // single-elem aggregate (exact)
     _1 = ^_2 // place: (*_1)
-    // UNSUPPORTED multi-elem aggregate -> _3 @ _3: 
+    _3 = 0 // zero-elem aggregate (unit/niche; tag via SetDisc when present)
     _1 = ^_3 // place: (*_1)
     _4 = Val(Scalar(0x00000001), i32) // single-elem aggregate (exact)
     _1 = ^_4 // place: (*_1)
@@ -317,7 +317,11 @@ bb9:
     br _sw_bb9 == 0 -> bb11
     jmp bb10
 bb10:
-    // UNSUPPORTED multi-elem aggregate -> _19 @ _19: Val(Scalar(0x00000000), i32), Val(Scalar(0x00000004), i32)
+    // aggregate Adt init @ _19 (p_layout v1: sla tuple/struct ABI)
+    _agg_bb10 = alloc 8
+    store _agg_bb10+0, 0 as i32
+    store _agg_bb10+4, 4 as i32
+    _19 = _agg_bb10
     // MIR: <std::ops::Range<i32> as std::iter::IntoIterator>::into_iter
     _18 = call @std_ops_Range_i32_as_std_iter_IntoIterator_into_iter(^_19)
     jmp bb14
@@ -350,7 +354,11 @@ bb16:
     jmp bb5
 bb17:
     _24 = _21
-    // UNSUPPORTED multi-elem aggregate -> _26 @ _26: Val(Scalar(0x00000000), i32), Val(Scalar(0x00000004), i32)
+    // aggregate Adt init @ _26 (p_layout v1: sla tuple/struct ABI)
+    _agg_bb17 = alloc 8
+    store _agg_bb17+0, 0 as i32
+    store _agg_bb17+4, 4 as i32
+    _26 = _agg_bb17
     // MIR: <std::ops::Range<i32> as std::iter::IntoIterator>::into_iter
     _25 = call @std_ops_Range_i32_as_std_iter_IntoIterator_into_iter(^_26)
     jmp bb18
@@ -470,7 +478,11 @@ bb1:
     _4 = call @T_as_std_default_Default_default()
     jmp bb2
 bb2:
-    // UNSUPPORTED multi-elem aggregate -> _0 @ _0: ^_2, ^_4
+    // aggregate Adt init @ _0 (p_layout v1: sla tuple/struct ABI)
+    _agg_bb2 = alloc 16
+    store _agg_bb2+0, ^_2 as u64
+    store _agg_bb2+8, ^_4 as u64
+    _0 = _agg_bb2
     !_1
     jmp bb3
 bb3:
@@ -799,13 +811,13 @@ bb1:
     jmp bb2
 bb2:
     // StorageLive _2
-    // UNSUPPORTED multi-elem aggregate -> _2 @ _2: 
+    _2 = 0 // zero-elem aggregate (unit/niche; tag via SetDisc when present)
     _0 = *^_2 // cast: Binder { value: fn(std::option::Option<&'^0 mut std::option:
     // StorageDead _2
     jmp bb4
 bb3:
     // StorageLive _3
-    // UNSUPPORTED multi-elem aggregate -> _3 @ _3: 
+    _3 = 0 // zero-elem aggregate (unit/niche; tag via SetDisc when present)
     _0 = *^_3 // cast: Binder { value: fn(std::option::Option<&'^0 mut std::option:
     // StorageDead _3
     jmp bb4
@@ -1088,10 +1100,10 @@ bb1:
 bb2:
     _7 = ^_6
     _0 = ^_7 // single-elem aggregate (exact)
-    // UNSUPPORTED set-discriminant _9 <- variant 1 (enum layout TBD)
+    store _9+0, 1 as i64 // set-discriminant (enum tag)
     return 0
 bb3:
-    // UNSUPPORTED set-discriminant _9 <- variant 2 (enum layout TBD)
+    store _9+0, 2 as i64 // set-discriminant (enum tag)
     panic("unwind-resume") // MIR Resume (cleanup path)
 bb4:
     assert Val(Scalar(0x00), bool)
@@ -1109,7 +1121,11 @@ bb7:
 
 @main() -> i32:
 bb0:
-    // UNSUPPORTED multi-elem aggregate -> _6 @ _6: Val(Scalar(0x00000001), i32), Val(Scalar(0x00000002), i32)
+    // aggregate Adt init @ _6 (p_layout v1: sla tuple/struct ABI)
+    _agg_bb0 = alloc 8
+    store _agg_bb0+0, 1 as i32
+    store _agg_bb0+4, 2 as i32
+    _6 = _agg_bb0
     // MIR: f_match
     _5 = call @f_match(^_6)
     jmp bb1
@@ -1156,7 +1172,11 @@ bb7:
     _11 = call @std_io__print(^_12)
     jmp bb8
 bb8:
-    // UNSUPPORTED multi-elem aggregate -> _27 @ _27: Val(Scalar(0x00000001), i32), Val(Scalar(0x00000002), i32)
+    // aggregate Adt init @ _27 (p_layout v1: sla tuple/struct ABI)
+    _agg_bb8 = alloc 8
+    store _agg_bb8+0, 1 as i32
+    store _agg_bb8+4, 2 as i32
+    _27 = _agg_bb8
     // MIR: f_struct
     _26 = call @f_struct(^_27)
     jmp bb9
@@ -1183,7 +1203,12 @@ bb12:
     _38 = call @std_string_String_as_std_convert_From_str_from(Val(Slice { alloc_id: alloc28, meta: 2 }, &'{erased} str))
     jmp bb13
 bb13:
-    // UNSUPPORTED multi-elem aggregate -> _37 @ _37: Val(Scalar(0x00000001), i32), ^_38, Val(Scalar(0x01), bool)
+    // aggregate Adt init @ _37 (p_layout v1: sla tuple/struct ABI)
+    _agg_bb13 = alloc 17
+    store _agg_bb13+0, 1 as i32
+    store _agg_bb13+8, ^_38 as u64
+    store _agg_bb13+16, 1 as u8
+    _37 = _agg_bb13
     // MIR: f_tuple
     _36 = call @f_tuple(^_37)
     jmp bb14
@@ -1206,7 +1231,12 @@ bb16:
     _32 = call @std_io__print(^_33)
     jmp bb17
 bb17:
-    // UNSUPPORTED multi-elem aggregate -> _50 @ _50: Val(Scalar(0x00000001), i32), Val(Scalar(0x00000002), i32), Val(Scalar(0x00000003), i32)
+    // aggregate Adt init @ _50 (p_layout v1: sla tuple/struct ABI)
+    _agg_bb17 = alloc 12
+    store _agg_bb17+0, 1 as i32
+    store _agg_bb17+4, 2 as i32
+    store _agg_bb17+8, 3 as i32
+    _50 = _agg_bb17
     _49 = &_50 // mut-borrow (Phase1: & + Referee)
     _48 = *_49 // cast: &'{erased} mut [i32]
     // MIR: f_slice

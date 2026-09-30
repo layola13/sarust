@@ -1,9 +1,10 @@
-# sa_plugin_rsc 验证记录 (2026-09-29, 容器实跑, 100% Rust / 0 Python)
+# sa_plugin_rsc 验证记录 (2026-09-30, 容器实跑, 100% Rust / 0 Python)
 
 > 全支持路线：`INVENTORY.md` 为总表；语料库 `corpus/`（24 fns + closures +
-> consts + statics）`mir2sa coverage` **98.4%**，demo 工程 `--strict` 全绿
+> consts + statics）`mir2sa coverage` **99.6%**（p_layout v1 后；仅剩 TLS×2 +
+> InlineAsm×1），demo 工程 `--strict` 全绿
 > （`UNSUPPORTED=0`）。落法已对齐 `sa_plugin_sla`（`@extern` 闭包、`&`/`^`
-> 前缀、`!` 释放、`alloc`+`store` 数组、`sa_mem_set` 复写）。
+> 前缀、`!` 释放、`alloc`+`store` 数组/Adt、`sa_mem_set` 复写）。
 
 > Python 原型已全部删除（`tools/*.py`、`src/main.rs` 占位），现任实现：
 > `rsc/driver/driver.rs`（rustc_private 真劫持）+ `rsc/mir2sa`（纯 Rust
@@ -61,8 +62,10 @@ wrote /tmp/driver.sa UNSUPPORTED=0
 
 MIR 侧 23 处 `Move`（逐 place 计数）/ 11 `Ref` / 5 `Drop` ==
 SA 侧 23 `^` / 11 `&` / 5 `!` → **DRIVER_FIDELITY_OK**（demo 工程）。
-语料库全量：245 / 69 / 29 全等 → **CORPUS_FIDELITY_OK**。
-每个 SA 所有权标记都 traced 到一条真实 MIR 事实。
+语料库全量：245 / 69 / 29（MIR）→ SA `^`245 / `&`70（含 1 处
+`call @sa_mem_set(&_rep_…)` 合成借用，无 MIR 对应，历史锁定文件亦同）/
+`!`29 → **CORPUS_FIDELITY_OK**。
+每个 SA 所有权标记都 traced 到一条真实 MIR 事实（合成借用除外，已单列）。
 
 ## T4 轻文本兜底（mir2sa parse，不链 rustc_private）
 
@@ -75,8 +78,32 @@ targets 的 bug，Rust 版已修正；另 `(_4.0: T)` 投影归一到基 local�
 - 未知 stmt kind → `bad mir.json: unknown variant …`，`RC=2`。
 - `--strict` 下有 UNSUPPORTED → `RC=1`。
 - `hi.mir.json → hi.sa`：`UNSUPPORTED=0`。
-- `cargo test` 4/4：`scalar_hex_driver_form`、`const_elem_both_forms`、
-  `array_init_bb30_shape`（array-init 回归锁）、`repeat_forms`（repeat lowering 锁）。
+- `cargo test` 7/7：`scalar_hex_driver_form`、`const_elem_both_forms`、
+  `array_init_bb30_shape`（array-init 回归锁）、`repeat_forms`（repeat lowering 锁）、
+  `adt_range_two_i32`（Range 2×i32）、`adt_mixed_move_const_bool`（move 混排对齐）、
+  `adt_generic_two_moves`（泛型元组双 move 可见）。
+
+## T7 p_layout v1（本轮：sala/sla 对齐的通用 Adt 落法）
+
+- 对照：`sala/09_rust_compare/03_ownership.html`（`^`/`&`/`!` + Phase1 `&mut`→`&`）、
+  `sa_plugin_sla/src/lowering_rules.zig`（`abiTypeSize`/`alignAggregateOffset`/
+  `tupleFieldLayout`/`structFieldLayout`/`enum_tag_offset=0`）、
+  `sa_plugin_ts/SOLUTION.md`（LayoutTable 思想）、`sci/sa_std/alloc/vec.sa`
+  （`alloc` + `store base+off, v as ty`）。未新建任何 std 实现（用户约束：
+  缺口只补 `sci/sa_std`；本轮复用既有 `alloc`/`store` 原语，无需补）。
+- `Rvalue::Aggregate` 多元素非数组：`lower_adt_init` 按 sla ABI 启发式
+  （8 字节对齐，其余紧排；Const 按 `N_TY`/`Val(Scalar, TY)` 取真类型，
+  Move/Copy 按 8 字节 `u64` 槽且 `^` 保持可见）`alloc` + 逐字段 `store` +
+  `dest = _agg_bbN`。0 元素（unit/niche）→ `dest = 0` exact。
+- `SetDiscriminant`：`store base+0, variant as i64`（sla enum tag 位）。
+- 实测：`mir2sa coverage examples/corpus.mir.json` 12 → 3 缺口
+  （仅剩 ThreadLocal×2 + InlineAsm×1），**99.6%**；`lower` 与 `coverage`
+  口径已对齐（修过 0-elem 在 lower 计 UNSUPPORTED 而 coverage 未计的口径差）；
+  `hi.mir.json → hi.sa` 零改动（`UNSUPPORTED=0`）。
+- 下一步 p_layout v2（需 nightly `rustc-dev`）：`rsc_driver` 内
+  `place.ty()` + `tcx.layout_of()` 下发真 `layout/offsets/tys`，泛型单态
+  与 niche 布局不再启发式。rosetta 320 文件的 Aggregate-Adt×130 +
+  SetDisc×6 届时重跑验证（本轮未重跑，如实）。
 
 ## T6 rosetta 全量（sci 334 demos，rsc 管线实测）
 

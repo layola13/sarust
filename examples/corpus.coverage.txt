@@ -52,7 +52,7 @@ fn {constant#0}: blocks=1 stmts+terms=2 unsupported=0
 fn {constant#1}: blocks=1 stmts+terms=2 unsupported=0
        1 Assign/Use
        1 T/Return
-fn f_loops: blocks=26 stmts+terms=58 unsupported=2
+fn f_loops: blocks=26 stmts+terms=58 unsupported=0
        2 Assign/Aggregate
        5 Assign/BinOp/AddWithOverflow
        1 Assign/BinOp/Ge
@@ -66,8 +66,6 @@ fn f_loops: blocks=26 stmts+terms=58 unsupported=2
        1 T/Return
        5 T/SwitchInt
        1 T/Unreachable
-    ?? bb10:_19 Aggregate()
-    ?? bb17:_26 Aggregate()
 fn f_closure: blocks=10 stmts+terms=21 unsupported=0
        4 Assign/Aggregate
        5 Assign/Ref
@@ -86,14 +84,13 @@ fn {closure#1}: blocks=2 stmts+terms=5 unsupported=0
        2 Assign/Use
        1 T/Assert
        1 T/Return
-fn f_generic: blocks=7 stmts+terms=9 unsupported=1
+fn f_generic: blocks=7 stmts+terms=9 unsupported=0
        1 Assign/Aggregate
        1 Assign/Ref
        2 T/Call
        3 T/Drop
        1 T/Resume
        1 T/Return
-    ?? bb2:_0 Aggregate()
 fn shout: blocks=2 stmts+terms=2 unsupported=0
        1 T/Call
        1 T/Return
@@ -262,7 +259,7 @@ fn {closure#0}: blocks=2 stmts+terms=4 unsupported=0
 fn f_async: blocks=1 stmts+terms=2 unsupported=0
        1 Assign/Aggregate
        1 T/Return
-fn {closure#0}: blocks=8 stmts+terms=20 unsupported=2
+fn {closure#0}: blocks=8 stmts+terms=20 unsupported=0
        2 Assign/Aggregate
        1 Assign/BinOp/AddWithOverflow
        1 Assign/BinOp/MulWithOverflow
@@ -275,9 +272,7 @@ fn {closure#0}: blocks=8 stmts+terms=20 unsupported=2
        1 T/Return
        1 T/SwitchInt
        1 T/Unreachable
-    ?? bb2:_9 SetDisc
-    ?? bb3:_9 SetDisc
-fn main: blocks=97 stmts+terms=260 unsupported=4
+fn main: blocks=97 stmts+terms=260 unsupported=0
       47 Assign/Aggregate
        4 Assign/BinOp/BitAnd
        4 Assign/BinOp/Eq
@@ -292,8 +287,4 @@ fn main: blocks=97 stmts+terms=260 unsupported=4
        4 T/Drop
        1 T/Resume
        1 T/Return
-    ?? bb0:_6 Aggregate()
-    ?? bb8:_27 Aggregate()
-    ?? bb13:_37 Aggregate()
-    ?? bb17:_50 Aggregate()
-TOTAL stmts=428 terms=317 unsupported=12 coverage=98.4%
+TOTAL stmts=428 terms=317 unsupported=3 coverage=99.6%

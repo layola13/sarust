@@ -281,6 +281,130 @@ fn lower_array_init(bid: &str, dest_place: &str, elems: &[Operand]) -> Option<Ve
     Some(lines)
 }
 
+fn align_agg_offset(offset: usize, size: usize) -> usize {
+    // Mirrors sla alignAggregateOffset: only 8-byte fields force alignment.
+    if size == 8 { (offset + 7) & !7 } else { offset }
+}
+
+/// Infer `(ty, size)` for a Const aggregate element.
+/// Accepts text form (`1_i32`) and driver-Debug form
+/// (`Val(Scalar(0x00000001), i32)`); bool true/false included.
+fn const_elem_ty(value: &str) -> Option<(&'static str, usize)> {
+    let v = value.trim();
+    if v == "true" || v == "false" {
+        return Some(("bool", 1));
+    }
+    if let Some(us) = v.rfind('_') {
+        let suf = &v[us + 1..];
+        // Text form suffix is a bare type name (no parens/commas/spaces).
+        if !suf.is_empty()
+            && suf.chars().all(|c| c.is_ascii_alphanumeric())
+            && !v[..us].is_empty()
+        {
+            let size = match suf {
+                "bool" | "u8" | "i8" => 1,
+                "u16" | "i16" => 2,
+                "u32" | "i32" | "f32" => 4,
+                "u64" | "i64" | "usize" | "isize" | "f64" => 8,
+                _ => return None,
+            };
+            return Some((match suf {
+                "bool" => "bool", "u8" => "u8", "i8" => "i8",
+                "u16" => "u16", "i16" => "i16",
+                "u32" => "u32", "i32" => "i32", "f32" => "f32",
+                "u64" => "u64", "i64" => "i64", "usize" => "usize",
+                "isize" => "isize", "f64" => "f64",
+                _ => return None,
+            }, size));
+        }
+    }
+    // Driver-Debug form: `Val(Scalar(0xHEX), TY)`.
+    if let Some(rest) = v.strip_prefix("Val(Scalar(0x") {
+        if let Some(comma) = rest.find(", ") {
+            let suffix = rest[comma + 2..].trim_end_matches(')');
+            let size = match suffix {
+                "bool" | "u8" | "i8" => 1,
+                "u16" | "i16" => 2,
+                "u32" | "i32" | "f32" => 4,
+                "u64" | "i64" | "usize" | "isize" | "f64" => 8,
+                _ => return None,
+            };
+            // Leak a 'static str would be wrong; return size only via caller map.
+            // Instead match again to a static slice (suffix is not 'static).
+            let ty: &'static str = match suffix {
+                "bool" => "bool", "u8" => "u8", "i8" => "i8",
+                "u16" => "u16", "i16" => "i16",
+                "u32" => "u32", "i32" => "i32", "f32" => "f32",
+                "u64" => "u64", "i64" => "i64", "usize" => "usize",
+                "isize" => "isize", "f64" => "f64",
+                _ => return None,
+            };
+            return Some((ty, size));
+        }
+    }
+    // `Val(Scalar(0x01), bool)` single-hex bool is covered above via suffix;
+    // bare `0`/`1` without suffix cannot be typed -> caller keeps UNSUPPORTED.
+    None
+}
+
+/// Generic Adt (struct/tuple/range/enum-payload) lowering to sla-style
+/// `alloc` + per-field `store` (cf. `sci/sa_std/alloc/vec.sa`).
+/// Layout mirrors `sa_plugin_sla` tuple/struct ABI (packed except 8-byte
+/// alignment). Move elements stay visible as `^p`; Const elements are
+/// decimalized; unknown-typed Moves/Copies default to 8-byte `u64` slots
+/// (sla `else => 8`). Returns SA lines bound to `dest`, or None.
+fn lower_adt_init(bid: &str, dest: &str, dest_place: &str, elems: &[Operand]) -> Option<Vec<String>> {
+    if elems.len() < 2 {
+        return None;
+    }
+    let mut plans: Vec<(String, &'static str, usize)> = Vec::with_capacity(elems.len());
+    for e in elems {
+        match e {
+            Operand::Const { value } => {
+                let (ty, size) = const_elem_ty(value)?;
+                let rendered = match ty {
+                    "bool" => {
+                        if value.trim() == "true" {
+                            "1".to_string()
+                        } else if value.trim() == "false" {
+                            "0".to_string()
+                        } else {
+                            let n = scalar_hex_value(value, "bool")?;
+                            ((n != 0) as u8).to_string()
+                        }
+                    }
+                    _ => const_array_elem(value, ty, size)?,
+                };
+                plans.push((rendered, sa_scalar_ty(ty), size));
+            }
+            Operand::Move { place } => {
+                plans.push((format!("^{}", place), "u64", 8));
+            }
+            Operand::Copy { place } => {
+                plans.push((place.clone(), "u64", 8));
+            }
+        }
+    }
+    let mut offsets = Vec::with_capacity(plans.len());
+    let mut off = 0usize;
+    for (_, _, size) in &plans {
+        off = align_agg_offset(off, *size);
+        offsets.push(off);
+        off += *size;
+    }
+    let total = off.max(1);
+    let base = format!("_agg_{}", bid);
+    let mut lines = vec![
+        format!("// aggregate Adt init @ {} (p_layout v1: sla tuple/struct ABI)", dest_place.trim()),
+        format!("{} = alloc {}", base, total),
+    ];
+    for (i, (rendered, sa_ty, _)) in plans.iter().enumerate() {
+        lines.push(format!("store {}+{}, {} as {}", base, offsets[i], rendered, sa_ty));
+    }
+    lines.push(format!("{} = {}", dest, base));
+    Some(lines)
+}
+
 fn render_rvalue(
     rv: &Rvalue,
     dest: &str,
@@ -345,17 +469,21 @@ fn render_rvalue(
             format!("// UNSUPPORTED thread-local -> {}: {} (TLS runtime TBD)", dest, def)
         }
         Rvalue::Aggregate { elems } => {
-            if elems.len() == 1 {
+            if elems.is_empty() {
+                format!("{} = 0 // zero-elem aggregate (unit/niche; tag via SetDisc when present)", dest)
+            } else if elems.len() == 1 {
                 format!("{} = {} // single-elem aggregate (exact)", dest, render_operand(&elems[0]))
             } else if let Some(place) = dest_place {
-                match lower_array_init(bid, place, elems) {
-                    Some(lines) => lines.join("\n"),
-                    None => {
-                        let e: Vec<String> = elems.iter().map(render_operand).collect();
-                        unsup.push(format!("{}:{} Aggregate", bid, dest));
-                        format!("// UNSUPPORTED multi-elem aggregate -> {} @ {}: {}",
-                                dest, place.trim(), e.join(", "))
-                    }
+                // Array fast path first (exact [T; N] all-const, incl. ManuallyDrop backing).
+                if let Some(lines) = lower_array_init(bid, place, elems) {
+                    lines.join("\n")
+                } else if let Some(lines) = lower_adt_init(bid, dest, place, elems) {
+                    lines.join("\n")
+                } else {
+                    let e: Vec<String> = elems.iter().map(render_operand).collect();
+                    unsup.push(format!("{}:{} Aggregate", bid, dest));
+                    format!("// UNSUPPORTED multi-elem aggregate -> {} @ {}: {}",
+                            dest, place.trim(), e.join(", "))
                 }
             } else {
                 let e: Vec<String> = elems.iter().map(render_operand).collect();
@@ -396,8 +524,10 @@ fn lower_function(f: &Function, unsup: &mut Vec<String>) -> String {
                 Stmt::StorageDead { local } => out.push(format!("    // StorageDead {}", local)),
                 Stmt::Nop { text } => out.push(format!("    // nop: {}", text)),
                 Stmt::SetDisc { place, variant, .. } => {
-                    unsup.push(format!("{}:{} SetDisc", b.id, place));
-                    out.push(format!("    // UNSUPPORTED set-discriminant {} <- variant {} (enum layout TBD)", place, variant));
+                    // p_layout v1: enum tag lives at offset 0 (sla enum_tag_offset=0,
+                    // payload at 8). Driver reports the base local already; the
+                    // full place (`(*_9)`) is kept as a comment for provenance.
+                    out.push(format!("    store {}+0, {} as i64 // set-discriminant (enum tag)", place, variant));
                 }
                 Stmt::UnsupportedStmt { text } => {
                     unsup.push(format!("{}: UnsupportedStmt", b.id));
@@ -981,7 +1111,10 @@ fn cmd_coverage(args: &[String]) -> ExitCode {
                                 _ => true,
                             },
                             Rvalue::Aggregate { elems } if elems.len() > 1 => match dest_place {
-                                Some(p) => lower_array_init(&b.id, p, elems).is_none(),
+                                Some(p) => {
+                                    lower_array_init(&b.id, p, elems).is_none()
+                                        && lower_adt_init(&b.id, dest, p, elems).is_none()
+                                }
                                 None => true,
                             },
                             _ => false,
@@ -995,9 +1128,8 @@ fn cmd_coverage(args: &[String]) -> ExitCode {
                                 }));
                         }
                     }
-                    Stmt::SetDisc { place, .. } => {
-                        tot_unsup += 1;
-                        unsup.push(format!("{}:{} SetDisc", b.id, place));
+                    Stmt::SetDisc { .. } => {
+                        // Lowered as `store base+0, variant as i64` (sla enum tag).
                     }
                     Stmt::UnsupportedStmt { text } => {
                         tot_unsup += 1;
@@ -1146,5 +1278,49 @@ mod tests {
         assert_eq!(lines[1], "_agg_bb30 = alloc 12");
         assert_eq!(lines[2], "store _agg_bb30+0, 1 as i32");
         assert_eq!(lines[4], "store _agg_bb30+8, 3 as i32");
+    }
+
+    #[test]
+    fn adt_range_two_i32() {
+        // f_loops bb10: Range {0, 4} -> alloc 8, packed i32+i32, dest bound.
+        let elems = vec![
+            c("Val(Scalar(0x00000000), i32)"),
+            c("Val(Scalar(0x00000004), i32)"),
+        ];
+        let lines = lower_adt_init("bb10", "_19", "_19", &elems).expect("range must lower");
+        assert_eq!(lines[1], "_agg_bb10 = alloc 8");
+        assert_eq!(lines[2], "store _agg_bb10+0, 0 as i32");
+        assert_eq!(lines[3], "store _agg_bb10+4, 4 as i32");
+        assert_eq!(lines[4], "_19 = _agg_bb10");
+    }
+
+    #[test]
+    fn adt_mixed_move_const_bool() {
+        // main bb13: (1, Move _38, true) -> i32 / u64-move / u8(bool).
+        // sla ABI: i32@0 (4B), u64@8 (align 8), u8@16 (packed).
+        let elems = vec![
+            c("Val(Scalar(0x00000001), i32)"),
+            Operand::Move { place: "_38".to_string() },
+            c("Val(Scalar(0x01), bool)"),
+        ];
+        let lines = lower_adt_init("bb13", "_37", "_37", &elems).expect("mixed tuple must lower");
+        assert_eq!(lines[1], "_agg_bb13 = alloc 17");
+        assert_eq!(lines[2], "store _agg_bb13+0, 1 as i32");
+        assert_eq!(lines[3], "store _agg_bb13+8, ^_38 as u64");
+        assert_eq!(lines[4], "store _agg_bb13+16, 1 as u8");
+        assert_eq!(lines[5], "_37 = _agg_bb13");
+    }
+
+    #[test]
+    fn adt_generic_two_moves() {
+        // f_generic bb2: (Move _2, Move _4) -> two pointer slots, moves visible.
+        let elems = vec![
+            Operand::Move { place: "_2".to_string() },
+            Operand::Move { place: "_4".to_string() },
+        ];
+        let lines = lower_adt_init("bb2", "_0", "_0", &elems).expect("generic tuple must lower");
+        assert_eq!(lines[1], "_agg_bb2 = alloc 16");
+        assert_eq!(lines[2], "store _agg_bb2+0, ^_2 as u64");
+        assert_eq!(lines[3], "store _agg_bb2+8, ^_4 as u64");
     }
 }

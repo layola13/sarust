@@ -119,11 +119,11 @@ rosetta 两列为 **T20 起逐函数普查**（同 harness、同文件集、同 
 |---|---|---|---|---|
 | PhiStateConflict | 2 | 23（23→23） | 23（23→23） | 合流/循环携带 Conflict，需 phi/merge-slot 范式 |
 | UnknownRegister | 0 | 0 | 0 | T19 揭出「被移动 reg 上 `!r`」根因并修（借用 dest 保活）；T20 修「转换操作数内嵌 load」 |
-| MemoryLeak | 1 | 6（5→6） | 21（20→21） | `drop.rs` 出口释放（T17）；残量需 use-analysis + phi |
+| MemoryLeak | 1 | 6（5→6） | 8（20→21→8，T23 块范围修复） | `drop.rs` 出口释放（T17）+ 块范围记账修复（T23）；残量需 use-analysis + 合流版本释放 |
 | UseAfterMove | 6 | 46（63→46） | 61（73→61） | const-prop + spill（T17）+ cast/借用/字节常量 dest reload（T19/T21a）；残留需 borrow-copy/use-analysis |
 | BorrowConflict | 0 | 2（21→2） | 5（27→5） | borrow-end + cleanup 去重（T18/T18b） |
 | RegisterRedefinition | 0 | 0 | 0 | 版本化+支配集重绑定检测已覆盖 |
-| 全绿函数 | 31/40（3→23→28→31） | 426/503（391→426） | 399/509（366→399） | — |
+| 全绿函数 | 31/40（3→23→28→31） | 426/503（391→426） | 412/509（366→399→412） | — |
 
 仿射消费表（探针取证）：`x = y` 移动源；call/store/eq/load/br 共享读；
 `&y` 锁定源（生借用未释禁 `!y`）；`!r` 释放；`^` 仅 call 实参/store 值位合法。
@@ -153,7 +153,7 @@ mir2sa 覆盖偏移原文使用（reorder 非升序与枚举 tag-gap 绝对偏�
 | ConstValue（corpus 基线） | 38 | 驱动 const-eval（`const_eval_resolve`）；`&[u8;N]` 字节提升已于 T21a 落地（值位） |
 | Rebind（同路重定义） | 23 | SSA 版本改写 + join-phi（Referee 程序） |
 | `*WithOverflow` BinOp | 27 | 元组解构 + 溢出断言改写（Referee 程序） |
-| CallConstValue（调用实参） | 10 | **胖指针局部表示**（T22 定性）：sa_std ABI 为 (ptr,u64)，需局部持对 + 声明/实参同步展开；`sci/sa_std` 无现成 checked 算术，溢出检查亦需在 sa_std 补 |
+| CallConstValue（调用实参） | 10 | **合流版本释放能力**是前置：胖指针值位/实参本身已可实现（长度头缓冲，T23 实测 arity 恒匹配、loud −148），但合流处的版本化局部谁都不支配 join、无法出口释放，放大后净损；需 join 状态对齐 / merge-slot（与 PhiStateConflict 同地基）。`*WithOverflow` 另需在 `sci/sa_std` 补 checked 算术（现无现成 extern，arc.sa 为内联比较） |
 | 有序比较/移位（Lt/Gt/Ge/Shr） | 9 | driver 下发符号性 |
 | PointerCoercion（Unsize/fn-ptr） | 5 | 胖指针构造/intrinsic 策略 |
 | UnOp-PtrMetadata | 0（3→0，T21b-1 落为 `load p+8`） | 0（13→0） | 0（5→0） | 已落地：slice.sal (ptr,len) 布局 meta 恒在 +8 |

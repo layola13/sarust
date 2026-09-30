@@ -77,10 +77,25 @@ pub fn lower_function(f: &Function, unsup: &mut Vec<String>) -> String {    // T
     // Spill map for multi-use shared values (reload slots instead of
     // moving shared temps twice). Built over MIR statements once.
     let spill = build_spill(&f.blocks);
+    // Locals defined but never read: a byte-literal store into one of them
+    // would allocate a payload nobody can free (see spill::dead_locals).
+    let dead = crate::spill::dead_locals(&f.blocks, f.params.len());
+    // Block ranges close when the NEXT block starts, never inside the loop:
+    // a loud terminator arm `continue`s, and its lines still define registers
+    // that drop.rs must see (missing them under-freed every exit, which the
+    // Referee reports as a leak as soon as a register holds a real
+    // allocation). Opening here keeps the range closable after a `continue`.
+    let mut open_block: Option<usize> = None;
+    let mut block_start = vec![0usize; f.blocks.len()];
     for bi in order {
         let b = &f.blocks[bi];
         let start = out.len();
+        if let Some(prev) = open_block.take() {
+            block_ranges.push((prev, block_start[prev], out.len()));
+        }
+        block_start[bi] = start;
         out.push(format!("{}:", sa_label(&b.id)));
+        open_block = Some(bi);
         // Per-block bound set: repeats go loud and keep the first value
         // (skip the line). Exclusive-branch joins stay legal (never seeded).
         let mut bound = seeds[bi].clone();
@@ -97,7 +112,17 @@ pub fn lower_function(f: &Function, unsup: &mut Vec<String>) -> String {    // T
                     }
                     // Unresolvable const values go loud (never raw Debug).
                     let before = unsup.len();
-                    if let Some(why) = assign_loud_const(rvalue) {
+                    // A dead byte-literal store allocates a payload that
+                    // nothing can read or free; skip the definition (no use
+                    // can reach the unbound register).
+                    let dead_literal = dead.contains(dest)
+                        && matches!(
+                            rvalue,
+                            Rvalue::Use { op: Operand::Const { str_bytes: Some(_), .. } }
+                        );
+                    if dead_literal {
+                        out.push(format!("    // dead byte-literal store {} (no reads; not materialized)", dest));
+                    } else if let Some(why) = assign_loud_const(rvalue) {
                         unsup.push(format!("{}:{} ConstValue", b.id, dest));
                         out.push(format!("    // UNSUPPORTED const-value -> {}: {}", dest, flat_comment(&why)));
                     } else {
@@ -106,7 +131,7 @@ pub fn lower_function(f: &Function, unsup: &mut Vec<String>) -> String {    // T
                             out.push(format!("    {}", l));
                         }
                     }
-                    if unsup.len() > before {
+                    if unsup.len() > before && !dead_literal {
                         // Loud paths bind nothing: a `0` placeholder keeps
                         // downstream uses parseable (function already flagged).
                         // Feed the constmap so later Copies re-materialize
@@ -393,7 +418,10 @@ pub fn lower_function(f: &Function, unsup: &mut Vec<String>) -> String {    // T
                 out.push(format!("    // UNSUPPORTED terminator: {}", text));
             }
         }
-        block_ranges.push((bi, start, out.len()));
+    }
+    if let Some(prev) = open_block {
+        let e = out.len();
+        block_ranges.push((prev, block_start[prev], e));
     }
     // Drop glue (see drop.rs): exit-anchored releases over emitted lines.
     // Insertion runs over original block indices (dom_sets keying), from

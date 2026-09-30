@@ -607,3 +607,37 @@ targets 的 bug，Rust 版已修正；另 `(_4.0: T)` 投影归一到基 local�
     支配种子、spill.rs 的槽位都要知道 `_N_len` 独立存在）；
   - 聚合字段侧胖指针**已可用**（(ptr,len) 双 store，T12 起），无需改动。
 - 该结论已写入 INVENTORY 的「出路」列，后续排期以它为准。
+
+## T23 胖指针局部表示：**可实现但暂不 ship**（+ 挖出并修掉一个既有 bug）
+
+- 方案（比 T22 设想的「双寄存器局部」更小）：胖值用**长度头缓冲**表示
+  ——`[len: u64][payload: u8..]`，局部只存缓冲地址（仍是「一局部一寄存器」），
+  需要长度的地方（按普查就是调用边界）用 `load p+0 as u64` 导出。这样
+  version.rs / dom_seeds / spill.rs **零改动**。
+- 实现（已试做并测量，随后回滚）：驱动 `ty_is_fat_ptr`/`param_sa_types`/
+  `fn_fat_arg_indices`（形参展开 `[ptr,u64]` + 下发胖实参下标）；后端
+  `layout::fat_const_buffer`（头缓冲）、`plan_fat_const`（值位）、`render_call_args`
+  （胖实参 1→2 展开）、`render_call_args_lenient`（不可解析常量退化为 0 但保留
+  寄存器读取）、`call_arg_needs_loud`（lower/coverage 共用）。
+- **T21b-2 的阻塞确实解除了**：全程 CapabilityMismatch **0**（声明端与调用端
+  同步展开，arity 恒匹配），值位胖常量与胖实参都真正落地，loud 实降
+  sci 497→463、sla 2029→1881。
+- 但**净损**：全绿函数 sla 399→319（sci 426→425），MemoryLeak 21→101。原因
+  是本仓的「无 phi」限制在**放大后**才显形：合流处的版本化局部
+  （`_3_v0`/`_3_v1`）谁都不支配 join，drop.rs 按支配门不敢在出口释放
+  （否则另一支未绑定 → UnknownRegister）。此前这些寄存器装的是 null 标记
+  `0`，Referee 不计泄漏；一旦承载真实缓冲就变成可见泄漏。
+- **判定**：不 ship 胖 ABI。解锁它需要**合流版本的出口释放能力**（join 状态
+  对齐 / merge-slot 范式，见 sla 官方做法），这与 PhiStateConflict 46 项是
+  同一个地基。两项合并为一轮更有意义。
+- 本轮**保留**两个净收益修复（与胖 ABI 无关，独立测量）：
+  1. **块范围记账 bug**（lower.rs）：loud 终结符分支的 `continue` 会跳过
+     `block_ranges.push`，导致这些块的行**从未进入 drop.rs 的输入** → 其定义
+     永不被出口释放。改为「延迟收尾」（下一块开始时关闭上一块，且在标签后
+     立刻 open，`continue` 也不丢）。加锁单测
+     `loud_call_block_defs_still_exit_freed`。实测：sla 全绿 **399→412**，
+     MemoryLeak **21→8**，loud 不变，无新 trap。
+  2. **死字面量存储**（spill::dead_locals + lower 跳过）：定义后无人读取的
+     字节字面量不再物化（否则分配了没人释放的载荷）。同批实测已含在内。
+- 累计（本轮对两集的净效果）：sla 全绿 399→**412**、MemoryLeak 21→**8**；
+  sci 持平（426 / 6）；loud 两集均不变（497 / 2029）。

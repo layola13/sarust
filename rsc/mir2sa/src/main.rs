@@ -782,6 +782,40 @@ mod tests {
     }
 
     #[test]
+    fn loud_call_block_defs_still_exit_freed() {
+        // T23: a block whose terminator goes loud takes the `continue` path in
+        // lower(), so its emitted lines used to be missing from drop.rs's input
+        // and every register defined there was never exit-freed (a leak as soon
+        // as it holds a real allocation). Block ranges now close lazily.
+        let loud = Operand::Const {
+            value: "Unevaluated(UnevaluatedConst { def: DefId(0:1 })".to_string(),
+            str_bytes: None,
+            str_len: None,
+        };
+        let f = blank_fn("f_loudblk", vec![
+            Block {
+                id: "bb0".to_string(),
+                statements: vec![def_from("_2", "_1")],
+                terminator: Term::Call {
+                    func: "g".to_string(),
+                    func_raw: None,
+                    args: vec![loud],
+                    dest: Some("_3".to_string()),
+                    target: Some("bb1".to_string()),
+                    sig: None,
+                },
+            },
+            blank_block("bb1", Term::Return { ret: None }),
+        ]);
+        let mut f = f;
+        f.params = vec!["ptr".to_string()];
+        let mut unsup = vec![];
+        let sa = lower_function(&f, &mut unsup);
+        assert!(unsup.iter().any(|u| u.contains("CallConstValue")), "{:?}", unsup);
+        assert!(sa.contains("!_2"), "reg defined in a loud block must be exit-freed:\n{}", sa);
+    }
+
+    #[test]
     fn cast_reload_binds_temp_for_convert() {
         // sla-201 shape: a spilled source feeding a WIDTH-CHANGING cast must
         // be bound to a temp first — `zext load _s+0 as u8 as i32` does not

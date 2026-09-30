@@ -234,6 +234,101 @@ pub fn build_spill(blocks: &[crate::mir::Block]) -> SpillMap {
     map
 }
 
+/// Locals that are DEFINED but never READ anywhere in the function.
+///
+/// Only consulted for byte-literal materialization: a dead `_2 = &"..."` would
+/// otherwise allocate a real payload buffer that nobody frees (the old loud
+/// path bound the null marker `0`, which the Referee does not count as a
+/// leak — so this used to hide). Dropping the dead definition removes the
+/// allocation instead of the symptom. MIR Drop/borrow uses count as reads:
+/// this set is only used where no other consumer can exist.
+pub fn dead_locals(blocks: &[crate::mir::Block], n_params: usize) -> BTreeSet<String> {
+    use crate::mir::{Operand, Rvalue, Stmt, Term};
+    let mut defined: BTreeSet<String> = BTreeSet::new();
+    let mut read: BTreeSet<String> = BTreeSet::new();
+    let mut note = |op: &Operand, defined: &mut BTreeSet<String>, read: &mut BTreeSet<String>| {
+        let place = match op {
+            Operand::Move { place } | Operand::Copy { place } | Operand::Conflict { place } => {
+                place.as_str()
+            }
+            _ => return,
+        };
+        if defined.contains(place) {
+            read.insert(place.to_string());
+        }
+    };
+    for b in blocks {
+        for st in &b.statements {
+            match st {
+                Stmt::Assign { dest, rvalue, .. } => {
+                    match rvalue {
+                        Rvalue::Use { op } => note(op, &mut defined, &mut read),
+                        Rvalue::Repeat { op, .. } => note(op, &mut defined, &mut read),
+                        Rvalue::UnOp { operand, .. } | Rvalue::Cast { op: operand, .. } => {
+                            note(operand, &mut defined, &mut read)
+                        }
+                        Rvalue::Call { args, .. } => {
+                            for a in args {
+                                note(a, &mut defined, &mut read)
+                            }
+                        }
+                        Rvalue::BinOp { left, right, .. } => {
+                            note(left, &mut defined, &mut read);
+                            note(right, &mut defined, &mut read);
+                        }
+                        Rvalue::Aggregate { elems, .. } => {
+                            for e in elems {
+                                note(e, &mut defined, &mut read)
+                            }
+                        }
+                        Rvalue::Ref { place, .. }
+                        | Rvalue::Discriminant { place }
+                        | Rvalue::RawPtr { place, .. } => {
+                            if defined.contains(place.as_str()) {
+                                read.insert(place.clone());
+                            }
+                        }
+                        _ => {}
+                    }
+                    defined.insert(dest.clone());
+                }
+                Stmt::SetDisc { place, .. } => {
+                    if defined.contains(place.as_str()) {
+                        read.insert(place.clone());
+                    }
+                }
+                _ => {}
+            }
+        }
+        match &b.terminator {
+            Term::Call { args, .. } => {
+                for a in args {
+                    note(a, &mut defined, &mut read)
+                }
+            }
+            Term::Drop { place, .. } => {
+                if defined.contains(place.as_str()) {
+                    read.insert(place.clone());
+                }
+            }
+            Term::SwitchInt { discr, .. } => note(discr, &mut defined, &mut read),
+            Term::Assert { cond, .. } => note(cond, &mut defined, &mut read),
+            Term::InlineAsm { ins, .. } => {
+                for a in ins {
+                    note(a, &mut defined, &mut read)
+                }
+            }
+            _ => {}
+        }
+    }
+    // Params are always live (the header binds them).
+    for i in 1..=n_params {
+        defined.remove(&format!("_{}", i));
+    }
+    defined.retain(|d| !read.contains(d));
+    defined
+}
+
 /// Slot register name for a spilled base/dest.
 pub fn spill_slot(reg: &str) -> String {
     format!("{}_spill", reg)

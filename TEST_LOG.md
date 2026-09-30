@@ -554,3 +554,30 @@ targets 的 bug，Rust 版已修正；另 `(_4.0: T)` 投影归一到基 local�
 - 结论已写入 INVENTORY：T21b-2 需要 **driver + 后端协同**的胖指针 ABI
   改造（形参 1→2 展开、实参 1→2 展开、常量与局部两种来源），单点改动会引
   入 CapabilityMismatch，故排为独立一轮。
+
+## T21b-2 胖指针 ABI 端到端改造：**实测净回归，已回滚**（诚实负结果）
+
+- 改动（全部在 worktree 试做，已 `git checkout` 回滚，树为 T21b-1 状态）：
+  驱动 `ty_is_fat_ptr`/`param_sa_types` 把胖形参展开为 `["ptr","u64"]`、
+  `fn_fat_arg_indices` 下发胖实参下标；后端 `render_call_args` 在实参位
+  内联字节缓冲并传 (buf, len)，`call_arg_needs_loud` 供 lower/coverage 共用。
+- 实测（两集全量，逐函数 `sa check`）：
+  - sci 全绿 **426→151**、sla **399→144**，新增 trap **CapabilityMismatch
+    306 / 303**；把「胖实参无法物化就整调用大声跳过」修掉后 mismatch 归零，
+    但漏出 MemoryLeak 177/147、BorrowConflict 74/95（原先被 mismatch 首个
+    报告掩盖）。
+  - 根因（两层，都有实测支撑）：
+    (1) **形参与实参必须同步展开**。`@extern` 声明来自驱动的展开 sig，而
+        本仓局部模型是**一局部一寄存器**——胖局部（`&str` 局部）根本无法
+        表示，于是这些调用只能发 1 个实参，与 2 形参声明不符（正是
+        CapabilityMismatch 的来源）。「发调用但填 0 占位」也试过：arity 对了，
+        但漏出的泄漏/借用冲突依旧（那是这些函数里**一直存在**、此前被
+        mismatch 掩盖的真 trap）。
+    (2) 因此本轮改造的**前置条件是「胖局部可表示」**（局部能持 (ptr,len) 对），
+        单点 ABI 改造不成立。
+- 定性留档：单 `ptr` 声明胖形参**确是 ABI 缺陷**（与 sa_std 的
+  `&bytes: ptr, len: u64` 不一致，少传长度），但修它需要先做胖局部表示
+  （局部槽持对 + 读取 meta），属独立一轮的地基工作。sla 的 CallConstValue
+  803 项因此**保持大声**，不假装可修。
+- 教训（已写进流程）：ABI 类改动必须「声明端 + 调用端 + 数据表示」三者同时
+  到位，否则一律净回归；先量后改，别先改后量。

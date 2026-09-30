@@ -170,7 +170,8 @@ fn cmd_coverage(args: &[String]) -> ExitCode {
                 Term::Call { args, sig, dest, .. } => {
                     if args.iter().any(const_needs_loud) {
                         tot_unsup += 1;
-                        unsup.push(format!("{}: T/CallConstValue", b.id));
+                        let kind = args.iter().find_map(loud_const_kind).unwrap_or("ConstValue");
+                        unsup.push(format!("{}: T/Call{}", b.id, kind));
                     } else if call_sig_loud(sig, args) {
                         tot_unsup += 1;
                         unsup.push(format!("{}: T/CallNoSig", b.id));
@@ -191,11 +192,13 @@ fn cmd_coverage(args: &[String]) -> ExitCode {
                 }
                 Term::Assert { cond, .. } if const_needs_loud(cond) => {
                     tot_unsup += 1;
-                    unsup.push(format!("{}: T/AssertConstValue", b.id));
+                    let kind = loud_const_kind(cond).unwrap_or("ConstValue");
+                    unsup.push(format!("{}: T/Assert{}", b.id, kind));
                 }
                 Term::SwitchInt { discr, .. } if const_needs_loud(discr) => {
                     tot_unsup += 1;
-                    unsup.push(format!("{}: T/SwitchConstValue", b.id));
+                    let kind = loud_const_kind(discr).unwrap_or("ConstValue");
+                    unsup.push(format!("{}: T/Switch{}", b.id, kind));
                 }
                 _ => {}
             }

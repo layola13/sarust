@@ -722,3 +722,30 @@ targets 的 bug，Rust 版已修正；另 `(_4.0: T)` 投影归一到基 local�
 - 加锁 2 用例（`temp_frees_block_local_only` /
   `temp_frees_skips_cross_block_and_branch_reads`），**67/67**；corpus loud
   114 不变（语料无此类泄漏），全绿 31/40 不变。
+
+## T28 记账命名诚实化：合流冲突不再被记成「常量不可解析」
+
+- 发现方式：普查 `SwitchConstValue` 时在驱动 JSON 里找不到任何
+  `SwitchInt{discr: Const}`——顺着 `lower` 的 stderr 反查才发现，判据里的
+  `discr` 其实是 `version.rs` 改写出的 **`__VERSION_CONFLICT__` 占位**
+  （`09_async_await` 等：判据是 `Move(_20)` 之类，合流后被换成 Conflict）。
+  `const_needs_loud` 对 `Conflict` 与「不可解析 Const」都返回 true，于是
+  Call/Switch/Assert 三处的缺口名把**合流冲突**错标成常量问题。
+- 影响：真实阻塞（需 phi 的那一族）此前被藏在「常量问题」名下，缺口表的
+  优先级判断会被误导。修正为 `loud_const_kind()` 返回 `Conflict`/`ConstValue`
+  两个名字，lower 与 coverage 共用；`loud_operand_reason()` 给出对应理由文本。
+- 实测：loud 总数**不变**（sci 520 / sla 2054），全绿不变（427 / 411），
+  纯记账修正；命名变化：sci 11 条 / sla 10 条 `SwitchConstValue` →
+  `SwitchConflict`（它们本就是合流冲突）。测试 67/67。
+
+## 环境备注（不是仓库问题，但会反复咬人）
+
+- 本会话中 `cargo build` 突然全面失败，症状是 rustc 报 `<anon>:1: warning:
+  variant `Quit` is never constructed` / `enum Message {` 之类的「源码」——
+  根因是 **cargo 的 target-info 探针把源码放在 stdin（`rustc -`）**，而本会话
+  shell 的 stdin 管道会带上一条命令的输出，rustc 就去解析那段文本。
+  现象具有迷惑性（看起来像源码被写坏、像 `enum Message` 来自 serde）。
+- 判别方法：单独执行同一条 `rustc - --print=file-names` 成功 → 问题不在源码。
+- 绕开（不改仓库）：用 rustc 包装器把参数里的孤立 `-` 换成空临时文件，
+  `RUSTC=/tmp/opencode/rustc_nostdin.sh cargo build`。验证：立刻恢复编译。
+  换会话/换 CI 时用干净 stdin 即可，不必带这个包装器。

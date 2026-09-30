@@ -56,6 +56,32 @@ pub fn const_needs_loud(op: &Operand) -> bool {
     }
 }
 
+/// Why an operand is loud, as a stable name: a join-ambiguous use
+/// (`__VERSION_CONFLICT__` from version.rs) is a CONFLICT, not an unresolvable
+/// const. Keeping them apart matters: the conflict class is the "needs phi"
+/// family, and mislabelling it as a const problem hides the real blocker.
+pub fn loud_const_kind(op: &Operand) -> Option<&'static str> {
+    match op {
+        Operand::Conflict { .. } => Some("Conflict"),
+        Operand::Const { .. } => const_needs_loud(op).then_some("ConstValue"),
+        _ => None,
+    }
+}
+
+/// Loud reason text for one operand, `None` when it is fine.
+pub fn loud_operand_reason(op: &Operand) -> Option<String> {
+    match op {
+        Operand::Conflict { place } => {
+            Some(format!("version conflict at join (multiple reaching defs of {})", place))
+        }
+        Operand::Const { value, .. } if const_needs_loud(op) => Some(format!(
+            "unresolvable const {}",
+            value.chars().take(60).collect::<String>()
+        )),
+        _ => None,
+    }
+}
+
 /// True when a const operand in VALUE position (`_x = <const>`) is
 /// materializable: sized byte-array literals get an inline buffer + thin
 /// address (see layout::plan_const_bytes), so they are NOT loud there.

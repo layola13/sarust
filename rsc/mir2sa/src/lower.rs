@@ -4,7 +4,7 @@ use std::process::ExitCode;
 use crate::asm::{asm_inout_passthrough, asm_mov_copy, is_plain_local};
 use crate::mir::*;
 use crate::render::*;
-use crate::render_util::{assert_panic_code, assign_loud_const, build_constmap, call_sig_loud, const_needs_loud, flat_comment, is_overflow_assert, render_call_arg, render_operand, sa_ident, sa_label, unreachable_panic_code};
+use crate::render_util::{assert_panic_code, assign_loud_const, build_constmap, call_sig_loud, const_needs_loud, flat_comment, is_overflow_assert, loud_const_kind, loud_operand_reason, render_call_arg, render_operand, sa_ident, sa_label, unreachable_panic_code};
 use crate::spill::{build_spill, spill_slot};
 
 /// Placeholder bind for loud paths: an unbound dest gets `= 0` so
@@ -197,9 +197,12 @@ pub fn lower_function(f: &Function, unsup: &mut Vec<String>) -> String {    // T
                     unsup.push(format!("{}: Rebind", b.id));
                     out.push(format!("    // UNSUPPORTED rebind -> {} (already bound; keeping first value)", dest.as_deref().unwrap_or("_0")));
                 }
-                if args.iter().any(const_needs_loud) {
-                    unsup.push(format!("{}: CallConstValue", b.id));
-                    out.push("    // UNSUPPORTED call-args: unresolvable const (control preserved)".to_string());
+                if let Some(kind) = args.iter().find_map(loud_const_kind) {
+                    unsup.push(format!("{}: Call{}", b.id, kind));
+                    out.push(format!(
+                        "    // UNSUPPORTED call-args: {} (control preserved)",
+                        loud_operand_reason(args.iter().find(|a| loud_const_kind(a).is_some()).unwrap()).unwrap_or_default()
+                    ));
                     bind_placeholder(&mut out, &mut bound, dest);
                     spill_placeholder(&mut out, &spill, dest);
                     match target {
@@ -292,7 +295,8 @@ pub fn lower_function(f: &Function, unsup: &mut Vec<String>) -> String {    // T
                 // ForbiddenSyntax); fallthrough lands on per-arm labels.
                 // Unresolvable const discriminants go loud (control preserved).
                 if const_needs_loud(discr) {
-                    unsup.push(format!("{}: SwitchConstValue", b.id));
+                    let kind = loud_const_kind(discr).unwrap_or("ConstValue");
+                    unsup.push(format!("{}: Switch{}", b.id, kind));
                     out.push("    // UNSUPPORTED switch-discr: unresolvable const (control preserved)".to_string());
                     out.push(format!("    jmp {}", sa_label(otherwise)));
                     continue;
@@ -346,7 +350,8 @@ pub fn lower_function(f: &Function, unsup: &mut Vec<String>) -> String {    // T
                 // rides as a comment; codes are 1500+bb deterministic).
                 // Unresolvable const conditions go loud (control preserved).
                 if const_needs_loud(cond) {
-                    unsup.push(format!("{}: AssertConstValue", b.id));
+                    let kind = loud_const_kind(cond).unwrap_or("ConstValue");
+                    unsup.push(format!("{}: Assert{}", b.id, kind));
                     out.push("    // UNSUPPORTED assert-cond: unresolvable const (control preserved)".to_string());
                     out.push(format!("    jmp {}", sa_label(target)));
                     continue;

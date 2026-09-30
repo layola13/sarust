@@ -322,8 +322,8 @@ fn f_thread_map: blocks=20 stmts+terms=34 unsupported=5
     ?? bb2: T/CallConstValue
     ?? bb6: T/CallConstValue
     ?? bb9: T/OverflowAssertFolded
-    ?? bb17: T/SwitchConstValue
-    ?? bb19: T/SwitchConstValue
+    ?? bb17: T/SwitchConflict
+    ?? bb19: T/SwitchConflict
 fn {closure#0}: blocks=2 stmts+terms=4 unsupported=1
        1 Assign/BinOp/AddWithOverflow
        1 Assign/Use

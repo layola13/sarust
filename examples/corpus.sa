@@ -668,7 +668,7 @@ L_bb6:
 @shout(_1: ptr) -> ptr:
 L_bb0:
     // MIR: <std::string::String as std::convert::From<&str>>::from
-    // UNSUPPORTED call-args: unresolvable const (control preserved)
+    // UNSUPPORTED call-args: unresolvable const Val(Slice { alloc_id: alloc20, meta: 4 }, &'{erased} str) (control preserved)
     _0 = 0
     jmp L_bb1
 L_bb1:
@@ -679,7 +679,7 @@ L_bb1:
 @shout(_1: ptr) -> ptr:
 L_bb0:
     // MIR: <std::string::String as std::convert::From<&str>>::from
-    // UNSUPPORTED call-args: unresolvable const (control preserved)
+    // UNSUPPORTED call-args: unresolvable const Val(Slice { alloc_id: alloc21, meta: 4 }, &'{erased} str) (control preserved)
     _0 = 0
     jmp L_bb1
 L_bb1:
@@ -799,7 +799,7 @@ L_bb8:
 @_closure_0_(_1: ptr, _2: ptr) -> ptr:
 L_bb0:
     // MIR: <std::string::String as std::convert::From<&str>>::from
-    // UNSUPPORTED call-args: unresolvable const (control preserved)
+    // UNSUPPORTED call-args: unresolvable const Val(Slice { alloc_id: alloc22, meta: 3 }, &'{erased} str) (control preserved)
     _0 = 0
     jmp L_bb1
 L_bb1:
@@ -1084,7 +1084,7 @@ L_bb2:
 L_bb0:
     // nop: Discriminant(9)
     // MIR: std::thread::LocalKey::<std::cell::Cell<u32>>::new
-    // UNSUPPORTED call-args: unresolvable const (control preserved)
+    // UNSUPPORTED call-args: unresolvable const Unevaluated(UnevaluatedConst { def: DefId(0:64 ~ main[a064]: (control preserved)
     _0 = 0
     jmp L_bb1
 L_bb1:
@@ -1153,7 +1153,7 @@ L_bb1:
 L_bb0:
     // nop: Discriminant(9)
     // MIR: std::thread::local_impl::EagerStorage::<std::cell::Cell<u32>>::new
-    // UNSUPPORTED call-args: unresolvable const (control preserved)
+    // UNSUPPORTED call-args: unresolvable const Unevaluated(UnevaluatedConst { def: DefId(0:63 ~ main[a064]: (control preserved)
     _0 = 0
     jmp L_bb1
 L_bb1:
@@ -1431,7 +1431,7 @@ L_bb2:
     // mut-borrow (Phase1: & + Referee)
     _4 = &_2
     // MIR: <std::string::String as std::convert::From<&str>>::from
-    // UNSUPPORTED call-args: unresolvable const (control preserved)
+    // UNSUPPORTED call-args: unresolvable const Val(Slice { alloc_id: alloc25, meta: 1 }, &'{erased} str) (control preserved)
     _5 = 0
     jmp L_bb3
 L_bb3:
@@ -1455,7 +1455,7 @@ L_bb6:
     // mut-borrow (Phase1: & + Referee)
     _11 = &_2
     // MIR: <std::string::String as std::convert::From<&str>>::from
-    // UNSUPPORTED call-args: unresolvable const (control preserved)
+    // UNSUPPORTED call-args: unresolvable const Val(Slice { alloc_id: alloc26, meta: 1 }, &'{erased} str) (control preserved)
     _12 = 0
     jmp L_bb7
 L_bb7:
@@ -1709,7 +1709,7 @@ L_bb11:
     jmp L_bb12
 L_bb12:
     // MIR: <std::string::String as std::convert::From<&str>>::from
-    // UNSUPPORTED call-args: unresolvable const (control preserved)
+    // UNSUPPORTED call-args: unresolvable const Val(Slice { alloc_id: alloc28, meta: 2 }, &'{erased} str) (control preserved)
     _38 = 0
     jmp L_bb13
 L_bb13:
@@ -2167,7 +2167,7 @@ L_bb63:
     jmp L_bb64
 L_bb64:
     // MIR: f_cast
-    // UNSUPPORTED call-args: unresolvable const (control preserved)
+    // UNSUPPORTED call-args: unresolvable const Val(Scalar(0x4004000000000000), f64) (control preserved)
     _152 = 0
     jmp L_bb65
 L_bb65:
@@ -2287,7 +2287,7 @@ L_bb79:
     jmp L_bb80
 L_bb80:
     // MIR: <std::string::String as std::convert::From<&str>>::from
-    // UNSUPPORTED call-args: unresolvable const (control preserved)
+    // UNSUPPORTED call-args: unresolvable const Val(Slice { alloc_id: alloc32, meta: 1 }, &'{erased} str) (control preserved)
     _191 = 0
     jmp L_bb81
 L_bb81:

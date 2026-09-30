@@ -108,7 +108,37 @@ fn place_via(p: &Place<'_>) -> Option<String> {
     }
 }
 
-fn operand_json(op: &Operand<'_>, into: &mut String) {
+/// String-literal bytes for a `&str` slice constant (`Const::Val` with
+/// `ConstValue::Slice`), e.g. promoted `"..."/utf8` literals. Returns
+/// (bytes, len) only for valid UTF-8; anything else (unevaluated consts,
+/// non-str slices, statics) yields None and the backend stays loud.
+fn str_const_bytes<'a>(tcx: TyCtxt<'a>, c: &Const<'a>) -> Option<(&'a [u8], u64)> {
+    use rustc_abi::Size;
+    use rustc_middle::mir::interpret::{AllocRange, GlobalAlloc};
+    let (cval, ty) = match c {
+        Const::Val(v, ty) => (*v, *ty),
+        _ => return None,
+    };
+    match ty.kind() {
+        TyKind::Ref(_, inner, ty::Mutability::Not) if inner.is_str() => {}
+        _ => return None,
+    }
+    let (alloc_id, meta) = match cval {
+        rustc_middle::mir::ConstValue::Slice { alloc_id, meta } => (alloc_id, meta),
+        _ => return None,
+    };
+    let mem = match tcx.global_alloc(alloc_id) {
+        GlobalAlloc::Memory(m) => m,
+        _ => return None,
+    };
+    let bytes = mem
+        .inner()
+        .get_bytes_unchecked(AllocRange { start: Size::ZERO, size: Size::from_bytes(meta) });
+    std::str::from_utf8(bytes).ok()?;
+    Some((bytes, meta))
+}
+
+fn operand_json<'a>(op: &Operand<'a>, tcx: TyCtxt<'a>, into: &mut String) {
     match op {
         Operand::Copy(p) => {
             let (s, _) = place_name(p);
@@ -122,7 +152,20 @@ fn operand_json(op: &Operand<'_>, into: &mut String) {
             let v = trunc(format!("{:?}", c.const_), 60);
             into.push_str("{\"kind\": \"Const\", \"value\": \"");
             esc(&v, into);
-            into.push_str("\"}");
+            into.push('"');
+            // String-literal payload rides along only when resolvable;
+            // absent fields keep old fixtures byte-compatible.
+            if let Some((bytes, len)) = str_const_bytes(tcx, &c.const_) {
+                into.push_str(", \"str_bytes\": [");
+                for (i, b) in bytes.iter().enumerate() {
+                    if i > 0 {
+                        into.push_str(", ");
+                    }
+                    write!(into, "{}", b).unwrap();
+                }
+                write!(into, "], \"str_len\": {}", len).unwrap();
+            }
+            into.push('}');
         }
         Operand::RuntimeChecks(_) => {
             // Session-flag query operand (e.g. overflow-checks enabled?).
@@ -132,16 +175,16 @@ fn operand_json(op: &Operand<'_>, into: &mut String) {
     }
 }
 
-fn rvalue_json(
-    rv: &Rvalue<'_>,
-    tcx: TyCtxt<'_>,
+fn rvalue_json<'tcx>(
+    rv: &Rvalue<'tcx>,
+    tcx: TyCtxt<'tcx>,
     layout: Option<&(u64, Vec<u64>)>,
     into: &mut String,
 ) {
     match rv {
         Rvalue::Use(op, _) => {
             into.push_str("{\"kind\": \"Use\", \"op\": ");
-            operand_json(op, into);
+            operand_json(op, tcx, into);
             into.push('}');
         }
         Rvalue::Ref(_, kind, p) => {
@@ -169,7 +212,7 @@ fn rvalue_json(
         }
         Rvalue::Repeat(op, len) => {
             into.push_str("{\"kind\": \"Repeat\", \"op\": ");
-            operand_json(op, into);
+            operand_json(op, tcx, into);
             into.push_str(", \"len\": \"");
             esc(&trunc(format!("{:?}", len), 40), into);
             into.push_str("\"}");
@@ -183,21 +226,21 @@ fn rvalue_json(
             into.push_str("{\"kind\": \"BinOp\", \"op\": \"");
             into.push_str(&format!("{:?}", op));
             into.push_str("\", \"left\": ");
-            operand_json(&box_ops.0, into);
+            operand_json(&box_ops.0, tcx, into);
             into.push_str(", \"right\": ");
-            operand_json(&box_ops.1, into);
+            operand_json(&box_ops.1, tcx, into);
             into.push('}');
         }
         Rvalue::UnaryOp(op, o) => {
             into.push_str("{\"kind\": \"UnOp\", \"op\": \"");
             into.push_str(&format!("{:?}", op));
             into.push_str("\", \"operand\": ");
-            operand_json(o, into);
+            operand_json(o, tcx, into);
             into.push('}');
         }
         Rvalue::Cast(_, op, ty) => {
             into.push_str("{\"kind\": \"Cast\", \"op\": ");
-            operand_json(op, into);
+            operand_json(op, tcx, into);
             into.push_str(", \"ty\": \"");
             esc(&trunc(format!("{:?}", ty), 60), into);
             into.push_str("\"}");
@@ -208,7 +251,7 @@ fn rvalue_json(
                 if i > 0 {
                     into.push_str(", ");
                 }
-                operand_json(o, into);
+                operand_json(o, tcx, into);
             }
             into.push_str("]");
             if let Some((size, offsets)) = layout {
@@ -431,7 +474,7 @@ fn body_json<'tcx>(
             }
             TerminatorKind::SwitchInt { discr, targets } => {
                 into.push_str("{\"kind\": \"SwitchInt\", \"discr\": ");
-                operand_json(discr, into);
+                operand_json(discr, tcx, into);
                 into.push_str(", \"targets\": [");
                 let mut fi = true;
                 for (v, t) in targets.iter() {
@@ -467,7 +510,7 @@ fn body_json<'tcx>(
                     if i > 0 {
                         into.push_str(", ");
                     }
-                    operand_json(&a.node, into);
+                    operand_json(&a.node, tcx, into);
                 }
                 into.push(']');
                 let (ds, _) = place_name(destination);
@@ -480,7 +523,7 @@ fn body_json<'tcx>(
             }
             TerminatorKind::Assert { cond, target, msg, .. } => {
                 into.push_str("{\"kind\": \"Assert\", \"cond\": ");
-                operand_json(cond, into);
+                operand_json(cond, tcx, into);
                 into.push_str(", \"target\": \"");
                 into.push_str(&bb_name(*target));
                 into.push_str("\", \"msg\": \"");
@@ -516,7 +559,7 @@ fn body_json<'tcx>(
                         }
                         InlineAsmOperand::In { value, .. } => {
                             let mut tmp = String::new();
-                            operand_json(value, &mut tmp);
+                            operand_json(value, tcx, &mut tmp);
                             ins.push(tmp);
                         }
                         _ => {

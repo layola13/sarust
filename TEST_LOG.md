@@ -179,6 +179,27 @@ targets 的 bug，Rust 版已修正；另 `(_4.0: T)` 投影归一到基 local�
    p_layout v2（v1 启发式按源码序排布，mixed-size struct/tuple 若被 rustc
    重排则 pad 有差；rosetta 320 文件未发现反例，但理论缺口仍在）。
 
+## T12 Slice-const 内联（本轮：rosetta 9 → 1，全部可判定缺口关闭）
+
+- driver：`str_const_bytes`（`Const::Val(ConstValue::Slice{alloc_id,meta})`
+  + 类型 `&str` + `global_alloc→Memory→get_bytes_unchecked` + UTF-8 校验，
+  取证自 `mir/consts.rs:35` 与 `interpret/allocation.rs:575`），操作数 JSON
+  增发 `str_bytes/str_len`（仅可解析时出现；旧 fixture 字节兼容）。
+  `operand_json` 穿 `tcx`（8 处调用点，生命周期 `'a` 统一）。
+- mir2sa：`Operand::Const` 增可选两字段（call 参数等渲染路径原样透传，
+  仅 ADT 装配消费）；`FieldPlan::StrLit`（16B/8B 对齐，slice.sal 布局）：
+  `_str_{bid}_{i} = alloc len` + 逐字节 `store … as u8` + 字段双写
+  `(ptr as ptr, len as u64)`；>64B/计数失配/非 str 文本 → None 大声。
+- 实测：corpus 重提重落仍 100.0%（无 str 常量，锁定产物仅 v2 标记差分）；
+  rosetta 320 文件缺口 **9 → 1**（**99.9% → 100.0%**，仅剩 `117` 非 mov
+  asm，保持大声，正确）；`cargo test` 17/17（新增 `adt_str_lit_fat_ptr` /
+  `adt_str_lit_gates`）。
+- 诚实记录：曾试图用 `sci` 的 `sa check` 驗新发射形状，手写 SA 探针连
+  `n = add 0, 32` 都过不了（SA 手写语法另学，见 sala 03 章）；且既有
+  `corpus.sa`（`{constant#0}` 函数名）与 `alloc 32` 字面量同样不过 check——
+  恰为既有缺口 #3（汇编级校验待到货）的覆盖范围。新发射与既有
+  array-init/sa_std 宏体逐行同形，无新增 unverified 形状。
+
 ## T10 rosetta 重跑（新驱动 + 新 mir2sa，T6 缺口关闭量化）
 
 - 方法：`sci/demos/rosetta` 331 个 `main.rs` → 新 `rsc_driver`

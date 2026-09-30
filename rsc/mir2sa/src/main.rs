@@ -87,8 +87,18 @@ enum Rvalue {
 enum Operand {
     Move { place: String },
     Copy { place: String },
-    Const { value: String },
+    Const {
+        value: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        str_bytes: Option<Vec<u64>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        str_len: Option<u64>,
+    },
 }
+
+/// Max string-literal bytes materialized inline per `&str` field (byte-wise
+/// `store`s; longer literals stay loud UNSUPPORTED).
+const STR_INLINE_MAX: u64 = 64;
 
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "kind")]
@@ -139,7 +149,7 @@ fn render_operand(op: &Operand) -> String {
     match op {
         Operand::Move { place } => format!("^{}", place),
         Operand::Copy { place } => place.clone(),
-        Operand::Const { value } => value.clone(),
+        Operand::Const { value, .. } => value.clone(),
     }
 }
 
@@ -287,7 +297,7 @@ fn lower_array_init(bid: &str, dest_place: &str, elems: &[Operand]) -> Option<Ve
     let mut vals = Vec::with_capacity(elems.len());
     for e in elems {
         match e {
-            Operand::Const { value } => {
+            Operand::Const { value, .. } => {
                 vals.push(const_array_elem(value, ty, size)?);
             }
             _ => return None, // Moves/Copies must stay visible; never hide them in a store.
@@ -377,6 +387,8 @@ fn const_elem_ty(value: &str) -> Option<(&'static str, usize)> {
 /// decimalized; unknown-typed Moves/Copies default to 8-byte `u64` slots
 /// (sla `else => 8`). Zero-sized Consts (`Val(ZeroSized, …)`: PhantomData,
 /// PhantomPinned) occupy 0 bytes and emit no store (exact, per Rust layout).
+/// `&str` literal Consts (driver-resolved `str_bytes`, ≤64B) materialize an
+/// inline byte buffer plus a (ptr,len) fat-pointer double store per slice.sal.
 /// Returns SA lines bound to `dest`, or None.
 fn lower_adt_init(
     bid: &str,
@@ -388,14 +400,17 @@ fn lower_adt_init(
     if elems.len() < 2 {
         return None;
     }
-    // (rendered | None for skipped ZST, sa_ty, size)
-    let mut plans: Vec<(Option<String>, &'static str, usize)> = Vec::with_capacity(elems.len());
+    let mut plans: Vec<FieldPlan> = Vec::with_capacity(elems.len());
     for e in elems {
         match e {
-            Operand::Const { value } if value.trim_start().starts_with("Val(ZeroSized") => {
-                plans.push((None, "u8", 0));
+            Operand::Const { value, .. } if value.trim_start().starts_with("Val(ZeroSized") => {
+                plans.push(FieldPlan::Store { text: None, sa_ty: "u8", size: 0 });
             }
-            Operand::Const { value } => {
+            Operand::Const { value, str_bytes, str_len } => {
+                if str_bytes.is_some() {
+                    plans.push(plan_str_field(value, str_bytes.as_ref(), *str_len)?);
+                    continue;
+                }
                 let (ty, size) = const_elem_ty(value)?;
                 let rendered = match ty {
                     "bool" => {
@@ -410,21 +425,21 @@ fn lower_adt_init(
                     }
                     _ => const_array_elem(value, ty, size)?,
                 };
-                plans.push((Some(rendered), sa_scalar_ty(ty), size));
+                plans.push(FieldPlan::Store { text: Some(rendered), sa_ty: sa_scalar_ty(ty), size });
             }
             Operand::Move { place } => {
-                plans.push((Some(format!("^{}", place)), "u64", 8));
+                plans.push(FieldPlan::Store { text: Some(format!("^{}", place)), sa_ty: "u64", size: 8 });
             }
             Operand::Copy { place } => {
-                plans.push((Some(place.clone()), "u64", 8));
+                plans.push(FieldPlan::Store { text: Some(place.clone()), sa_ty: "u64", size: 8 });
             }
         }
     }
     // v1 footprint (also the all-zero-sized detector).
     let mut v1_total = 0usize;
-    for (_, _, size) in &plans {
-        v1_total = align_agg_offset(v1_total, *size);
-        v1_total += *size;
+    for p in &plans {
+        v1_total = align_agg_offset(v1_total, p.align_size());
+        v1_total += p.size();
     }
     if v1_total == 0 {
         // All fields zero-sized: no storage, bind a null marker (exact).
@@ -445,10 +460,10 @@ fn lower_adt_init(
         _ => {
             let mut v1 = Vec::with_capacity(plans.len());
             let mut off = 0usize;
-            for (_, _, size) in &plans {
-                off = align_agg_offset(off, *size);
+            for p in &plans {
+                off = align_agg_offset(off, p.align_size());
                 v1.push(off);
-                off += *size;
+                off += p.size();
             }
             (off, v1, "p_layout v1: sla tuple/struct ABI")
         }
@@ -461,13 +476,66 @@ fn lower_adt_init(
         format!("// aggregate Adt init @ {} ({})", dest_place.trim(), origin),
         format!("{} = alloc {}", base, total),
     ];
-    for (i, (rendered, sa_ty, _)) in plans.iter().enumerate() {
-        if let Some(v) = rendered {
-            lines.push(format!("store {}+{}, {} as {}", base, offsets[i], v, sa_ty));
+    for (i, p) in plans.iter().enumerate() {
+        match p {
+            FieldPlan::Store { text: Some(v), sa_ty, .. } => {
+                lines.push(format!("store {}+{}, {} as {}", base, offsets[i], v, sa_ty));
+            }
+            FieldPlan::Store { text: None, .. } => {}
+            FieldPlan::StrLit { bytes } => {
+                // Byte buffer + fat-pointer (ptr,len) per slice.sal layout.
+                let buf = format!("_str_{}_{}", bid, i);
+                lines.push(format!("{} = alloc {}", buf, bytes.len()));
+                for (j, b) in bytes.iter().enumerate() {
+                    lines.push(format!("store {}+{}, {} as u8", buf, j, b));
+                }
+                lines.push(format!("store {}+{}, {} as ptr", base, offsets[i], buf));
+                lines.push(format!("store {}+{}, {} as u64", base, offsets[i] + 8, bytes.len()));
+            }
         }
     }
     lines.push(format!("{} = {}", dest, base));
     Some(lines)
+}
+
+/// One aggregate field's lowering plan.
+enum FieldPlan {
+    /// Single `store` (text None = ZST, occupies 0B, emits nothing).
+    Store { text: Option<String>, sa_ty: &'static str, size: usize },
+    /// `&str` literal: byte buffer + fat-pointer (ptr,len) double store.
+    /// 16B wide, 8B aligned (Slice_ptr=+0, Slice_len=+8 per slice.sal).
+    StrLit { bytes: Vec<u64> },
+}
+
+impl FieldPlan {
+    fn size(&self) -> usize {
+        match self {
+            FieldPlan::Store { size, .. } => *size,
+            FieldPlan::StrLit { .. } => 16,
+        }
+    }
+    fn align_size(&self) -> usize {
+        match self {
+            FieldPlan::Store { size, .. } => *size,
+            FieldPlan::StrLit { .. } => 8,
+        }
+    }
+}
+
+/// Plan a `&str` literal field: byte buffer preamble + (ptr,len) stores.
+/// Gate: driver-resolved bytes, len within STR_INLINE_MAX, counts agree.
+/// Anything else -> None (caller stays loud UNSUPPORTED).
+fn plan_str_field(value: &str, str_bytes: Option<&Vec<u64>>, str_len: Option<u64>) -> Option<FieldPlan> {
+    let bytes = str_bytes?;
+    let len = str_len?;
+    if len > STR_INLINE_MAX || bytes.len() as u64 != len {
+        return None;
+    }
+    // Sanity: the Debug text must name a string slice (never trust blindly).
+    if !(value.contains("str") || value.contains("Slice")) {
+        return None;
+    }
+    Some(FieldPlan::StrLit { bytes: bytes.clone() })
 }
 
 /// FNV-1a 64 of a ThreadLocal def path: the u64 key passed to
@@ -568,7 +636,7 @@ fn render_rvalue(
         }
         Rvalue::Repeat { op, len } => {
             match op.as_ref() {
-                Operand::Const { value } => match repeat_plan(value, len) {
+                Operand::Const { value, .. } => match repeat_plan(value, len) {
                     Some((v, total)) => format!(
                         "// repeat [{}; {}]\n_rep_{} = alloc {}\ncall @sa_mem_set(&_rep_{}, {}, {})",
                         value, len, bid, total, bid, v, total
@@ -855,13 +923,13 @@ fn parse_operand(s: &str) -> Operand {
         return Operand::Copy { place: base_local(rest).unwrap_or_else(|| rest.to_string()) };
     }
     if let Some(rest) = s.strip_prefix("const ") {
-        return Operand::Const { value: rest.chars().take(60).collect() };
+        return Operand::Const { value: rest.chars().take(60).collect(), str_bytes: None, str_len: None };
     }
     if s.starts_with('_') && base_local(s).as_deref() == Some(s) {
         return Operand::Copy { place: s.to_string() };
     }
     let mut v: String = s.chars().take(60).collect();
-    Operand::Const { value: v }
+    Operand::Const { value: v, str_bytes: None, str_len: None }
 }
 
 fn sanitize_func(raw: &str) -> String {
@@ -1241,7 +1309,7 @@ fn cmd_coverage(args: &[String]) -> ExitCode {
                             Rvalue::Unsupported { .. } => true,
                             // ThreadLocal lowers to sa_thread_local_slot (sci registry).
                             Rvalue::Repeat { op, len } => match op.as_ref() {
-                                Operand::Const { value } => repeat_plan(value, len).is_none(),
+                                Operand::Const { value, .. } => repeat_plan(value, len).is_none(),
                                 _ => true,
                             },
                             Rvalue::Aggregate { elems, layout } if elems.len() > 1 => match dest_place {
@@ -1377,7 +1445,11 @@ mod tests {
     use super::*;
 
     fn c(v: &str) -> Operand {
-        Operand::Const { value: v.to_string() }
+        Operand::Const { value: v.to_string(), str_bytes: None, str_len: None }
+    }
+
+    fn sc(v: &str, bytes: &[u64]) -> Operand {
+        Operand::Const { value: v.to_string(), str_bytes: Some(bytes.to_vec()), str_len: Some(bytes.len() as u64) }
     }
 
     #[test]
@@ -1579,5 +1651,49 @@ mod tests {
             .expect("mismatch must fall back to v1");
         assert!(lines[0].contains("p_layout v1"));
         assert_eq!(lines[1], "_agg_bb10 = alloc 8");
+    }
+
+    #[test]
+    fn adt_str_lit_fat_ptr() {
+        // 55_builder `new`: ("GET", "/") with v2 layout — byte buffers plus
+        // (ptr,len) double stores per slice.sal.
+        let elems = vec![
+            sc("Val(Slice { alloc_id: alloc1, meta: 3 }, &'erased str)", &[71, 69, 84]),
+            sc("Val(Slice { alloc_id: alloc2, meta: 1 }, &'erased str)", &[47]),
+        ];
+        let layout = adt_layout(32, &[0, 16]);
+        let lines = lower_adt_init("bb0", "_0", "_0", &elems, Some(&layout))
+            .expect("str pair must lower");
+        assert_eq!(lines[1], "_agg_bb0 = alloc 32");
+        assert_eq!(lines[2], "_str_bb0_0 = alloc 3");
+        assert_eq!(lines[3], "store _str_bb0_0+0, 71 as u8");
+        assert_eq!(lines[5], "store _str_bb0_0+2, 84 as u8");
+        assert_eq!(lines[6], "store _agg_bb0+0, _str_bb0_0 as ptr");
+        assert_eq!(lines[7], "store _agg_bb0+8, 3 as u64");
+        assert_eq!(lines[8], "_str_bb0_1 = alloc 1");
+        assert_eq!(lines[10], "store _agg_bb0+16, _str_bb0_1 as ptr");
+        assert_eq!(lines[11], "store _agg_bb0+24, 1 as u64");
+        assert_eq!(lines[12], "_0 = _agg_bb0");
+    }
+
+    #[test]
+    fn adt_str_lit_gates() {
+        // Over-long literals and count mismatches stay loud (None).
+        let big = vec![97u64; 65];
+        let elems = vec![
+            sc("Val(Slice { alloc_id: alloc9, meta: 65 }, &'erased str)", &big),
+            c("Val(Scalar(0x00000001), i32)"),
+        ];
+        assert!(lower_adt_init("bb0", "_1", "_1", &elems, None).is_none());
+        // Driver/bytes count mismatch (2 bytes, len 3) stays loud.
+        let elems = vec![
+            Operand::Const {
+                value: "Val(Slice { alloc_id: alloc1, meta: 3 }, &'erased str)".to_string(),
+                str_bytes: Some(vec![71, 69]),
+                str_len: Some(3),
+            },
+            c("Val(Scalar(0x00000001), i32)"),
+        ];
+        assert!(lower_adt_init("bb0", "_1", "_1", &elems, None).is_none());
     }
 }

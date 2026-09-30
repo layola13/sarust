@@ -33,7 +33,7 @@
 | Aggregate 数组 `[T; N]` 全 Const | ✅ | `alloc` + `store`（sla/vec.sa 惯例） |
 | Aggregate struct/tuple/range/enum | ✅ | `alloc` + 逐字段 `store`（p_layout v2：driver 下发真 `size/offsets`，`dest = _agg_bbN`；缺布局回退 v1 sla ABI） |
 | Aggregate ZST 字段（PhantomData/Pinned） | ✅ | 占 0 字节，不发射 `store`（exact；全 ZST 则 `dest = 0`） |
-| Aggregate 含 Slice/alloc 常量 | 🔶 | 具名 + 计数，大声 UNSUPPORTED（需 const-eval 提升 alloc 内容；语料库零残留，rosetta 8 处） |
+| Aggregate 含 Slice/alloc 常量 | ✅ | driver 解析 `Const::Val(Slice)` 取真字节（`&str`+UTF-8 才下发 `str_bytes/str_len`，他形缺席保旧 fixture 字节兼容）；mir2sa ≤64B 内联字节缓冲 + (ptr,len) 双 `store`（slice.sal 布局）；超长/计数失配大声（`cargo test` 2 用例锁定） |
 | Repeat `[c; N]` u8/i8 Const | ✅ | `alloc` + `call @sa_mem_set` |
 | Repeat 其他 | 🔶 | 具名 + 计数（非常量元素需循环） |
 | RawPtr | ✅ | `*p // raw-ptr`（Referee: UnsafeBinder 语义） |

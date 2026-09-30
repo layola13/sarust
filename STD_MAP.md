@@ -33,6 +33,7 @@
 | `mem::size_of/transmute` | `Rvalue::Cast / Intrinsic` | `sa_std/mem.sa`, `core/mem.sa` | `abiTypeSize/structFieldLayout` 复用 `lowering_rules.zig` 的 ABI 布局规则 |
 | `marker::{Send,Sync,Copy}` | trait bound (MIR 类型元数据) | `sa_std/marker*.sa` | 仅作检查, 不发射代码 (rustc 已验, rsc 透传) |
 | `thread_local!` / `LocalKey<T>::with` | `Rvalue::ThreadLocal{def}`（内部 `EagerStorage` 访问体）+ `Call(LocalKey::with)` | `sa_std/thread_local.sai` + `thread_local.sa`（`sci@d7c5c812` 真 per-thread 注册表；Cell 宽度复用 `core/cell.sa` 约定） | `dest = call @sa_thread_local_slot(FNV1a64(DefPath))`（rsc 只记 DefPath→key 映射，不硬编码实现；`@extern` 自动补） |
+| `&str` 字面量（promoted const） | `Const::Val(Slice{alloc_id,meta})`（聚合字段位） | 无需新 std：`slice.sal` 布局（`Slice_ptr=+0/Slice_len=+8`）+ 既有 `alloc`/`store` 原语 | 字节缓冲 + `(ptr as ptr, len as u64)` 双写（rsc 只做 const-eval 搬运 + 十进制化，不碰字符串实现） |
 
 ## 不复用的东西 (有意)
 

@@ -160,6 +160,15 @@ pub fn lower_function(f: &Function, unsup: &mut Vec<String>) -> String {    // T
                 }
             }
         }
+        // Merge ends (borrow_end phase 3): a double-borrow chain dead at
+        // a join ends here, leaf first, so the join sees its source
+        // unlocked. Drop-glue below sees these `!` lines as ordinary
+        // frees and never re-frees the chain at an exit.
+        if let Some(ends) = borrow_plan.merge_ends.get(&bi) {
+            for r in ends {
+                out.push(format!("    !{}", r));
+            }
+        }
         match &b.terminator {
             Term::Goto { target } => out.push(format!("    jmp {}", sa_label(target))),
             Term::Return { ret } => {

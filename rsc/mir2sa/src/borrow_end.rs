@@ -31,6 +31,24 @@
 //! cleanup path owns nothing to free. Sound because unwinding is not modelled
 //! in phase 1 (`Resume` already lowers to `panic`).
 //!
+//! Phase 3 - merge ends (join, non-exit). A two-deep borrow chain
+//! (`m = &p`, `l = &m`) whose every use dies inside its defining block B
+//! still locks `p` textually on outgoing paths from B, so a join block fed
+//! both by B and by a bypass path sees `p` as Locked_Read on one side
+//! and Active on the other (PhiStateConflict, corpus 313). The Drop-site
+//! plan above cannot fix this: there is no Drop of `p` in the function,
+//! and the old chain gate vetoes twice over - `m` is itself borrowed
+//! (by `l`) and `l` is a reborrow - while exit-anchored ordering
+//! (drop.rs) only runs at Return blocks, never at a join. The fix is
+//! narrow: when the chain is exactly two deep, single-defined in B,
+//! never used outside B (nor by the terminator of B), never MIR-dropped,
+//! unconflicted, with no other borrower of `p` or of `m`, and B ends in
+//! a branch to a non-exit join (a successor with another predecessor),
+//! emit `!l` then `!m` at the end of B, before its terminator. Leaf
+//! first is the only sound order (freeing `m` while `l` locks it would
+//! trap). Anything outside this shape is left untouched - no loud mark,
+//! no new trap, the file keeps its previous class.
+//!
 //! Operates on the versioned MIR (same input lower and coverage share, so
 //! parity holds by construction). Text-level passes (drop.rs) see the
 //! inserted `!b` lines as ordinary frees and skip `b` at exits.
@@ -42,10 +60,13 @@ use crate::mir::{Block, Operand, Rvalue, Stmt, Term};
 /// Drop-block index -> borrower regs to free first (sorted, independent).
 /// Drop-block index -> live borrow we cannot provably end (loud).
 /// Drop-block index -> release omitted (unreachable cleanup duplicate).
+/// Block index -> double-borrow chain regs to free at the block end,
+/// leaf first, before a branch into a join (phase 3).
 pub struct DropPlan {
     pub ends: BTreeMap<usize, Vec<String>>,
     pub loud: BTreeSet<usize>,
     pub cleanup: BTreeSet<usize>,
+    pub merge_ends: BTreeMap<usize, Vec<String>>,
 }
 
 /// Successor table (same edges as order.rs: explicit terminator targets;
@@ -102,6 +123,148 @@ fn operand_place(op: &Operand) -> Option<&str> {
         }
         _ => None,
     }
+}
+
+/// Places a terminator reads (its own block terminator must not read a
+/// merge-ended chain: the ends are emitted before the terminator renders,
+/// so a terminator use would read a freed register).
+fn term_uses(t: &Term, name: &str) -> bool {
+    match t {
+        Term::Call { args, .. } => args.iter().any(|a| operand_place(a) == Some(name)),
+        Term::Drop { place, .. } => place == name,
+        Term::SwitchInt { discr, .. } => operand_place(discr) == Some(name),
+        Term::Assert { cond, .. } => operand_place(cond) == Some(name),
+        Term::Return { ret } => ret.as_deref() == Some(name),
+        Term::InlineAsm { ins, .. } => ins.iter().any(|a| operand_place(a) == Some(name)),
+        _ => false,
+    }
+}
+
+/// Plan phase-3 merge ends (see module docs). Returns block index ->
+/// chain regs in free order (leaf first). Pure MIR-level.
+#[allow(clippy::too_many_arguments)]
+fn plan_merge_ends(
+    blocks: &[Block],
+    succ: &[Vec<usize>],
+    edges: &[(String, String, usize)],
+    defs: &BTreeMap<String, Vec<usize>>,
+    uses: &BTreeMap<String, BTreeSet<usize>>,
+    drop_at: &BTreeMap<String, Vec<usize>>,
+    conflicted: &BTreeSet<String>,
+    entry_reach: &HashSet<usize>,
+) -> BTreeMap<usize, Vec<String>> {
+    // Predecessor sets over the explicit CFG edges.
+    let mut preds: Vec<BTreeSet<usize>> = vec![BTreeSet::new(); blocks.len()];
+    for (i, ss) in succ.iter().enumerate() {
+        for &s in ss {
+            preds[s].insert(i);
+        }
+    }
+    let borrowers_of = |src: &str| -> BTreeSet<String> {
+        edges.iter().filter(|(_, s, _)| s == src).map(|(b, _, _)| b.clone()).collect()
+    };
+    let mut out: BTreeMap<usize, Vec<String>> = BTreeMap::new();
+    for bi in 0..blocks.len() {
+        if !entry_reach.contains(&bi) {
+            continue;
+        }
+        // Only branch terminators can feed a join; Drop/Return/Call/
+        // Resume/Unreachable blocks are handled elsewhere (or never).
+        if !matches!(
+            blocks[bi].terminator,
+            Term::SwitchInt { .. } | Term::Goto { .. } | Term::Assert { .. }
+        ) {
+            continue;
+        }
+        // No loop-back: the defining block must not run again after the
+        // branch (a second execution would rebind single-assignment regs).
+        if succ[bi].contains(&bi) {
+            continue;
+        }
+        if succ[bi].iter().any(|s| reachable_from(succ, *s).contains(&bi)) {
+            continue;
+        }
+        // At least one successor is a non-exit join: another predecessor
+        // besides this block, and not itself a Return block.
+        let has_join = succ[bi].iter().any(|&s| {
+            s != bi
+                && preds[s].len() >= 2
+                && preds[s].iter().any(|&pr| pr != bi)
+                && !matches!(blocks[s].terminator, Term::Return { .. })
+        });
+        if !has_join {
+            continue;
+        }
+        let mut ends: Vec<String> = vec![];
+        for (m, p, db) in edges {
+            if *db != bi {
+                continue;
+            }
+            for (l, m2, db2) in edges {
+                if *db2 != bi || m2 != m {
+                    continue;
+                }
+                // Exactly two deep, all distinct, root is not itself a
+                // borrower (a longer chain is a different shape).
+                if p == m || m == l || p == l {
+                    continue;
+                }
+                if edges.iter().any(|(b, _, _)| b == p) {
+                    continue;
+                }
+                // Single definition of each chain link, in this block.
+                let single_in = |r: &str| {
+                    defs.get(r).is_some_and(|v| v.len() == 1 && v[0] == bi)
+                };
+                if !single_in(m) || !single_in(l) {
+                    continue;
+                }
+                // Exact borrower sets: no other borrower of the root or
+                // of the intermediate, and nothing reborrows the leaf.
+                if borrowers_of(p) != BTreeSet::from([m.clone()]) {
+                    continue;
+                }
+                if borrowers_of(m) != BTreeSet::from([l.clone()]) {
+                    continue;
+                }
+                if !borrowers_of(l).is_empty() {
+                    continue;
+                }
+                // Dead outside this block (uses inside it precede the ends),
+                // never used by this block own terminator, never dropped,
+                // never version-conflicted.
+                let dead_outside = |r: &str| {
+                    uses.get(r).is_none_or(|us| us.iter().all(|u| *u == bi))
+                };
+                if !dead_outside(m) || !dead_outside(l) {
+                    continue;
+                }
+                if term_uses(&blocks[bi].terminator, m) || term_uses(&blocks[bi].terminator, l) {
+                    continue;
+                }
+                if drop_at.get(m).is_some_and(|v| !v.is_empty())
+                    || drop_at.get(l).is_some_and(|v| !v.is_empty())
+                {
+                    continue;
+                }
+                if conflicted.contains(m) || conflicted.contains(l) {
+                    continue;
+                }
+                // Defensive disjointness: two chains in one block must not
+                // share a register (the gates above already imply this).
+                if ends.contains(m) || ends.contains(l) {
+                    continue;
+                }
+                // Leaf first: borrowers before sources.
+                ends.push(l.clone());
+                ends.push(m.clone());
+            }
+        }
+        if !ends.is_empty() {
+            out.insert(bi, ends);
+        }
+    }
+    out
 }
 
 /// Plan borrow-ends for every MIR Drop site. Pure MIR-level (no SA text).
@@ -256,7 +419,11 @@ pub fn plan_drops(blocks: &[Block], doms: &[HashSet<usize>]) -> DropPlan {
             _ => {}
         }
     }
-    let mut plan = DropPlan { ends: BTreeMap::new(), loud: BTreeSet::new(), cleanup: BTreeSet::new() };
+    // Merge ends (phase 3) are computed from the same scan; a borrower
+    // they release needs no second end at a downstream Drop (see below).
+    let merge_ends = plan_merge_ends(blocks, &succ, &edges, &defs, &uses, &drop_at, &conflicted, &entry_reach);
+    let merged: BTreeSet<String> = merge_ends.values().flatten().cloned().collect();
+    let mut plan = DropPlan { ends: BTreeMap::new(), loud: BTreeSet::new(), cleanup: BTreeSet::new(), merge_ends };
     // Borrowers already ended (per borrower, at most one end per CFG path:
     // a second end downstream would double-free).
     let mut ended_at: BTreeMap<String, Vec<usize>> = BTreeMap::new();
@@ -294,6 +461,11 @@ pub fn plan_drops(blocks: &[Block], doms: &[HashSet<usize>]) -> DropPlan {
                 }
             }
         }
+        // Phase-3 merge ends already released these borrowers on every
+        // path through their defining block, and single-def means they
+        // are never defined off that path - so a downstream Drop needs
+        // neither a second end nor a loud mark for them.
+        borrowers.retain(|b| !merged.contains(b));
         if borrowers.is_empty() || self_borrow {
             if self_borrow {
                 plan.loud.insert(di);
@@ -470,5 +642,131 @@ mod borrow_end_tests {
         let plan = plan_drops(&blocks, &doms(&blocks));
         assert!(plan.ends.is_empty());
         assert!(plan.loud.is_empty());
+    }
+
+    fn use_copy(dest: &str, place: &str) -> Stmt {
+        Stmt::Assign {
+            dest: dest.to_string(), dest_place: None,
+            rvalue: Rvalue::Use { op: Operand::Copy { place: place.to_string() } },
+        }
+    }
+
+    fn const_bool(dest: &str, v: &str) -> Stmt {
+        Stmt::Assign {
+            dest: dest.to_string(), dest_place: None,
+            rvalue: Rvalue::Use { op: Operand::Const { value: v.to_string(), str_bytes: None, str_len: None } },
+        }
+    }
+
+    fn switch(discr: &str, target: &str, otherwise: &str) -> Term {
+        Term::SwitchInt {
+            discr: Box::new(Operand::Move { place: discr.to_string() }),
+            targets: vec![("0".to_string(), target.to_string())],
+            otherwise: otherwise.to_string(),
+        }
+    }
+
+    // Corpus 313 shape: bb0 branches to bb2 (Active arm) or bb1 (join);
+    // bb2 builds _3 = &_1, _4 = &_3, uses both only inside bb2, then
+    // branches to bb1 (join) or bb3. The join bb1 must see _1 unlocked.
+    fn chain313() -> Vec<Block> {
+        vec![
+            blk("bb0", vec![Stmt::Assign {
+                dest: "_2".to_string(), dest_place: None,
+                rvalue: Rvalue::Discriminant { place: "_1".to_string() },
+            }], switch("_2", "bb2", "bb1")),
+            blk("bb1", vec![const_bool("_0", "Val(Scalar(0x00), bool)")],
+                Term::Goto { target: "bb4".to_string() }),
+            blk("bb2", vec![
+                rf("_3", "_1"),
+                rf("_4", "_3"),
+                use_copy("_7", "_4"),
+                use_copy("_6", "_7"),
+                Stmt::Assign {
+                    dest: "_5".to_string(), dest_place: None,
+                    rvalue: Rvalue::BinOp {
+                        op: "Gt".to_string(),
+                        left: Box::new(Operand::Move { place: "_6".to_string() }),
+                        right: Box::new(Operand::Const { value: "Val(Scalar(0x00000000), i32)".to_string(), str_bytes: None, str_len: None }),
+                    },
+                },
+            ], switch("_5", "bb1", "bb3")),
+            blk("bb3", vec![const_bool("_0", "Val(Scalar(0x01), bool)")],
+                Term::Goto { target: "bb4".to_string() }),
+            blk("bb4", vec![], Term::Return { ret: None }),
+        ]
+    }
+
+    #[test]
+    fn double_chain_merge_ended_leaf_first() {
+        let blocks = chain313();
+        let plan = plan_drops(&blocks, &doms(&blocks));
+        assert_eq!(
+            plan.merge_ends.get(&2),
+            Some(&vec!["_4".to_string(), "_3".to_string()]),
+            "leaf _4 before intermediate _3"
+        );
+        assert!(plan.ends.is_empty(), "no Drop site involved");
+        assert!(plan.loud.is_empty());
+    }
+
+    #[test]
+    fn chain_used_after_merge_vetoes() {
+        // _4 reused in bb3 (past the join): ending it in bb2 would trap.
+        let mut blocks = chain313();
+        blocks[3] = blk("bb3", vec![
+            const_bool("_0", "Val(Scalar(0x01), bool)"),
+            use_copy("_8", "_4"),
+        ], Term::Goto { target: "bb4".to_string() });
+        let plan = plan_drops(&blocks, &doms(&blocks));
+        assert!(plan.merge_ends.is_empty(), "live past the join: no merge end");
+    }
+
+    #[test]
+    fn single_borrow_no_merge_end() {
+        // One-deep borrow at a join is not this shape: leave it alone.
+        let mut blocks = chain313();
+        blocks[2] = blk("bb2", vec![
+            rf("_3", "_1"),
+            const_bool("_5", "Val(Scalar(0x00), bool)"),
+        ], switch("_5", "bb1", "bb3"));
+        let plan = plan_drops(&blocks, &doms(&blocks));
+        assert!(plan.merge_ends.is_empty(), "single borrow is out of scope");
+    }
+
+    #[test]
+    fn terminator_use_vetoes() {
+        // The branch discriminant itself reads _4: ends emitted before the
+        // terminator would free the discriminant source.
+        let mut blocks = chain313();
+        blocks[2] = blk("bb2", vec![
+            rf("_3", "_1"),
+            rf("_4", "_3"),
+            use_copy("_7", "_4"),
+        ], switch("_4", "bb1", "bb3"));
+        let plan = plan_drops(&blocks, &doms(&blocks));
+        assert!(plan.merge_ends.is_empty(), "terminator use vetoes");
+    }
+
+    #[test]
+    fn merge_end_suppresses_downstream_drop_loud() {
+        // Same join, then a Drop of _1 after the join: the chain is
+        // already ended in bb2, so the Drop needs no second end and no
+        // loud mark (the old chain gate would have made it loud).
+        let mut blocks = chain313();
+        blocks[1] = blk("bb1", vec![const_bool("_0", "Val(Scalar(0x00), bool)")],
+            Term::Goto { target: "bb4".to_string() });
+        blocks[3] = blk("bb3", vec![const_bool("_0", "Val(Scalar(0x01), bool)")],
+            Term::Goto { target: "bb4".to_string() });
+        blocks[4] = blk("bb4", vec![], Term::Drop { place: "_1".to_string(), target: "bb5".to_string() });
+        blocks.push(blk("bb5", vec![], Term::Return { ret: None }));
+        let plan = plan_drops(&blocks, &doms(&blocks));
+        assert_eq!(
+            plan.merge_ends.get(&2),
+            Some(&vec!["_4".to_string(), "_3".to_string()])
+        );
+        assert!(plan.ends.is_empty(), "no second end at the Drop");
+        assert!(plan.loud.is_empty(), "merge-ended borrower is not loud");
+        assert!(plan.cleanup.is_empty());
     }
 }

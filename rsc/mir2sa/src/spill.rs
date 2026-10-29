@@ -352,7 +352,7 @@ pub fn build_spill(
     //   header-bound param (no statement def, `_N` shape, never an asm
     //   out — asm outs are defs too, just not counted in def_count);
     // - the defining rvalue sets its slot up when rendered (Use / Call /
-    //   Cast / Ref / Aggregate arms do; BinOp / UnOp / Discriminant /
+    //   Cast / Ref / Aggregate / BinOp / UnOp arms do; Discriminant /
     //   RawPtr arms do not, so those defs stay on the old paths rather
     //   than reloading from a slot that was never stored);
     // - the driver type maps to a real store type (scalar or ptr; ADTs,
@@ -373,6 +373,8 @@ pub fn build_spill(
                             | Rvalue::Cast { .. }
                             | Rvalue::Ref { .. }
                             | Rvalue::Aggregate { .. }
+                            | Rvalue::BinOp { .. }
+                            | Rvalue::UnOp { .. }
                     );
                     setup_kind.insert(dest.clone(), ok);
                 }
@@ -414,8 +416,206 @@ pub fn build_spill(
                 map.insert(c.clone(), t);
             }
         }
+        // Aggregate-root spill (uam-tail): the driver collapses every
+        // MIR subplace to its root local, so a field Copy or Move of a
+        // ptr-represented aggregate renders as a whole-root SA move.
+        // The first field access consumes the root and every later
+        // field access traps UseAfterMove, in the same block or later.
+        // A spilled root reloads its buffer pointer per plain-assign
+        // use and never consumes the root, so later field accesses
+        // stay legal. Value fidelity is unchanged from today: field
+        // offsets are not in mir.json, and the reload binds the same
+        // buffer pointer the plain move bound before.
+        // Gates, all conservative: the base local type maps to no SA
+        // store type (scalars and pointers are handled above), it is
+        // not unit, the reg has a plain-assign use and at least two
+        // uses in total, it is never a Drop place, and its def binds
+        // a pointer in SA (aggregate param, multi-elem Aggregate,
+        // ptr-returning Call, Ref, ptr Cast, Repeat, or a Use of a
+        // pointer-valued source). Versioned scalar field defs such as
+        // a version bound from an i32 temp are excluded by the def
+        // gate even though their base local is an aggregate type.
+        // Single-def or header-bound param, and the def kind must set
+        // a slot up (render sets the multi-elem Aggregate dest slot
+        // up alongside the synthetic base slot).
+        {
+            let mut total_uses: BTreeMap<String, usize> = BTreeMap::new();
+            let mut drop_places: BTreeSet<String> = BTreeSet::new();
+            let mut def_ptr: BTreeMap<String, bool> = BTreeMap::new();
+            for b in blocks {
+                for st in &b.statements {
+                    match st {
+                        Stmt::Assign { dest, rvalue, .. } => {
+                            let p = match rvalue {
+                                Rvalue::Aggregate { elems, .. } => {
+                                    if elems.len() >= 2 {
+                                        true
+                                    } else if elems.len() == 1 {
+                                        match &elems[0] {
+                                            Operand::Move { place } | Operand::Copy { place } => ptr_operand(place, &map, local_types),
+                                            _ => false,
+                                        }
+                                    } else {
+                                        false
+                                    }
+                                }
+                                Rvalue::Call { sig, .. } => match sig {
+                                    Some(s) => s.ret == "ptr",
+                                    None => false,
+                                },
+                                Rvalue::Ref { zst, .. } => !*zst,
+                                Rvalue::Cast { ty, .. } => cast_spill_ty(ty).is_some_and(|x| x == "ptr"),
+                                Rvalue::Use { op } => match op {
+                                    Operand::Move { place } | Operand::Copy { place } => ptr_operand(place, &map, local_types),
+                                    _ => false,
+                                },
+                                Rvalue::Repeat { .. } => true,
+                                _ => false,
+                            };
+                            def_ptr.insert(dest.clone(), p);
+                            match rvalue {
+                                Rvalue::Use { op } => count_operand(&mut total_uses, op),
+                                Rvalue::Aggregate { elems, .. } => {
+                                    for e in elems {
+                                        count_operand(&mut total_uses, e);
+                                    }
+                                }
+                                Rvalue::BinOp { left, right, .. } => {
+                                    count_operand(&mut total_uses, left);
+                                    count_operand(&mut total_uses, right);
+                                }
+                                Rvalue::UnOp { operand, .. } => {
+                                    count_operand(&mut total_uses, operand);
+                                }
+                                Rvalue::Cast { op, .. } => {
+                                    count_operand(&mut total_uses, op);
+                                }
+                                Rvalue::Call { args, .. } => {
+                                    for a in args {
+                                        count_operand(&mut total_uses, a);
+                                    }
+                                }
+                                Rvalue::Repeat { op, .. } => {
+                                    count_operand(&mut total_uses, op);
+                                }
+                                Rvalue::Ref { place, .. } | Rvalue::Discriminant { place } | Rvalue::RawPtr { place, .. } => {
+                                    count_place(&mut total_uses, place);
+                                }
+                                _ => {}
+                            }
+                        }
+                        Stmt::SetDisc { place, .. } => {
+                            count_place(&mut total_uses, place);
+                        }
+                        _ => {}
+                    }
+                }
+                match &b.terminator {
+                    Term::Call { dest: Some(d), sig, args, .. } => {
+                        let p = match sig {
+                            Some(s) => s.ret == "ptr",
+                            None => false,
+                        };
+                        def_ptr.entry(d.clone()).or_insert(p);
+                        for a in args {
+                            count_operand(&mut total_uses, a);
+                        }
+                    }
+                    Term::Call { args, .. } => {
+                        for a in args {
+                            count_operand(&mut total_uses, a);
+                        }
+                    }
+                    Term::Drop { place, .. } => {
+                        count_place(&mut total_uses, place);
+                        drop_places.insert(place.clone());
+                    }
+                    Term::SwitchInt { discr, .. } => {
+                        count_operand(&mut total_uses, discr);
+                    }
+                    Term::Assert { cond, .. } => {
+                        count_operand(&mut total_uses, cond);
+                    }
+                    Term::InlineAsm { ins, .. } => {
+                        for a in ins {
+                            count_operand(&mut total_uses, a);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            let plain: BTreeSet<String> = copies.union(&consuming).cloned().collect();
+            for r in &plain {
+                if map.contains_key(r) {
+                    continue;
+                }
+                if drop_places.contains(r) {
+                    continue;
+                }
+                if total_uses.get(r).copied().unwrap_or(0) < 2 {
+                    continue;
+                }
+                let base = strip_version(r);
+                let Some(ty) = local_types.get(&base) else {
+                    continue;
+                };
+                if ty.trim() == "()" {
+                    continue;
+                }
+                if cast_spill_ty(ty).is_some() {
+                    continue;
+                }
+                let is_param = def_count.get(r).copied().unwrap_or(0) == 0 && !asm_outs.contains(r) && is_plain_local(r);
+                let ok = if is_param {
+                    true
+                } else {
+                    single(r) && setup_kind.get(r).copied().unwrap_or(false)
+                };
+                if !ok {
+                    continue;
+                }
+                let binds_ptr = if is_param {
+                    true
+                } else {
+                    def_ptr.get(r).copied().unwrap_or(false)
+                };
+                if !binds_ptr {
+                    continue;
+                }
+                map.insert(r.clone(), "ptr".to_string());
+            }
+        }
     }
     map
+}
+
+/// Pointer-valued operand test for the aggregate-root spill gate: a
+/// synthetic buffer, an already ptr-spilled reg, or a source whose MIR
+/// type maps to no SA store type (aggregate-like, hence ptr in SA).
+/// Scalar and pointer types return false here: pointers are already
+/// handled by the phi-11 branch, scalars are not ptr-represented.
+fn ptr_operand(place: &str, map: &SpillMap, local_types: &BTreeMap<String, String>) -> bool {
+    if place.starts_with("_agg_") || place.starts_with("_rep_") {
+        return true;
+    }
+    if map.get(place).is_some_and(|x| x == "ptr") {
+        return true;
+    }
+    let base = strip_version(place);
+    match local_types.get(&base) {
+        Some(ty) => cast_spill_ty(ty).is_none() && ty.trim() != "()",
+        None => false,
+    }
+}
+
+fn count_operand(map: &mut BTreeMap<String, usize>, op: &Operand) {
+    if let Operand::Move { place } | Operand::Copy { place } | Operand::Conflict { place } = op {
+        *map.entry(place.clone()).or_insert(0) += 1;
+    }
+}
+
+fn count_place(map: &mut BTreeMap<String, usize>, place: &str) {
+    *map.entry(place.to_string()).or_insert(0) += 1;
 }
 
 /// Base local of a (possibly versioned) register: `_4_v1` -> `_4`,
@@ -592,6 +792,80 @@ mod spill_tests {
             terminator: Term::Return { ret: None },
         }];
         assert!(build_spill(&blocks, &BTreeMap::new()).is_empty());
+    }
+
+    #[test]
+    fn aggregate_root_spills_when_field_copied_twice() {
+        // uam-tail: _1 is a tuple aggregate defined by a multi-elem
+        // Aggregate; two plain-assign Copy uses are field reads in
+        // MIR (driver collapses the subplace to the root), so the
+        // root must spill as ptr instead of moving on first use.
+        use crate::mir::{Block, Rvalue, Term};
+        let blocks = vec![Block {
+            id: "bb0".to_string(),
+            statements: vec![
+                Stmt::Assign {
+                    dest: "_1".to_string(),
+                    dest_place: Some("_1".to_string()),
+                    rvalue: Rvalue::Aggregate {
+                        elems: vec![
+                            Operand::Const { value: "Val(Scalar(0x00000002), i32)".to_string(), str_bytes: None, str_len: None },
+                            Operand::Const { value: "Val(Scalar(0x00000005), i32)".to_string(), str_bytes: None, str_len: None },
+                        ],
+                        layout: Some(crate::mir::AdtLayout { size: 8, offsets: vec![0, 4] }),
+                    },
+                },
+                Stmt::Assign {
+                    dest: "_2".to_string(),
+                    dest_place: Some("_2".to_string()),
+                    rvalue: Rvalue::Use { op: Operand::Copy { place: "_1".to_string() } },
+                },
+                Stmt::Assign {
+                    dest: "_3".to_string(),
+                    dest_place: Some("_3".to_string()),
+                    rvalue: Rvalue::Use { op: Operand::Copy { place: "_1".to_string() } },
+                },
+            ],
+            terminator: Term::Return { ret: None },
+        }];
+        let mut tys = BTreeMap::new();
+        tys.insert("_1".to_string(), "(i32, i32)".to_string());
+        let m = build_spill(&blocks, &tys);
+        assert_eq!(m.get("_1"), Some(&"ptr".to_string()));
+    }
+
+    #[test]
+    fn versioned_scalar_field_def_does_not_spill() {
+        // uam-tail guard: _1_v1 is bound from an i32 temp, so its SA
+        // value is scalar even though its base local _1 is an
+        // aggregate type; the def gate must keep it off the spill map.
+        use crate::mir::{Block, Rvalue, Term};
+        let blocks = vec![Block {
+            id: "bb0".to_string(),
+            statements: vec![
+                Stmt::Assign {
+                    dest: "_1_v1".to_string(),
+                    dest_place: Some("_1_v1".to_string()),
+                    rvalue: Rvalue::Use { op: Operand::Move { place: "_4".to_string() } },
+                },
+                Stmt::Assign {
+                    dest: "_2".to_string(),
+                    dest_place: Some("_2".to_string()),
+                    rvalue: Rvalue::Use { op: Operand::Copy { place: "_1_v1".to_string() } },
+                },
+                Stmt::Assign {
+                    dest: "_3".to_string(),
+                    dest_place: Some("_3".to_string()),
+                    rvalue: Rvalue::Use { op: Operand::Copy { place: "_1_v1".to_string() } },
+                },
+            ],
+            terminator: Term::Return { ret: None },
+        }];
+        let mut tys = BTreeMap::new();
+        tys.insert("_1".to_string(), "Row".to_string());
+        tys.insert("_4".to_string(), "i32".to_string());
+        let m = build_spill(&blocks, &tys);
+        assert!(!m.contains_key("_1_v1"));
     }
 
     fn cast_copy(dest: &str, place: &str, ty: &str) -> Stmt {

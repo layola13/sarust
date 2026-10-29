@@ -602,6 +602,37 @@ pub fn lower_function(f: &Function, unsup: &mut Vec<String>) -> String {    // T
                 })
                 .collect();
             // (block, base, from_tfrees): collected first (borrow rules).
+            // uam-tail: successor graph over lines_by_orig, for the
+            // slot-later-use guard below (188: a spill slot reloaded in
+            // a successor block must not be freed with its base).
+            let mut label_to_bi: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+            for (idx, ls) in lines_by_orig.iter().enumerate() {
+                if let Some(first) = ls.first() {
+                    let ft = first.trim();
+                    if ft.ends_with(":") {
+                        label_to_bi.insert(ft.trim_end_matches(":").to_string(), idx);
+                    }
+                }
+            }
+            let mut succ: Vec<std::collections::BTreeSet<usize>> = vec![std::collections::BTreeSet::new(); lines_by_orig.len()];
+            for (idx, ls) in lines_by_orig.iter().enumerate() {
+                for l in ls {
+                    let lt = l.trim_start();
+                    if let Some(rest) = lt.strip_prefix("jmp ") {
+                        if let Some(tb) = label_to_bi.get(rest.trim()) {
+                            succ[idx].insert(*tb);
+                        }
+                    } else if let Some(rest) = lt.strip_prefix("br ") {
+                        if let Some(arrow) = rest.find("->") {
+                            for tgt in rest[arrow + 2..].split(",") {
+                                if let Some(tb) = label_to_bi.get(tgt.trim()) {
+                                    succ[idx].insert(*tb);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             let mut pairs: Vec<(usize, String, bool)> = vec![];
             for (bi, v) in frees.iter() {
                 for r in v {
@@ -620,6 +651,37 @@ pub fn lower_function(f: &Function, unsup: &mut Vec<String>) -> String {    // T
                 let slot = format!("{}_spill", base);
                 if freed_in_lines.contains(&slot) {
                     continue;
+                }
+                // uam-tail: skip pairing when a reachable successor
+                // block still mentions the slot (its reload is after
+                // this free point). The slot is then left to
+                // exit_frees; freeing it here would trap UseAfterMove
+                // at the reload (188: _12_spill reloaded in bb6 after
+                // _12 was move-freed at the end of bb5).
+                {
+                    let mut seen: std::collections::BTreeSet<usize> = std::collections::BTreeSet::new();
+                    let mut stack: Vec<usize> = vec![bi];
+                    while let Some(cur) = stack.pop() {
+                        if !seen.insert(cur) {
+                            continue;
+                        }
+                        for s in succ.get(cur).cloned().unwrap_or_default() {
+                            stack.push(s);
+                        }
+                    }
+                    let mut later_use = false;
+                    for rb in &seen {
+                        if *rb == bi {
+                            continue;
+                        }
+                        if lines_by_orig[*rb].iter().any(|l| l.contains(&slot)) {
+                            later_use = true;
+                            break;
+                        }
+                    }
+                    if later_use {
+                        continue;
+                    }
                 }
                 let listed_here = if from_t {
                     tfrees.get(&bi).is_some_and(|v| v.contains(&slot))

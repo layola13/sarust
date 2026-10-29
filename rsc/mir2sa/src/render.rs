@@ -92,7 +92,16 @@ pub fn render_rvalue(
                 }
             }
             if let Some(t) = spill_reg(op, spill) {
-                return format!("{} = {}", dest, t);
+                // uam-tail: a spilled dest keeps its own slot too
+                // (same shape as the Copy-source branch above); the
+                // old early return bound the reload without a slot,
+                // so a later reload of this dest trapped UnknownRegister.
+                let mut s = format!("{} = {}", dest, t);
+                if let Some(dt) = spill.get(dest) {
+                    let slot = crate::spill::spill_slot(dest);
+                    s.push_str(&format!("\n{} = alloc 8\nstore {}+0, {} as {}", slot, slot, dest, dt));
+                }
+                return s;
             }
             // Copy of a multi-elem aggregate duplicates its slots (see
             // build_agg_copy): moving the base would consume the source
@@ -225,6 +234,11 @@ pub fn render_rvalue(
                 let mut lines = pl;
                 lines.extend(pr);
                 lines.push(format!("{} = call @{}({}, {})", dest, helper, lt, rt));
+                if let Some(ty) = spill.get(dest) {
+                    let slot = crate::spill::spill_slot(dest);
+                    lines.push(format!("{} = alloc 8", slot));
+                    lines.push(format!("store {}+0, {} as {}", slot, dest, ty));
+                }
                 return lines.join("\n");
             }
             let (pl, lt) = bind_move_operand(left, bid, mv_idx);
@@ -234,6 +248,11 @@ pub fn render_rvalue(
                     let mut lines = pl;
                     lines.extend(pr);
                     lines.push(format!("{} = {} {}, {}", dest, m, lt, rt));
+                if let Some(ty) = spill.get(dest) {
+                    let slot = crate::spill::spill_slot(dest);
+                    lines.push(format!("{} = alloc 8", slot));
+                    lines.push(format!("store {}+0, {} as {}", slot, dest, ty));
+                }
                     lines.join("\n")
                 }
                 None => {
@@ -251,6 +270,11 @@ pub fn render_rvalue(
                 let (pre, t) = bind_move_operand(operand, bid, &mut idx);
                 let mut lines = pre;
                 lines.push(format!("{} = load {}+8 as u64", dest, t));
+                if let Some(ty) = spill.get(dest) {
+                    let slot = crate::spill::spill_slot(dest);
+                    lines.push(format!("{} = alloc 8", slot));
+                    lines.push(format!("store {}+0, {} as {}", slot, dest, ty));
+                }
                 return lines.join("\n");
             }
             let mut idx = 0usize;
@@ -259,6 +283,11 @@ pub fn render_rvalue(
                 Some(m) => {
                     let mut lines = pre;
                     lines.push(format!("{} = {} {}", dest, m, t));
+                if let Some(ty) = spill.get(dest) {
+                    let slot = crate::spill::spill_slot(dest);
+                    lines.push(format!("{} = alloc 8", slot));
+                    lines.push(format!("store {}+0, {} as {}", slot, dest, ty));
+                }
                     lines.join("\n")
                 }
                 None => {
@@ -397,9 +426,25 @@ pub fn render_rvalue(
                 // Array fast path first (exact [T; N] all-const, incl. ManuallyDrop backing).
                 if let Some(mut lines) = lower_array_init(bid, place, elems) {
                     crate::spill::spill_slot_lines(&mut lines, bid, spill);
+                    // uam-tail: a spilled multi-elem Aggregate dest
+                    // keeps its own slot too, so later field Copy or
+                    // Move uses reload instead of moving the buffer.
+                    if let Some(ty) = spill.get(dest) {
+                        let slot = crate::spill::spill_slot(dest);
+                        lines.push(format!("{} = alloc 8", slot));
+                        lines.push(format!("store {}+0, {} as {}", slot, dest, ty));
+                    }
                     lines.join("\n")
                 } else if let Some(mut lines) = lower_adt_init(bid, dest, place, elems, layout.as_ref()) {
                     crate::spill::spill_slot_lines(&mut lines, bid, spill);
+                    // uam-tail: a spilled multi-elem Aggregate dest
+                    // keeps its own slot too, so later field Copy or
+                    // Move uses reload instead of moving the buffer.
+                    if let Some(ty) = spill.get(dest) {
+                        let slot = crate::spill::spill_slot(dest);
+                        lines.push(format!("{} = alloc 8", slot));
+                        lines.push(format!("store {}+0, {} as {}", slot, dest, ty));
+                    }
                     lines.join("\n")
                 } else {
                     let e: Vec<String> = elems.iter().map(render_operand).collect();
@@ -487,6 +532,36 @@ mod render_tests {
         assert!(build_agg_copy(&blocks).is_empty());
     }
 
+
+    #[test]
+    fn binop_dest_spill_slot_setup() {
+        // uam-tail (188): a BinOp-defined temp that is spilled must
+        // get its slot setup in the BinOp arm, or a later plain-assign
+        // Copy use reloads from an unbound slot.
+        let mut spill = std::collections::BTreeMap::new();
+        spill.insert("_2".to_string(), "u8".to_string());
+        let mut unsup = vec![];
+        let mut idx = 0usize;
+        let line = render_rvalue(
+            &Rvalue::BinOp {
+                op: "BitAnd".to_string(),
+                left: Box::new(Operand::Move { place: "_3".to_string() }),
+                right: Box::new(Operand::Const { value: "Val(Scalar(0x80), u8)".to_string(), str_bytes: None, str_len: None }),
+            },
+            "_2",
+            Some("_2"),
+            &mut unsup,
+            "bb0",
+            &mut idx,
+            &std::collections::HashMap::new(),
+            &spill,
+            &std::collections::BTreeMap::new(),
+        );
+        assert!(line.contains("_2_spill = alloc 8"), "slot alloc:
+{}", line);
+        assert!(line.contains("store _2_spill+0, _2 as u8"), "slot store:
+{}", line);
+    }
 
     #[test]
     fn const_dest_spill_slot_setup() {

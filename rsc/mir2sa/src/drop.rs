@@ -475,6 +475,108 @@ pub fn move_frees(body_lines: &[Vec<String>]) -> BTreeMap<usize, Vec<String>> {
     out
 }
 
+/// Stale-free sets per block (MAY analysis for exit_frees).
+/// A register is stale at a block's end iff some path to that block freed
+/// it (a `!r` line) without redefining it afterwards. Unconditional defs
+/// (before the first mid-block label) clear staleness; conditional defs
+/// do not (some path bypasses them); any free establishes it. Edges come
+/// from jmp/br lines (targets resolved via first-line labels); inner
+/// labels (sw/assert chains) stay intra-block. The transfer is monotone
+/// ((in - defs) u frees), so iterating from empty to a fixpoint
+/// converges. A stale reg must not be freed at an exit (double-free on
+/// the stale path); a non-stale reg keeps its exit free even if some
+/// other path freed it, provided every such path redefined it since
+/// (the loop back-edge case: free in the back-edge pred, redefinition
+/// at the loop head/body before the exit).
+fn stale_out_sets(body_lines: &[Vec<String>]) -> Vec<std::collections::BTreeSet<String>> {
+    let is_label = |l: &str| {
+        let t = l.trim();
+        t.starts_with("L_") && t.ends_with(':') && !t.contains(' ')
+    };
+    let mut label_block: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+    for (bi, ls) in body_lines.iter().enumerate() {
+        if let Some(first) = ls.first() {
+            let t = first.trim();
+            if is_label(t) {
+                label_block.insert(t.trim_end_matches(':'), bi);
+            }
+        }
+    }
+    let mut succ: Vec<std::collections::BTreeSet<usize>> = vec![std::collections::BTreeSet::new(); body_lines.len()];
+    for (bi, ls) in body_lines.iter().enumerate() {
+        for l in ls {
+            let t = l.trim_start();
+            if let Some(rest) = t.strip_prefix("jmp ") {
+                if let Some(&tb) = label_block.get(rest.trim()) {
+                    if tb != bi {
+                        succ[bi].insert(tb);
+                    }
+                }
+            } else if let Some(rest) = t.strip_prefix("br ") {
+                if let Some(arrow) = rest.find("->") {
+                    for tgt in rest[arrow + 2..].split(',') {
+                        if let Some(&tb) = label_block.get(tgt.trim()) {
+                            if tb != bi {
+                                succ[bi].insert(tb);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let mut preds: Vec<Vec<usize>> = vec![Vec::new(); body_lines.len()];
+    for (bi, ss) in succ.iter().enumerate() {
+        for &s in ss {
+            preds[s].push(bi);
+        }
+    }
+    let cls: Vec<Vec<LineUse>> =
+        body_lines.iter().map(|ls| ls.iter().map(|l| classify(l)).collect()).collect();
+    let transfer = |bi: usize, mut stale: std::collections::BTreeSet<String>| -> std::collections::BTreeSet<String> {
+        let mut conditional = false;
+        for (li, u) in cls[bi].iter().enumerate() {
+            if li > 0 && body_lines[bi].get(li).is_some_and(|l| is_label(l)) {
+                conditional = true;
+            }
+            if let Some(d) = &u.def {
+                if !conditional {
+                    stale.remove(d);
+                }
+            }
+            for f in &u.freed {
+                stale.insert(f.clone());
+            }
+        }
+        stale
+    };
+    let n = body_lines.len();
+    let mut stale_in: Vec<std::collections::BTreeSet<String>> = vec![std::collections::BTreeSet::new(); n];
+    let mut stale_out: Vec<std::collections::BTreeSet<String>> = vec![std::collections::BTreeSet::new(); n];
+    loop {
+        let mut changed = false;
+        for bi in 0..n {
+            let mut inn: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+            for &p in &preds[bi] {
+                inn.extend(stale_out[p].iter().cloned());
+            }
+            if inn != stale_in[bi] {
+                stale_in[bi] = inn;
+                changed = true;
+            }
+            let out = transfer(bi, stale_in[bi].clone());
+            if out != stale_out[bi] {
+                stale_out[bi] = out;
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+    stale_out
+}
+
 /// Compute per-Return-block free lists. `dom_sets` holds raw dominator sets
 /// (each incl. self) keyed by original block index; `body_lines` aligns by
 /// the same index. `param_count` seeds params as pre-bound.
@@ -484,10 +586,15 @@ pub fn move_frees(body_lines: &[Vec<String>]) -> BTreeMap<usize, Vec<String>> {
 ///   first mid-block `L_...:` label): sw/assert chains create conditional
 ///   regions inside MIR blocks, and freeing a conditionally-defined reg at
 ///   a join exit is UnknownRegister on bypassing paths.
-/// - MOVES, FREES and BORROWS count from ANYWHERE (even conditional): a
-///   consume/free/borrow on any path vetoes exit-freeing (else UseAfterMove,
-///   double-free or BorrowConflict on that path). Under-freeing is always
-///   safe (a leak, not a new trap).
+/// - MOVES and BORROWS count from ANYWHERE (even conditional): a consume
+///   or borrow on any path vetoes exit-freeing (else UseAfterMove or
+///   BorrowConflict on that path). FREES count per-path with
+///   redefinition refresh (stale-may analysis, see stale_out_sets): a
+///   free vetoes only if some path to this exit freed the reg without
+///   redefining it afterwards (else double-free on that path); a reg
+///   freed on a loop back-edge and redefined before the exit is NOT
+///   stale, so the exit keeps its free (the loop end must never starve
+///   the exit). Under-freeing is always safe (a leak, not a new trap).
 /// - Candidates additionally need single definition in a dominator of the
 ///   exit; ordering is borrowers-before-sources over the borrow graph.
 pub fn exit_frees(
@@ -508,7 +615,6 @@ pub fn exit_frees(
     // Def blocks per reg, unconditional prefixes only.
     let mut def_blocks: BTreeMap<String, BTreeSet<usize>> = BTreeMap::new();
     let mut moved: BTreeSet<String> = BTreeSet::new();
-    let mut freed_anywhere: BTreeSet<String> = BTreeSet::new();
     // borrow edges borrower -> source (anywhere).
     let mut borrows: BTreeMap<String, String> = BTreeMap::new();
     for (bi, ls) in cls.iter().enumerate() {
@@ -526,14 +632,12 @@ pub fn exit_frees(
             for m in &u.move_srcs {
                 moved.insert(m.clone());
             }
-            for f in &u.freed {
-                freed_anywhere.insert(f.clone());
-            }
             if let Some((b, s)) = &u.borrow {
                 borrows.insert(b.clone(), s.clone());
             }
         }
     }
+    let stale_out = stale_out_sets(body_lines);
     let params: BTreeSet<String> = (1..=param_count).map(|i| format!("_{}", i)).collect();
     let mut out: BTreeMap<usize, Vec<String>> = BTreeMap::new();
     for (bi, ls) in body_lines.iter().enumerate() {
@@ -544,9 +648,11 @@ pub fn exit_frees(
         }
         // Candidates: defined exactly once in an unconditional prefix of
         // a dominator of this exit (else the free could hit an unbound reg
-        // on some path), never moved anywhere, never freed anywhere
-        // (conditional frees would double-free on their path), params
-        // included (unused params leak).
+        // on some path), never moved anywhere, not stale at this exit
+        // (stale = freed on some path to this exit without a later
+        // redefinition; a loop back-edge free followed by a redefinition
+        // before the exit is NOT stale, so the exit keeps its free),
+        // params included (unused params leak).
         // Dominator blocks of this exit (incl. itself).
         let doms: &std::collections::HashSet<usize> = &dom_sets[bi];
         let mut cand: BTreeSet<String> = def_count
@@ -556,10 +662,10 @@ pub fn exit_frees(
             .filter(|r| {
                 def_blocks.get(r).is_some_and(|bis| bis.iter().all(|b| doms.contains(b)))
             })
-            .filter(|r| !moved.contains(r) && !freed_anywhere.contains(r))
+            .filter(|r| !moved.contains(r) && !stale_out[bi].contains(r))
             .collect();
         for p in &params {
-            if !moved.contains(p) && !freed_anywhere.contains(p) {
+            if !moved.contains(p) && !stale_out[bi].contains(p) {
                 // Param must be defined (bound by header) — count it only if
                 // it never appears as a def (params have no def lines).
                 if !def_count.contains_key(p) {
@@ -875,5 +981,70 @@ mod drop_tests {
         // Compare-temp domain: _as_ base temps stay with temp_frees.
         let body = vec![lines(&["L_bb0:", "_as_bb0 = _t", "jmp L_bb1"]), lines(&["L_bb1:", "return 0"])];
         assert!(move_frees(&body).is_empty(), "{:?}", move_frees(&body));
+    }
+
+    #[test]
+    fn exit_frees_loop_backedge_redefined_kept() {
+        // 09 exit shape, minimal: bb4 frees _11/_12 on the back-edge
+        // path, bb2 redefines _12 before the exit, bb1 never redefines
+        // _11. At the exit bb5, _12 is NOT stale (kept) and _11 IS
+        // stale (skipped); _4/_6 were never freed (kept).
+        let body = vec![
+            lines(&["L_bb0:", "_4 = _p", "_6 = _w", "jmp L_bb1"]),
+            lines(&["L_bb1:", "_11 = &_4", "jmp L_bb2"]),
+            lines(&["L_bb2:", "_12 = &_6", "jmp L_bb3"]),
+            lines(&["L_bb3:", "br _c -> L_bb4, L_bb5"]),
+            lines(&["L_bb4:", "!_11", "!_12", "jmp L_bb2"]),
+            lines(&["L_bb5:", "return 0"]),
+        ];
+        let doms: Vec<std::collections::HashSet<usize>> = vec![
+            std::collections::HashSet::from([0]),
+            std::collections::HashSet::from([0, 1]),
+            std::collections::HashSet::from([0, 1, 2]),
+            std::collections::HashSet::from([0, 1, 2, 3]),
+            std::collections::HashSet::from([0, 1, 2, 3, 4]),
+            std::collections::HashSet::from([0, 1, 2, 3, 5]),
+        ];
+        let frees = exit_frees(&body, &doms, 0);
+        let got: std::collections::BTreeSet<String> =
+            frees.get(&5).cloned().unwrap_or_default().into_iter().collect();
+        assert_eq!(got, std::collections::BTreeSet::from(["_4".to_string(), "_6".to_string(), "_12".to_string()]));
+    }
+
+    #[test]
+    fn exit_frees_straightline_freed_skipped() {
+        // Freed unconditionally before the exit, never redefined:
+        // stale, so the exit must not free it again.
+        let body = vec![
+            lines(&["L_bb0:", "_1 = _t", "!_1", "jmp L_bb1"]),
+            lines(&["L_bb1:", "return 0"]),
+        ];
+        let doms: Vec<std::collections::HashSet<usize>> = vec![
+            std::collections::HashSet::from([0]),
+            std::collections::HashSet::from([0, 1]),
+        ];
+        let frees = exit_frees(&body, &doms, 0);
+        assert!(frees.values().all(|v| !v.contains(&"_1".to_string())));
+    }
+
+    #[test]
+    fn exit_frees_branch_freed_skipped() {
+        // Freed on SOME path to the exit (MAY-stale): keep the old
+        // conservative skip (a leak on the other path, never a
+        // double-free on the freed path).
+        let body = vec![
+            lines(&["L_bb0:", "_1 = _t", "br _c -> L_bb1, L_bb2"]),
+            lines(&["L_bb1:", "!_1", "jmp L_bb3"]),
+            lines(&["L_bb2:", "jmp L_bb3"]),
+            lines(&["L_bb3:", "return 0"]),
+        ];
+        let doms: Vec<std::collections::HashSet<usize>> = vec![
+            std::collections::HashSet::from([0]),
+            std::collections::HashSet::from([0, 1]),
+            std::collections::HashSet::from([0, 2]),
+            std::collections::HashSet::from([0, 3]),
+        ];
+        let frees = exit_frees(&body, &doms, 0);
+        assert!(frees.values().all(|v| !v.contains(&"_1".to_string())));
     }
 }

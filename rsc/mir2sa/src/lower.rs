@@ -180,6 +180,16 @@ pub fn lower_function(f: &Function, unsup: &mut Vec<String>) -> String {    // T
                 out.push(format!("    !{}", r));
             }
         }
+        // Loop back-edge ends (borrow_end phase 4): borrows dead
+        // before a loop back-edge end here, so the next iteration's
+        // merge at the loop head sees their sources unlocked. Kept
+        // separate from merge ends: the exit path still needs (and
+        // keeps) its own phase-1/drop ends for the same registers.
+        if let Some(ends) = borrow_plan.loop_ends.get(&bi) {
+            for r in ends {
+                out.push(format!("    !{}", r));
+            }
+        }
         match &b.terminator {
             Term::Goto { target } => out.push(format!("    jmp {}", sa_label(target))),
             Term::Return { ret } => {

@@ -471,28 +471,61 @@ pub fn lower_function(f: &Function, unsup: &mut Vec<String>) -> String {    // T
         for v in tfrees.values_mut() {
             v.retain(|r| !exit_freed.contains(r));
         }
-        let mut order_desc: Vec<usize> = (0..n).collect();
-        order_desc.sort_by_key(|b| std::cmp::Reverse(range_by_orig[*b].0));
-        // Descending by block start: an insertion shifts later positions, so
-        // sweeping from the end keeps the remaining `range_by_orig` valid.
-        for bi in order_desc {
-            let mut fs: Vec<&String> = vec![];
+        let mut mvfrees = crate::drop::mv_frees(&lines_by_orig);
+        // A register already released at an exit or as a compare temp keeps
+        // that release: re-releasing it block-locally would double-free.
+        // One direction only, as above: mv_frees never feeds back into
+        // frees/tfrees, so nothing can be dropped from both lists.
+        let released: std::collections::BTreeSet<String> = frees
+            .values()
+            .flatten()
+            .chain(tfrees.values().flatten())
+            .cloned()
+            .collect();
+        for v in mvfrees.values_mut() {
+            v.retain(|(_, r)| !released.contains(r));
+        }
+        mvfrees.retain(|_, v| !v.is_empty());
+        // Combined insertions keyed by flat position: exit/temp frees go
+        // before the block terminator, mv frees go right after the temp's
+        // last use. One splice per position keeps order, and positions are
+        // applied from last to first so earlier ones stay valid.
+        let mut inserts: std::collections::BTreeMap<usize, Vec<String>> =
+            std::collections::BTreeMap::new();
+        for bi in 0..n {
+            let mut fs: Vec<String> = vec![];
             if let Some(v) = frees.get(&bi) {
-                fs.extend(v.iter());
+                fs.extend(v.iter().cloned());
             }
             if let Some(v) = tfrees.get(&bi) {
-                fs.extend(v.iter());
+                fs.extend(v.iter().cloned());
             }
-            if fs.is_empty() {
-                continue;
+            if !fs.is_empty() {
+                let (s, e) = range_by_orig[bi];
+                // The jump/return is the block's last line: insert before it (a
+                // label-less line may not follow a terminator).
+                let pos = e.saturating_sub(1).max(s);
+                for r in fs {
+                    inserts.entry(pos).or_default().push(format!("    !{}", r));
+                }
             }
-            let (s, e) = range_by_orig[bi];
-            // The jump/return is the block's last line: insert before it (a
-            // label-less line may not follow a terminator).
-            let pos = e.saturating_sub(1).max(s);
-            for (k, r) in fs.iter().enumerate() {
-                out.insert(pos + k, format!("    !{}", r));
+            if let Some(v) = mvfrees.get(&bi) {
+                let (s, _) = range_by_orig[bi];
+                let mut by_line: std::collections::BTreeMap<usize, Vec<String>> =
+                    std::collections::BTreeMap::new();
+                for (li, r) in v {
+                    by_line.entry(*li).or_default().push(r.clone());
+                }
+                for (li, rs) in by_line {
+                    let pos = s + li + 1;
+                    for r in rs {
+                        inserts.entry(pos).or_default().push(format!("    !{}", r));
+                    }
+                }
             }
+        }
+        for (pos, lines) in inserts.iter().rev() {
+            out.splice(*pos..*pos, lines.iter().cloned());
         }
     }
     let mut s = out.join("\n");

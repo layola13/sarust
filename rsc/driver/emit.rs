@@ -217,6 +217,23 @@ pub fn body_json<'tcx>(
     into.push_str("\", \"path\": \"");
     esc(path, into);
     into.push_str("\", \"locals\": [], ");
+    // MIR local types (Debug text, same family as the cast ty strings)
+    // so mir2sa can spill-copy scalar/pointer Copy sources exactly
+    // instead of rendering every Copy as an SA move (PhiStateConflict,
+    // phi-11). Additive: old mir.json without local_types still parses.
+    into.push_str("\"local_types\": {");
+    let mut first_local = true;
+    for i in 0..body.local_decls.len() {
+        let ty = body.local_decls[Local::from_u32(i as u32)].ty;
+        if !first_local {
+            into.push_str(", ");
+        }
+        first_local = false;
+        write!(into, "\"{}\": \"", local_name(Local::from_u32(i as u32))).unwrap();
+        esc(&format!("{:?}", ty), into);
+        into.push('"');
+    }
+    into.push_str("}, ");
     // Callee-visible signature: MIR arg locals `_1..=_arg_count` plus the
     // return-place type, mapped to SA tys (opaque `ptr` fallback). The
     // backend declares typed params from these (bare `@f()` leaves MIR

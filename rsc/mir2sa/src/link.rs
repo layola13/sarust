@@ -384,7 +384,7 @@ mod link_tests {
         Function {
             name: name.to_string(),
             path: path.map(|s| s.to_string()),
-            locals: vec![],
+            locals: vec![], local_types: Default::default(),
             params: vec![],
             ret: Some("i32".to_string()),
             sig_ok: true,

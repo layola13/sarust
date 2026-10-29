@@ -16,6 +16,47 @@ pub fn spill_reg(op: &Operand, spill: &crate::spill::SpillMap) -> Option<String>
     Some(format!("load {}+0 as {}", crate::spill::spill_slot(place), t))
 }
 
+/// Aggregate-copy layouts (phi-11, 308): defined local -> (total alloc
+/// bytes, per-elem offsets) for multi-elem Aggregate defs whose elems
+/// are all Move/Copy. Such defs lower through layout::lower_adt_init,
+/// which stores every Move/Copy elem as a u64 slot; a later Copy of
+/// the aggregate must duplicate those slots instead of moving the base
+/// pointer (a second Copy would trap UseAfterMove). Offsets follow
+/// lower_adt_init exactly: the driver layout when its arity matches,
+/// else 8-byte strides; total is the max of the 8-byte footprint and
+/// the driver size. Defs without a dest_place go loud (placeholder),
+/// so they are not in the map.
+pub type AggCopyMap = std::collections::BTreeMap<String, (usize, Vec<usize>)>;
+
+pub fn build_agg_copy(blocks: &[Block]) -> AggCopyMap {
+    let mut map = AggCopyMap::new();
+    for b in blocks {
+        for st in &b.statements {
+            let Stmt::Assign { dest, dest_place: Some(_), rvalue: Rvalue::Aggregate { elems, layout } } = st else {
+                continue;
+            };
+            if elems.len() < 2 {
+                continue;
+            }
+            let all_movable = elems.iter().all(|e| {
+                matches!(e, Operand::Move { .. } | Operand::Copy { .. })
+            });
+            if !all_movable {
+                continue;
+            }
+            let n = elems.len();
+            let (total, offsets) = match layout {
+                Some(l) if l.offsets.len() == n && l.size > 0 => {
+                    (std::cmp::max(8 * n, l.size as usize), l.offsets.iter().map(|o| *o as usize).collect())
+                }
+                _ => (8 * n, (0..n).map(|i| 8 * i).collect()),
+            };
+            map.insert(dest.clone(), (total, offsets));
+        }
+    }
+    map
+}
+
 pub fn render_rvalue(
     rv: &Rvalue,
     dest: &str,
@@ -25,6 +66,7 @@ pub fn render_rvalue(
     mv_idx: &mut usize,
     cmap: &std::collections::HashMap<String, String>,
     spill: &crate::spill::SpillMap,
+    agg_copy: &AggCopyMap,
 ) -> String {
     match rv {
         Rvalue::Use { op } => {
@@ -51,6 +93,28 @@ pub fn render_rvalue(
             }
             if let Some(t) = spill_reg(op, spill) {
                 return format!("{} = {}", dest, t);
+            }
+            // Copy of a multi-elem aggregate duplicates its slots (see
+            // build_agg_copy): moving the base would consume the source
+            // and a second Copy would trap UseAfterMove (308: _9 copied
+            // into _17 and _18).
+            if let Operand::Copy { place } = op {
+                if let Some((total, offsets)) = agg_copy.get(place) {
+                    let base = format!("_aggcp_{}_{}", bid, dest);
+                    let mut lines = vec![format!("{} = alloc {}", base, total)];
+                    for (i, off) in offsets.iter().enumerate() {
+                        let tmp = format!("_cp_{}_{}_{}", bid, dest, i);
+                        lines.push(format!("{} = load {}+{} as u64", tmp, place, off));
+                        lines.push(format!("store {}+{}, {} as u64", base, off, tmp));
+                    }
+                    lines.push(format!("{} = {}", dest, base));
+                    if let Some(t) = spill.get(dest) {
+                        let slot = crate::spill::spill_slot(dest);
+                        lines.push(format!("{} = alloc 8", slot));
+                        lines.push(format!("store {}+0, {} as {}", slot, dest, t));
+                    }
+                    return lines.join("\n");
+                }
             }
             // Const-propagated literals re-materialize instead of moving a
             // shared temp (a second move of the temp would trap UseAfterMove).
@@ -90,7 +154,19 @@ pub fn render_rvalue(
                         }
                         return lines.join("\n");
                     }
-                    format!("{} = {}", dest, render_operand(op))
+                    // Plain scalar const fallback: like every other Use
+                    // arm, a spilled dest keeps its slot (315: _1_v0 = 2
+                    // bound no slot, then a Copy use reloaded from the
+                    // unbound slot and trapped UnknownRegister).
+                    let mut s = format!("{} = {}", dest, render_operand(op));
+                    if let Some(t) = spill.get(dest) {
+                        let slot = crate::spill::spill_slot(dest);
+                        s.push_str(&format!(
+                            "\n{} = alloc 8\nstore {}+0, {} as {}",
+                            slot, slot, dest, t
+                        ));
+                    }
+                    s
                 }
                 // Conflict sentinels never reach here (intercepted loud
                 // upstream); the fallback keeps rendering total.
@@ -341,5 +417,99 @@ pub fn render_rvalue(
             unsup.push(format!("{}:{} Unsupported", bid, dest));
             format!("// UNSUPPORTED rvalue -> {}: {}", dest, text)
         }
+    }
+}
+
+#[cfg(test)]
+mod render_tests {
+    use super::*;
+    use crate::mir::{Block, Operand, Rvalue, Stmt, Term};
+
+    #[test]
+    fn agg_copy_map_and_render() {
+        // 308-shape: _9 = Aggregate(Move _10, Move _11) with a rustc
+        // layout (size 16, offsets [0, 8]). A later Copy of _9 must
+        // duplicate the slots, not move the base pointer.
+        let blocks = vec![Block {
+            id: "bb2".to_string(),
+            statements: vec![Stmt::Assign {
+                dest: "_9".to_string(),
+                dest_place: Some("_9".to_string()),
+                rvalue: Rvalue::Aggregate {
+                    elems: vec![
+                        Operand::Move { place: "_10".to_string() },
+                        Operand::Move { place: "_11".to_string() },
+                    ],
+                    layout: Some(crate::mir::AdtLayout { size: 16, offsets: vec![0, 8] }),
+                },
+            }],
+            terminator: Term::Goto { target: "bb3".to_string() },
+        }];
+        let map = build_agg_copy(&blocks);
+        assert_eq!(map.get("_9"), Some(&(16usize, vec![0usize, 8usize])));
+        let mut unsup = vec![];
+        let mut idx = 0usize;
+        let line = render_rvalue(
+            &Rvalue::Use { op: Operand::Copy { place: "_9".to_string() } },
+            "_17", Some("_17"), &mut unsup, "bb2", &mut idx,
+            &std::collections::HashMap::new(), &std::collections::BTreeMap::new(), &map,
+        );
+        assert!(unsup.is_empty());
+        assert!(line.contains("_aggcp_bb2__17 = alloc 16"), "alloc:
+{}", line);
+        assert!(line.contains("load _9+0 as u64"), "slot 0 load:
+{}", line);
+        assert!(line.contains("load _9+8 as u64"), "slot 8 load:
+{}", line);
+        assert!(line.contains("_17 = _aggcp_bb2__17"), "dest bind:
+{}", line);
+    }
+
+    #[test]
+    fn agg_copy_skips_const_elems() {
+        // Aggregates with Const elems do not go through lower_adt_init
+        // with u64 slots, so no copy map entry (old behavior kept).
+        let blocks = vec![Block {
+            id: "bb0".to_string(),
+            statements: vec![Stmt::Assign {
+                dest: "_9".to_string(),
+                dest_place: Some("_9".to_string()),
+                rvalue: Rvalue::Aggregate {
+                    elems: vec![
+                        Operand::Move { place: "_10".to_string() },
+                        Operand::Const { value: "Val(1)".to_string(), str_bytes: None, str_len: None },
+                    ],
+                    layout: Some(crate::mir::AdtLayout { size: 16, offsets: vec![0, 8] }),
+                },
+            }],
+            terminator: Term::Return { ret: None },
+        }];
+        assert!(build_agg_copy(&blocks).is_empty());
+    }
+
+
+    #[test]
+    fn const_dest_spill_slot_setup() {
+        // 315-shape: a spilled dest defined by a plain scalar const
+        // must still get its slot setup (the old Const fallback bound
+        // no slot, so a later Copy use reloaded from an unbound slot).
+        let mut spill = std::collections::BTreeMap::new();
+        spill.insert("_1_v0".to_string(), "ptr".to_string());
+        let mut unsup = vec![];
+        let mut idx = 0usize;
+        let line = render_rvalue(
+            &Rvalue::Use {
+                op: Operand::Const {
+                    value: "Val(Scalar(0x00000002), u32)".to_string(),
+                    str_bytes: None,
+                    str_len: None,
+                },
+            },
+            "_1_v0", Some("_1_v0"), &mut unsup, "bb2", &mut idx,
+            &std::collections::HashMap::new(), &spill, &std::collections::BTreeMap::new(),
+        );
+        assert!(unsup.is_empty());
+        assert!(line.contains("_1_v0_spill = alloc 8"), "slot alloc:\n{}", line);
+        assert!(line.contains("store _1_v0_spill+0, _1_v0 as ptr"), "slot store:\n{}", line);
     }
 }

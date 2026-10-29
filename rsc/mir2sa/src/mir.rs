@@ -1,4 +1,6 @@
 //! mir2sa::mir.
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 // ---------------------------------------------------------------------------
@@ -25,6 +27,12 @@ pub struct Function {
     pub path: Option<String>,
     #[serde(default)]
     pub locals: Vec<serde_json::Value>,
+    /// MIR local types from sars (Debug text, e.g. "i32", "&i32",
+    /// "Option<i32>"), keyed by base local ("_4"). Absent for old
+    /// mir.json (serde default: empty); spill uses it to give scalar /
+    /// pointer Copy sources a reload slot instead of an SA move.
+    #[serde(default)]
+    pub local_types: BTreeMap<String, String>,
     #[serde(default)]
     pub params: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

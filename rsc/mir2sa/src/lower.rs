@@ -152,7 +152,18 @@ pub fn lower_function(f: &Function, unsup: &mut Vec<String>) -> String {    // T
                     // payload at 8). Driver reports the base local already; the
                     // full place (`(*_9)`) is kept as a comment for provenance.
                     out.push("    // set-discriminant (enum tag)".to_string());
-                    out.push(format!("    store {}+0, {} as i64", place, variant));
+                    if let Some(ty) = spill.get(place) {
+                        // Spilled base: reload through a temp so the store
+                        // survives an earlier plain-assign move of the
+                        // original register (the UseAfterMove this gate fixes).
+                        let tmp = format!("_mv_{}_{}", b.id, mv_idx);
+                        mv_idx += 1;
+                        let slot = crate::spill::spill_slot(place);
+                        out.push(format!("    {} = load {}+0 as {}", tmp, slot, ty));
+                        out.push(format!("    store {}+0, {} as i64", tmp, variant));
+                    } else {
+                        out.push(format!("    store {}+0, {} as i64", place, variant));
+                    }
                 }
                 Stmt::UnsupportedStmt { text } => {
                     unsup.push(format!("{}: UnsupportedStmt", b.id));

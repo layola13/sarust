@@ -31,12 +31,22 @@ pub fn render_rvalue(
             // Spilled shared values reload (never move the slot source).
             if let Operand::Copy { place } = op {
                 if let Some(ty) = spill.get(place) {
-                    return format!(
+                    let mut s = format!(
                         "{} = load {}+0 as {}",
                         dest,
                         crate::spill::spill_slot(place),
                         ty
                     );
+                    // A spilled dest keeps its own slot too (SetDisc-gated
+                    // Use defs land here when source and dest both spill).
+                    if let Some(t) = spill.get(dest) {
+                        let slot = crate::spill::spill_slot(dest);
+                        s.push_str(&format!(
+                            "\n{} = alloc 8\nstore {}+0, {} as {}",
+                            slot, slot, dest, t
+                        ));
+                    }
+                    return s;
                 }
             }
             if let Some(t) = spill_reg(op, spill) {
@@ -47,10 +57,22 @@ pub fn render_rvalue(
             // Sound: literals carry no control or ownership dependence.
             match op {
                 Operand::Move { place } | Operand::Copy { place } => {
-                    if let Some(lit) = cmap.get(place) {
-                        return format!("{} = {}", dest, lit);
+                    let mut s = if let Some(lit) = cmap.get(place) {
+                        format!("{} = {}", dest, lit)
+                    } else {
+                        format!("{} = {}", dest, render_operand(op))
+                    };
+                    // Spilled dests (SetDisc-gated Use defs) keep a slot so
+                    // later Copy-uses and SetDisc stores reload instead of
+                    // moving the original register.
+                    if let Some(t) = spill.get(dest) {
+                        let slot = crate::spill::spill_slot(dest);
+                        s.push_str(&format!(
+                            "\n{} = alloc 8\nstore {}+0, {} as {}",
+                            slot, slot, dest, t
+                        ));
                     }
-                    format!("{} = {}", dest, render_operand(op))
+                    s
                 }
                 // Byte-literal const in value position: inline the payload
                 // and bind its thin address (fat pointees stay loud).

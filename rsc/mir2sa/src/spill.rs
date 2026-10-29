@@ -121,10 +121,17 @@ pub fn build_spill(blocks: &[crate::mir::Block]) -> SpillMap {
     let mut copies: BTreeSet<String> = BTreeSet::new();
     // Consuming (Move) uses: these need a slot for the SOURCE to survive.
     let mut consuming: BTreeSet<String> = BTreeSet::new();
+    // SetDisc places: `store place+0` reads the base register, so a place
+    // consumed by an earlier plain-assign Copy/Move traps UseAfterMove at
+    // the store. Counted here alongside the plain-assign uses.
+    let mut setdisc: BTreeSet<String> = BTreeSet::new();
     for b in blocks {
         for st in &b.statements {
             copies.extend(copy_use_targets(st));
             consuming.extend(consuming_use_targets(st));
+            if let Stmt::SetDisc { place, .. } = st {
+                setdisc.insert(place.clone());
+            }
         }
     }
     if copies.is_empty() && consuming.is_empty() {
@@ -212,6 +219,16 @@ pub fn build_spill(blocks: &[crate::mir::Block]) -> SpillMap {
                     map.insert(dest.clone(), "ptr".to_string());
                 }
             }
+        }
+    }
+    // SetDisc places: single-def places with a plain-assign Copy/Move use
+    // spill as `ptr` (enum bases are addresses). Multi-def places are
+    // versioned instead (excluded by the single-def gate), and places with
+    // no plain-assign use need no slot (nothing moves them before the
+    // store). Already-mapped defs keep their own slot type.
+    for p in &setdisc {
+        if single(p) && (copies.contains(p) || consuming.contains(p)) && !map.contains_key(p) {
+            map.insert(p.clone(), "ptr".to_string());
         }
     }
     // Byte-literal const dests (`_x = <&[u8; K] payload>`): the value is a
@@ -562,6 +579,118 @@ mod spill_tests {
             terminator: Term::Return { ret: None },
         }];
         assert!(!build_spill(&blocks).contains_key("_1"));
+    }
+
+    #[test]
+    fn setdisc_place_spills_when_copy_used() {
+        use crate::mir::{Block, Rvalue, Term};
+        // 09_async_await shape: _21 = Copy _1, _3 = Copy _21, SetDisc _21.
+        // Without a slot the SetDisc store reads a register the plain
+        // assign already moved (UseAfterMove).
+        let blocks = vec![Block {
+            id: "bb0".to_string(),
+            statements: vec![
+                Stmt::Assign {
+                    dest: "_21".to_string(),
+                    dest_place: Some("_21".to_string()),
+                    rvalue: Rvalue::Use { op: Operand::Copy { place: "_1".to_string() } },
+                },
+                Stmt::Assign {
+                    dest: "_3".to_string(),
+                    dest_place: Some("_3".to_string()),
+                    rvalue: Rvalue::Use { op: Operand::Copy { place: "_21".to_string() } },
+                },
+                Stmt::SetDisc { place: "_21".to_string(), variant: 1, place_full: None },
+            ],
+            terminator: Term::Return { ret: None },
+        }];
+        assert_eq!(build_spill(&blocks).get("_21"), Some(&"ptr".to_string()));
+    }
+
+    #[test]
+    fn setdisc_place_without_plain_use_does_not_spill() {
+        use crate::mir::{Block, Rvalue, Term};
+        // 75_async_bridge shape: _4 = Copy _1, Discriminant _4, SetDisc _4.
+        // Nothing moves _4, so the store is already legal: no slot.
+        let blocks = vec![Block {
+            id: "bb0".to_string(),
+            statements: vec![
+                Stmt::Assign {
+                    dest: "_4".to_string(),
+                    dest_place: Some("_4".to_string()),
+                    rvalue: Rvalue::Use { op: Operand::Copy { place: "_1".to_string() } },
+                },
+                Stmt::Assign {
+                    dest: "_3".to_string(),
+                    dest_place: Some("_3".to_string()),
+                    rvalue: Rvalue::Discriminant { place: "_4".to_string() },
+                },
+                Stmt::SetDisc { place: "_4".to_string(), variant: 1, place_full: None },
+            ],
+            terminator: Term::Return { ret: None },
+        }];
+        assert!(!build_spill(&blocks).contains_key("_4"));
+    }
+
+    #[test]
+    fn setdisc_place_multi_def_does_not_spill() {
+        use crate::mir::{Block, Rvalue, Term};
+        // 09 _23 shape (pre-versioning): two Assign defs, so the
+        // single-def gate excludes it; versioning owns multi-def locals.
+        let def = |v: u32| Stmt::Assign {
+            dest: "_23".to_string(),
+            dest_place: Some("_23".to_string()),
+            rvalue: Rvalue::Use { op: Operand::Copy { place: format!("_{}", v) } },
+        };
+        let blocks = vec![Block {
+            id: "bb0".to_string(),
+            statements: vec![
+                def(1),
+                def(2),
+                Stmt::Assign {
+                    dest: "_3".to_string(),
+                    dest_place: Some("_3".to_string()),
+                    rvalue: Rvalue::Use { op: Operand::Copy { place: "_23".to_string() } },
+                },
+                Stmt::SetDisc { place: "_23".to_string(), variant: 1, place_full: None },
+            ],
+            terminator: Term::Return { ret: None },
+        }];
+        assert!(!build_spill(&blocks).contains_key("_23"));
+    }
+
+    #[test]
+    fn setdisc_place_use_def_sets_up_slot() {
+        use crate::mir::{Block, Rvalue, Term};
+        // A spilled Use def must set up its own slot (other arms do this
+        // inline); otherwise Copy-uses would reload from an empty slot.
+        let blocks = vec![Block {
+            id: "bb0".to_string(),
+            statements: vec![
+                Stmt::Assign {
+                    dest: "_21".to_string(),
+                    dest_place: Some("_21".to_string()),
+                    rvalue: Rvalue::Use { op: Operand::Copy { place: "_1".to_string() } },
+                },
+                Stmt::Assign {
+                    dest: "_3".to_string(),
+                    dest_place: Some("_3".to_string()),
+                    rvalue: Rvalue::Use { op: Operand::Copy { place: "_21".to_string() } },
+                },
+                Stmt::SetDisc { place: "_21".to_string(), variant: 1, place_full: None },
+            ],
+            terminator: Term::Return { ret: None },
+        }];
+        let m = build_spill(&blocks);
+        let mut idx = 0usize;
+        let mut unsup = vec![];
+        let line = crate::render::render_rvalue(
+            &Rvalue::Use { op: Operand::Copy { place: "_1".to_string() } },
+            "_21", Some("_21"), &mut unsup, "bb0", &mut idx,
+            &std::collections::HashMap::new(), &m,
+        );
+        assert!(unsup.is_empty());
+        assert_eq!(line, "_21 = _1\n_21_spill = alloc 8\nstore _21_spill+0, _21 as ptr");
     }
 
     #[test]

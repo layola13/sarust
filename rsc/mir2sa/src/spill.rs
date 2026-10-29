@@ -205,6 +205,65 @@ pub fn build_spill(blocks: &[crate::mir::Block]) -> SpillMap {
             }
         }
     }
+    // Single-elem aggregate propagation: `_d = Agg([Move|Copy _p])` where
+    // `_p` is pointer-valued makes `_d` pointer-valued too. The wrapper
+    // around a NonNull cast is the motivating shape (09: `_24` wraps `_25`,
+    // a cast to NonNull<Context>): the cast itself has no Copy use, so
+    // the cast loop above never spills it, and without propagation `_24`
+    // gets no slot either. Its Move use in bb19 then consumes `_24_v0` on
+    // one path only, which traps PhiStateConflict at the bb4 join. Only
+    // casts that lower to a real value feed the map (a loud cast binds a
+    // `0` placeholder and gains nothing), and dests need the same gates
+    // as borrow dests: single-def (versioned names are, by construction)
+    // and a Copy or consuming use. Run to fixpoint so chains of wrappers
+    // propagate (aggregate of aggregate, or of an already-spilled reg).
+    let mut cast_ty: BTreeMap<String, String> = BTreeMap::new();
+    for b in blocks {
+        for st in &b.statements {
+            if let Stmt::Assign { dest, rvalue: Rvalue::Cast { ty, castkind, src_ty, .. }, .. } = st {
+                let dst = crate::asm::cast_dst_short(ty);
+                let lowers = match (castkind.as_deref(), src_ty.as_deref()) {
+                    (Some(k), Some(s)) => crate::asm::lower_cast(k, s, &dst).is_some(),
+                    _ => false,
+                };
+                if lowers {
+                    if let Some(t) = cast_spill_ty(ty) {
+                        cast_ty.insert(dest.clone(), t);
+                    }
+                }
+            }
+        }
+    }
+    loop {
+        let mut changed = false;
+        for b in blocks {
+            for st in &b.statements {
+                if let Stmt::Assign { dest, rvalue: Rvalue::Aggregate { elems, .. }, .. } = st {
+                    if elems.len() != 1 || map.contains_key(dest) || !single(dest) {
+                        continue;
+                    }
+                    let place = match &elems[0] {
+                        Operand::Move { place } | Operand::Copy { place } => place,
+                        _ => continue,
+                    };
+                    if !(copies.contains(dest) || consuming.contains(dest)) {
+                        continue;
+                    }
+                    let t = cast_ty
+                        .get(place)
+                        .cloned()
+                        .or_else(|| map.get(place).cloned());
+                    if let Some(t) = t {
+                        map.insert(dest.clone(), t);
+                        changed = true;
+                    }
+                }
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
     // Borrow dests: `b = &p` is pointer-valued, and a plain assign of `b`
     // (Aggregate/Use/Cast RHS) CONSUMES the reg. The later release (`drop(b)`
     // or the borrow-end insertion before `drop(p)`) then reads a reg the
@@ -438,6 +497,16 @@ mod spill_tests {
         assert_eq!(cast_spill_ty("bool"), Some("u8".to_string()));
         assert_eq!(cast_spill_ty("std::string::String"), None);
         assert_eq!(cast_spill_ty("i128"), None, "128-bit has no SA slot type");
+        assert_eq!(
+            cast_spill_ty("std::ptr::NonNull<std::task::Context<'{erased}>>"),
+            Some("ptr".to_string()),
+            "NonNull is a transparent pointer wrapper"
+        );
+        assert_eq!(
+            cast_spill_ty("std::ptr::NonNull<std::task::C"),
+            Some("ptr".to_string()),
+            "driver-truncated NonNull spelling still maps to ptr"
+        );
     }
 
     #[test]
@@ -457,6 +526,70 @@ mod spill_tests {
         let m = build_spill(&blocks);
         assert_eq!(m.get("_6"), Some(&"ptr".to_string()));
         assert!(!m.contains_key("_7"), "single use needs no slot");
+    }
+
+    #[test]
+    fn nonnull_wrapper_spills_when_consumed() {
+        use crate::mir::{Block, Rvalue, Term};
+        // 09 shape: _25 = cast Transmute to NonNull<Context>, _24 wraps it
+        // in a single-elem aggregate, and bb19 consumes _24 with a Move.
+        // The cast itself has no Copy use, so only propagation gives _24
+        // a slot; without it the Move consumes _24_v0 on one path only
+        // (PhiStateConflict at the join).
+        let blocks = vec![
+            Block {
+                id: "bb0".to_string(),
+                statements: vec![
+                    Stmt::Assign {
+                        dest: "_25".to_string(),
+                        dest_place: Some("_25".to_string()),
+                        rvalue: Rvalue::Cast {
+                            op: Box::new(Operand::Move { place: "_2".to_string() }),
+                            ty: "std::ptr::NonNull<std::task::Context<'{erased}>>".to_string(),
+                            castkind: Some("Transmute".to_string()),
+                            src_ty: Some("&".to_string()),
+                        },
+                    },
+                    Stmt::Assign {
+                        dest: "_24".to_string(),
+                        dest_place: Some("_24".to_string()),
+                        rvalue: Rvalue::Aggregate {
+                            elems: vec![Operand::Move { place: "_25".to_string() }],
+                            layout: None,
+                        },
+                    },
+                ],
+                terminator: Term::Goto { target: "bb1".to_string() },
+            },
+            Block {
+                id: "bb1".to_string(),
+                statements: vec![Stmt::Assign {
+                    dest: "_12".to_string(),
+                    dest_place: Some("_12".to_string()),
+                    rvalue: Rvalue::Use { op: Operand::Move { place: "_24".to_string() } },
+                }],
+                terminator: Term::Return { ret: None },
+            },
+        ];
+        let m = build_spill(&blocks);
+        assert_eq!(m.get("_24"), Some(&"ptr".to_string()));
+        assert!(!m.contains_key("_25"), "cast with no Copy use gets no slot itself");
+        // Rendered shape: aggregate dest gets its slot setup.
+        let mut idx = 0usize;
+        let mut unsup = vec![];
+        let line = crate::render::render_rvalue(
+            &Rvalue::Aggregate {
+                elems: vec![Operand::Move { place: "_25".to_string() }],
+                layout: None,
+            },
+            "_24", Some("_24"), &mut unsup, "bb0", &mut idx,
+            &std::collections::HashMap::new(), &m,
+        );
+        assert!(unsup.is_empty());
+        assert!(line.contains("_24_spill = alloc 8"), "slot setup:
+{}", line);
+        assert!(line.contains("store _24_spill+0, _24 as ptr"), "slot store:
+{}", line);
     }
 
     #[test]

@@ -300,13 +300,23 @@ pub fn render_rvalue(
                 format!("// zero-elem aggregate (unit/niche; tag via SetDisc when present)\n{} = 0", dest)
             } else if elems.len() == 1 {
                 // Spilled shared buffers reload like plain Uses.
-                if let Some(t) = spill_reg(&elems[0], spill) {
-                    return format!(
+                let mut s = if let Some(t) = spill_reg(&elems[0], spill) {
+                    format!(
                         "// single-elem aggregate (spill reload)\n{} = {}",
                         dest, t
-                    );
+                    )
+                } else {
+                    format!("// single-elem aggregate (exact)\n{} = {}", dest, render_operand(&elems[0]))
+                };
+                // Spilled aggregate dests (type propagated from a
+                // pointer-valued element, e.g. a NonNull cast) get their
+                // slot setup here, same shape as cast/ref/call dests, so
+                // later uses reload instead of moving the register.
+                if let Some(t) = spill.get(dest) {
+                    let slot = crate::spill::spill_slot(dest);
+                    s.push_str(&format!("\n{} = alloc 8\nstore {}+0, {} as {}", slot, slot, dest, t));
                 }
-                format!("// single-elem aggregate (exact)\n{} = {}", dest, render_operand(&elems[0]))
+                s
             } else if let Some(place) = dest_place {
                 // Array fast path first (exact [T; N] all-const, incl. ManuallyDrop backing).
                 if let Some(mut lines) = lower_array_init(bid, place, elems) {

@@ -73,11 +73,21 @@ pub enum CastLower {
 
 /// Destination short ty name from driver Debug text: scalar names pass
 /// through, pointer spellings collapse to `ptr`, else unrecognized.
+/// NonNull<T> is a repr(transparent) single-pointer wrapper, so it is
+/// pointer-valued too: the driver Debug spelling std::ptr::NonNull<...>
+/// (possibly truncated at 60 chars, so the generic tail may be missing)
+/// collapses to ptr like raw/reference spellings do. Without this, a cast
+/// to NonNull returned ? and cast_spill_ty returned None, so the value
+/// could never get a spill slot.
 pub fn cast_dst_short(ty: &str) -> String {
     let t = ty.trim();
     if scalar_width_bits(t).is_some() {
         t.to_string()
-    } else if t.starts_with('*') || t.starts_with('&') {
+    } else if t.starts_with('*')
+        || t.starts_with('&')
+        || t.starts_with("std::ptr::NonNull")
+        || t.starts_with("core::ptr::NonNull")
+    {
         "ptr".to_string()
     } else {
         "?".to_string()

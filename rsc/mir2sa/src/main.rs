@@ -69,7 +69,7 @@ fn cmd_coverage(args: &[String]) -> ExitCode {
         // Mirror lower()'s bound seeding (dominator defs + params).
         let seeds = crate::order::dom_seeds(&f.blocks, f.params.len());
         // Mirror lower()'s borrow-end plan (same versioned input).
-        let bend = crate::borrow_end::plan_drops(&f.blocks, &crate::order::dom_sets(&f.blocks));
+        let bend = crate::borrow_end::plan_drops(&f.blocks, &crate::order::dom_sets(&f.blocks), &std::collections::BTreeSet::new());
         for (bi, b) in f.blocks.iter().enumerate() {
             // NOTE: seeding above runs once; keep it outside the loop.
             let mut bound = seeds[bi].clone();
@@ -302,7 +302,7 @@ fn cmd_parse(args: &[String]) -> ExitCode {
         total_uns += u;
     }
     let nstmt: usize = blocks.iter().map(|b| b.statements.len()).sum();
-    let mir = MirFile { source: Some("rustc -Zunpretty=mir (real compiler output)".to_string()), crate_name: None, functions: vec![Function { name: fname, path: None, locals: vec![], params: vec![], ret: None, sig_ok: true, blocks }] };
+    let mir = MirFile { source: Some("rustc -Zunpretty=mir (real compiler output)".to_string()), crate_name: None, functions: vec![Function { name: fname, path: None, locals: vec![], local_types: Default::default(), params: vec![], ret: None, sig_ok: true, blocks }] };
     let json = serde_json::to_string_pretty(&mir).unwrap();
     if std::fs::write(&out, json).is_err() {
         eprintln!("write {}", out);
@@ -430,7 +430,7 @@ mod tests {
         assert_ne!(tls_key(def), tls_key("TLS_N::{constant#0}::{closure#1}::__RUST_STD_INTERNAL_VAL"));
         let mut unsup = vec![];
         let rv = Rvalue::ThreadLocal { def: def.to_string() };
-        let line = render_rvalue(&rv, "_3", Some("_3"), &mut unsup, "bb0", &mut 0usize, &std::collections::HashMap::new(), &std::collections::BTreeMap::new());
+        let line = render_rvalue(&rv, "_3", Some("_3"), &mut unsup, "bb0", &mut 0usize, &std::collections::HashMap::new(), &std::collections::BTreeMap::new(), &std::collections::BTreeMap::new());
         assert!(unsup.is_empty());
         assert_eq!(line, format!("// thread-local registry slot\n_3 = call @sa_thread_local_slot({})", tls_key(def)));
     }
@@ -654,7 +654,7 @@ mod tests {
     }
 
     fn blank_fn(name: &str, blocks: Vec<Block>) -> Function {
-        Function { name: name.to_string(), path: None, locals: vec![], params: vec![], ret: None, sig_ok: true, blocks }
+        Function { name: name.to_string(), path: None, locals: vec![], local_types: Default::default(), params: vec![], ret: None, sig_ok: true, blocks }
     }
 
     fn blank_block(id: &str, term: Term) -> Block {
@@ -779,7 +779,7 @@ mod tests {
                 operand: Box::new(Operand::Copy { place: "_3".to_string() }),
             },
             "_2", Some("_2"), &mut unsup, "bb0", &mut idx,
-            &std::collections::HashMap::new(), &std::collections::BTreeMap::new(),
+            &std::collections::HashMap::new(), &std::collections::BTreeMap::new(), &std::collections::BTreeMap::new(),
         );
         assert!(unsup.is_empty(), "{:?}", unsup);
         assert_eq!(line, "_2 = load _3+8 as u64");
@@ -792,7 +792,7 @@ mod tests {
                 operand: Box::new(Operand::Move { place: "_3".to_string() }),
             },
             "_2", Some("_2"), &mut unsup, "bb0", &mut idx,
-            &std::collections::HashMap::new(), &std::collections::BTreeMap::new(),
+            &std::collections::HashMap::new(), &std::collections::BTreeMap::new(), &std::collections::BTreeMap::new(),
         );
         assert_eq!(line, "_mv_bb0_0 = _3\n_2 = load _mv_bb0_0+8 as u64");
     }
@@ -847,7 +847,7 @@ mod tests {
         let mut unsup = vec![];
         let line = render_rvalue(
             &cast("IntToInt", "u8", "i32"), "_7", Some("_7"), &mut unsup, "bb0",
-            &mut idx, &std::collections::HashMap::new(), &spilled,
+            &mut idx, &std::collections::HashMap::new(), &spilled, &std::collections::BTreeMap::new(),
         );
         assert!(unsup.is_empty());
         assert_eq!(line, "_mv_bb0_0 = load _2_spill+0 as u8\n_7 = zext _mv_bb0_0 as i32");
@@ -855,7 +855,7 @@ mod tests {
         let mut unsup = vec![];
         let line = render_rvalue(
             &cast("IntToInt", "u32", "u32"), "_7", Some("_7"), &mut unsup, "bb0",
-            &mut idx, &std::collections::HashMap::new(), &spilled,
+            &mut idx, &std::collections::HashMap::new(), &spilled, &std::collections::BTreeMap::new(),
         );
         assert_eq!(line, "_7 = load _2_spill+0 as u8");
     }
@@ -879,7 +879,7 @@ mod tests {
                     right: Box::new(Operand::Copy { place: "_2".to_string() }),
                 },
                 "_3", Some("_3"), &mut unsup, "bb0", &mut idx,
-                &std::collections::HashMap::new(), &std::collections::BTreeMap::new(),
+                &std::collections::HashMap::new(), &std::collections::BTreeMap::new(), &std::collections::BTreeMap::new(),
             );
             assert!(unsup.is_empty(), "{}: {:?}", op, unsup);
             assert_eq!(line, format!("_3 = call @{}(_1, _2)", want));

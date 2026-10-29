@@ -7,11 +7,14 @@
 //! For values whose TYPE IS KNOWN, spill to a slot once and reload per copy:
 //! - synthetic buffers (`_agg_*`, `_rep_*`): always `ptr` (we generate them);
 //! - call dests with resolvable sig ret: mapped store-ty (u64/i64/u32/...).
+//! - locals/params with a driver local type (phi-11): the sars driver
+//!   emits every MIR local's type, so scalar/pointer Copy sources spill
+//!   exactly instead of rendering Copy as an SA move (PhiStateConflict).
 //! Moves stay direct (single exact transfer); only Copy-uses reload, so the
 //! transform is order-independent (loads never touch the source reg).
 //! Slots are always 8 bytes (all store-tys fit; slack is harmless).
-//! Everything else (computed scalars, params, borrows) stays loud — the
-//! general program needs driver locals widths (spill) and SSA versioning.
+//! Everything else (untyped ADTs, 128-bit ints, BinOp-defined values)
+//! stays on the old paths — never a silent slot of the wrong width.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -116,7 +119,10 @@ fn consuming_use_targets(st: &Stmt) -> Vec<String> {
 ///   its own slot setup = slot redefinition; uses can't pick a slot).
 ///   Multi-def falls back to rebind-loud/UAM paths (honest, counted).
 /// - Copy-uses only (moves stay direct single transfers).
-pub fn build_spill(blocks: &[crate::mir::Block]) -> SpillMap {
+pub fn build_spill(
+    blocks: &[crate::mir::Block],
+    local_types: &BTreeMap<String, String>,
+) -> SpillMap {
     // Copy-use targets across the whole function.
     let mut copies: BTreeSet<String> = BTreeSet::new();
     // Consuming (Move) uses: these need a slot for the SOURCE to survive.
@@ -335,7 +341,103 @@ pub fn build_spill(blocks: &[crate::mir::Block]) -> SpillMap {
             }
         }
     }
+    // Driver-typed locals/params (phi-11): a Copy source whose MIR type
+    // maps to an SA store type spills exactly, so its Copy uses reload
+    // instead of moving it (a move on one arm of a join traps
+    // PhiStateConflict, and a move of a value still used after the join
+    // traps UseAfterMove). Gates, all conservative:
+    // - the reg has a Copy use (plain-assign Copy is the only consuming
+    //   Copy position; reads in call args / binops never move);
+    // - single definition (versioned names are, by construction), or a
+    //   header-bound param (no statement def, `_N` shape, never an asm
+    //   out — asm outs are defs too, just not counted in def_count);
+    // - the defining rvalue sets its slot up when rendered (Use / Call /
+    //   Cast / Ref / Aggregate arms do; BinOp / UnOp / Discriminant /
+    //   RawPtr arms do not, so those defs stay on the old paths rather
+    //   than reloading from a slot that was never stored);
+    // - the driver type maps to a real store type (scalar or ptr; ADTs,
+    //   slices, tuples and 128-bit ints map to None and stay as today).
+    // Params get their slot setup at the entry block (see lower.rs);
+    // statement/call dests get it from their own render arm.
+    if !local_types.is_empty() {
+        // Defining-rvalue kinds that set a slot up (see render.rs).
+        let mut setup_kind: BTreeMap<String, bool> = BTreeMap::new();
+        let mut asm_outs: BTreeSet<String> = BTreeSet::new();
+        for b in blocks {
+            for st in &b.statements {
+                if let Stmt::Assign { dest, rvalue, .. } = st {
+                    let ok = matches!(
+                        rvalue,
+                        Rvalue::Use { .. }
+                            | Rvalue::Call { .. }
+                            | Rvalue::Cast { .. }
+                            | Rvalue::Ref { .. }
+                            | Rvalue::Aggregate { .. }
+                    );
+                    setup_kind.insert(dest.clone(), ok);
+                }
+            }
+            match &b.terminator {
+                Term::Call { dest: Some(d), .. } => {
+                    setup_kind.insert(d.clone(), true);
+                }
+                Term::InlineAsm { outs, .. } => {
+                    for o in outs {
+                        asm_outs.insert(o.clone());
+                    }
+                }
+                _ => {}
+            }
+        }
+        for c in &copies {
+            if map.contains_key(c) {
+                continue;
+            }
+            let base = strip_version(c);
+            let Some(ty) = local_types.get(&base) else {
+                continue;
+            };
+            let Some(t) = cast_spill_ty(ty) else {
+                continue;
+            };
+            let is_param = def_count.get(c).copied().unwrap_or(0) == 0
+                && !asm_outs.contains(c)
+                && is_plain_local(c);
+            let ok = if is_param {
+                // Header-bound: no statement def, so no setup-kind gate;
+                // lower.rs emits the slot setup at the entry block.
+                true
+            } else {
+                single(c) && setup_kind.get(c).copied().unwrap_or(false)
+            };
+            if ok {
+                map.insert(c.clone(), t);
+            }
+        }
+    }
     map
+}
+
+/// Base local of a (possibly versioned) register: `_4_v1` -> `_4`,
+/// `_1` -> `_1`. Anything else passes through unchanged.
+fn strip_version(reg: &str) -> String {
+    if let Some(idx) = reg.rfind("_v") {
+        let (base, suffix) = reg.split_at(idx);
+        if !suffix[2..].is_empty()
+            && suffix[2..].chars().all(|ch| ch.is_ascii_digit())
+            && is_plain_local(base)
+        {
+            return base.to_string();
+        }
+    }
+    reg.to_string()
+}
+
+/// True for plain MIR local names (`_N`, digits only after the `_`).
+fn is_plain_local(reg: &str) -> bool {
+    reg.len() > 1
+        && reg.starts_with('_')
+        && reg[1..].chars().all(|ch| ch.is_ascii_digit())
 }
 
 /// Locals that are DEFINED but never READ anywhere in the function.
@@ -477,7 +579,7 @@ mod spill_tests {
             statements: vec![use_agg],
             terminator: Term::Return { ret: None },
         }];
-        let m = build_spill(&blocks);
+        let m = build_spill(&blocks, &BTreeMap::new());
         assert_eq!(m.get("_agg_bb0"), Some(&"ptr".to_string()));
     }
 
@@ -489,7 +591,7 @@ mod spill_tests {
             statements: vec![],
             terminator: Term::Return { ret: None },
         }];
-        assert!(build_spill(&blocks).is_empty());
+        assert!(build_spill(&blocks, &BTreeMap::new()).is_empty());
     }
 
     fn cast_copy(dest: &str, place: &str, ty: &str) -> Stmt {
@@ -551,7 +653,7 @@ mod spill_tests {
             ],
             terminator: Term::Return { ret: None },
         }];
-        let m = build_spill(&blocks);
+        let m = build_spill(&blocks, &BTreeMap::new());
         assert_eq!(m.get("_6"), Some(&"ptr".to_string()));
         assert!(!m.contains_key("_7"), "single use needs no slot");
     }
@@ -599,7 +701,7 @@ mod spill_tests {
                 terminator: Term::Return { ret: None },
             },
         ];
-        let m = build_spill(&blocks);
+        let m = build_spill(&blocks, &BTreeMap::new());
         assert_eq!(m.get("_24"), Some(&"ptr".to_string()));
         assert!(!m.contains_key("_25"), "cast with no Copy use gets no slot itself");
         // Rendered shape: aggregate dest gets its slot setup.
@@ -611,7 +713,7 @@ mod spill_tests {
                 layout: None,
             },
             "_24", Some("_24"), &mut unsup, "bb0", &mut idx,
-            &std::collections::HashMap::new(), &m,
+            &std::collections::HashMap::new(), &m, &std::collections::BTreeMap::new(),
         );
         assert!(unsup.is_empty());
         assert!(line.contains("_24_spill = alloc 8"), "slot setup:
@@ -640,7 +742,7 @@ mod spill_tests {
             ],
             terminator: Term::Return { ret: None },
         }];
-        assert_eq!(build_spill(&blocks).get("_78"), Some(&"ptr".to_string()));
+        assert_eq!(build_spill(&blocks, &BTreeMap::new()).get("_78"), Some(&"ptr".to_string()));
     }
 
     #[test]
@@ -659,7 +761,7 @@ mod spill_tests {
                 sig: None,
             },
         }];
-        assert!(!build_spill(&blocks).contains_key("_5"));
+        assert!(!build_spill(&blocks, &BTreeMap::new()).contains_key("_5"));
     }
 
     #[test]
@@ -694,7 +796,7 @@ mod spill_tests {
             ],
             terminator: Term::Return { ret: None },
         }];
-        let m = build_spill(&blocks);
+        let m = build_spill(&blocks, &BTreeMap::new());
         assert_eq!(m.get("_1"), Some(&"ptr".to_string()));
         // Rendered shape: buffer + slot, copies reload.
         let mut idx = 0usize;
@@ -702,7 +804,7 @@ mod spill_tests {
         let line = crate::render::render_rvalue(
             &Rvalue::Use { op: konst },
             "_1", Some("_1"), &mut unsup, "bb0", &mut idx,
-            &std::collections::HashMap::new(), &m,
+            &std::collections::HashMap::new(), &m, &std::collections::BTreeMap::new(),
         );
         assert!(unsup.is_empty());
         assert_eq!(
@@ -739,7 +841,7 @@ mod spill_tests {
             ],
             terminator: Term::Return { ret: None },
         }];
-        assert!(!build_spill(&blocks).contains_key("_1"));
+        assert!(!build_spill(&blocks, &BTreeMap::new()).contains_key("_1"));
     }
 
     fn static_addr_const_def(dest: &str, value: &str) -> Stmt {
@@ -779,7 +881,7 @@ mod spill_tests {
             ],
             terminator: Term::Return { ret: None },
         }];
-        assert_eq!(build_spill(&blocks).get("_1"), Some(&"ptr".to_string()));
+        assert_eq!(build_spill(&blocks, &BTreeMap::new()).get("_1"), Some(&"ptr".to_string()));
     }
 
     #[test]
@@ -795,7 +897,7 @@ mod spill_tests {
             ],
             terminator: Term::Return { ret: None },
         }];
-        assert_eq!(build_spill(&blocks).get("_1"), Some(&"ptr".to_string()));
+        assert_eq!(build_spill(&blocks, &BTreeMap::new()).get("_1"), Some(&"ptr".to_string()));
     }
 
     #[test]
@@ -809,7 +911,7 @@ mod spill_tests {
             )],
             terminator: Term::Return { ret: None },
         }];
-        assert!(build_spill(&blocks).is_empty());
+        assert!(build_spill(&blocks, &BTreeMap::new()).is_empty());
     }
 
     #[test]
@@ -826,7 +928,7 @@ mod spill_tests {
             ],
             terminator: Term::Return { ret: None },
         }];
-        assert!(!build_spill(&blocks).contains_key("_1"));
+        assert!(!build_spill(&blocks, &BTreeMap::new()).contains_key("_1"));
     }
 
     #[test]
@@ -852,7 +954,7 @@ mod spill_tests {
             ],
             terminator: Term::Return { ret: None },
         }];
-        assert_eq!(build_spill(&blocks).get("_21"), Some(&"ptr".to_string()));
+        assert_eq!(build_spill(&blocks, &BTreeMap::new()).get("_21"), Some(&"ptr".to_string()));
     }
 
     #[test]
@@ -877,7 +979,7 @@ mod spill_tests {
             ],
             terminator: Term::Return { ret: None },
         }];
-        assert!(!build_spill(&blocks).contains_key("_4"));
+        assert!(!build_spill(&blocks, &BTreeMap::new()).contains_key("_4"));
     }
 
     #[test]
@@ -904,7 +1006,7 @@ mod spill_tests {
             ],
             terminator: Term::Return { ret: None },
         }];
-        assert!(!build_spill(&blocks).contains_key("_23"));
+        assert!(!build_spill(&blocks, &BTreeMap::new()).contains_key("_23"));
     }
 
     #[test]
@@ -929,13 +1031,13 @@ mod spill_tests {
             ],
             terminator: Term::Return { ret: None },
         }];
-        let m = build_spill(&blocks);
+        let m = build_spill(&blocks, &BTreeMap::new());
         let mut idx = 0usize;
         let mut unsup = vec![];
         let line = crate::render::render_rvalue(
             &Rvalue::Use { op: Operand::Copy { place: "_1".to_string() } },
             "_21", Some("_21"), &mut unsup, "bb0", &mut idx,
-            &std::collections::HashMap::new(), &m,
+            &std::collections::HashMap::new(), &m, &std::collections::BTreeMap::new(),
         );
         assert!(unsup.is_empty());
         assert_eq!(line, "_21 = _1\n_21_spill = alloc 8\nstore _21_spill+0, _21 as ptr");
@@ -961,6 +1063,84 @@ mod spill_tests {
             ],
             terminator: Term::Return { ret: None },
         }];
-        assert!(!build_spill(&blocks).contains_key("_6"));
+        assert!(!build_spill(&blocks, &BTreeMap::new()).contains_key("_6"));
+    }
+
+    #[test]
+    fn driver_local_type_spills_scalar_copy() {
+        // phi-11: driver local types let scalar Copy sources spill
+        // exactly (03: _1/_2 params Copy-used on the arms).
+        use crate::mir::{Block, Rvalue, Term};
+        let blocks = vec![Block {
+            id: "bb0".to_string(),
+            statements: vec![
+                Stmt::Assign {
+                    dest: "_2".to_string(), dest_place: None,
+                    rvalue: Rvalue::Use { op: Operand::Copy { place: "_1".to_string() } },
+                },
+                Stmt::Assign {
+                    dest: "_3".to_string(), dest_place: None,
+                    rvalue: Rvalue::Use { op: Operand::Copy { place: "_1".to_string() } },
+                },
+            ],
+            terminator: Term::Return { ret: None },
+        }];
+        let mut lt = BTreeMap::new();
+        lt.insert("_1".to_string(), "i32".to_string());
+        assert_eq!(build_spill(&blocks, &lt).get("_1"), Some(&"i32".to_string()));
+    }
+
+    #[test]
+    fn driver_local_type_adt_no_spill() {
+        // ADTs map to no slot type (105/39: Option<i32> Copy sources
+        // stay on the old paths; the join fix handles them instead).
+        use crate::mir::{Block, Rvalue, Term};
+        let blocks = vec![Block {
+            id: "bb0".to_string(),
+            statements: vec![Stmt::Assign {
+                dest: "_2".to_string(), dest_place: None,
+                rvalue: Rvalue::Use { op: Operand::Copy { place: "_1".to_string() } },
+            }],
+            terminator: Term::Return { ret: None },
+        }];
+        let mut lt = BTreeMap::new();
+        lt.insert("_1".to_string(), "Option<i32>".to_string());
+        assert!(!build_spill(&blocks, &lt).contains_key("_1"));
+    }
+
+    #[test]
+    fn driver_local_type_versioned_base() {
+        // 103-shape: a versioned Copy use resolves its type via the
+        // base local (_4_v1 -> _4).
+        use crate::mir::{Block, Rvalue, Term};
+        let blocks = vec![
+            Block {
+                id: "bb0".to_string(),
+                statements: vec![Stmt::Assign {
+                    dest: "_4_v1".to_string(), dest_place: None,
+                    rvalue: Rvalue::Use { op: Operand::Copy { place: "_0".to_string() } },
+                }],
+                terminator: Term::Goto { target: "bb1".to_string() },
+            },
+            Block {
+                id: "bb1".to_string(),
+                statements: vec![Stmt::Assign {
+                    dest: "_7".to_string(), dest_place: None,
+                    rvalue: Rvalue::Use { op: Operand::Copy { place: "_4_v1".to_string() } },
+                }],
+                terminator: Term::Goto { target: "bb2".to_string() },
+            },
+            Block {
+                id: "bb2".to_string(),
+                statements: vec![Stmt::Assign {
+                    dest: "_9".to_string(), dest_place: None,
+                    rvalue: Rvalue::Use { op: Operand::Copy { place: "_4_v1".to_string() } },
+                }],
+                terminator: Term::Return { ret: None },
+            },
+        ];
+        let mut lt = BTreeMap::new();
+        lt.insert("_4".to_string(), "i32".to_string());
+        assert_eq!(build_spill(&blocks, &lt).get("_4_v1"), Some(&"i32".to_string()));
     }
 }

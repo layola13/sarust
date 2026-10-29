@@ -39,6 +39,16 @@ pub fn spill_placeholder(
     }
 }
 
+/// Phase-5 end lines for one JoinEnd, plus the spill-slot free when
+/// the ended register is spilled (see the 30 leak note above).
+fn join_end_lines(e: &crate::borrow_end::JoinEnd, spill: &crate::spill::SpillMap) -> Vec<String> {
+    let mut v = e.lines();
+    if spill.contains_key(e.reg()) {
+        v.push(format!("    !{}_spill", e.reg()));
+    }
+    v
+}
+
 pub fn lower_function(f: &Function, unsup: &mut Vec<String>) -> String {    // Typed header: MIR arg locals `_1..` bind here (bare `@f()` would leave
     // them unbound: UnknownRegister). Ret defaults to i32 (old fixtures).
     let mut head = format!("@{}(", sa_ident(&f.name));
@@ -62,8 +72,15 @@ pub fn lower_function(f: &Function, unsup: &mut Vec<String>) -> String {    // T
     let seeds = crate::order::dom_seeds(&f.blocks, f.params.len());
     // Borrow-end plan (see borrow_end.rs): NLL-dead borrowers end just
     // before their source is dropped. Pure MIR-level, shared with coverage.
+    // The spill map is built first: the plan needs the spilled set so
+    // plain-assign reloads are not counted as consuming events.
     let doms = crate::order::dom_sets(&f.blocks);
-    let borrow_plan = crate::borrow_end::plan_drops(&f.blocks, &doms);
+    let spill = build_spill(&f.blocks, &f.local_types);
+    let spilled: std::collections::BTreeSet<String> = spill.keys().cloned().collect();
+    let borrow_plan = crate::borrow_end::plan_drops(&f.blocks, &doms, &spilled);
+    // Aggregate-copy map (phi-11, 308): multi-elem Aggregate defs whose
+    // elems are all Move/Copy (see render::build_agg_copy).
+    let agg_copy = crate::render::build_agg_copy(&f.blocks);
     // Block line ranges (for drop-glue insertion afterwards).
     let mut block_ranges: Vec<(usize, usize, usize)> = vec![];
     // Const-propagation map (RPO order: defs precede dominated uses).
@@ -74,9 +91,6 @@ pub fn lower_function(f: &Function, unsup: &mut Vec<String>) -> String {    // T
             .iter()
             .flat_map(|bi| f.blocks[*bi].statements.iter().map(move |st| (f.blocks[*bi].id.as_str(), st))),
     );
-    // Spill map for multi-use shared values (reload slots instead of
-    // moving shared temps twice). Built over MIR statements once.
-    let spill = build_spill(&f.blocks);
     // Locals defined but never read: a byte-literal store into one of them
     // would allocate a payload nobody can free (see spill::dead_locals).
     let dead = crate::spill::dead_locals(&f.blocks, f.params.len());
@@ -85,6 +99,8 @@ pub fn lower_function(f: &Function, unsup: &mut Vec<String>) -> String {    // T
     // that drop.rs must see (missing them under-freed every exit, which the
     // Referee reports as a leak as soon as a register holds a real
     // allocation). Opening here keeps the range closable after a `continue`.
+    // Entry block for param spill-slot setup: MIR bb0 when present.
+    let entry_bi = f.blocks.iter().position(|b| b.id == "bb0").unwrap_or(order.first().copied().unwrap_or(0));
     let mut open_block: Option<usize> = None;
     let mut block_start = vec![0usize; f.blocks.len()];
     for bi in order {
@@ -96,6 +112,20 @@ pub fn lower_function(f: &Function, unsup: &mut Vec<String>) -> String {    // T
         block_start[bi] = start;
         out.push(format!("{}:", sa_label(&b.id)));
         open_block = Some(bi);
+        // Param spill slots (phi-11): header-bound params never pass
+        // through a render arm, so their slot setup goes at the entry
+        // block, before any Copy use can reload from it. Statement and
+        // call dests set their own slots up in their render arms.
+        if bi == entry_bi {
+            for i in 1..=f.params.len() {
+                let name = format!("_{}", i);
+                if let Some(ty) = spill.get(&name) {
+                    let slot = spill_slot(&name);
+                    out.push(format!("    {} = alloc 8", slot));
+                    out.push(format!("    store {}+0, {} as {}", slot, name, ty));
+                }
+            }
+        }
         // Per-block bound set: repeats go loud and keep the first value
         // (skip the line). Exclusive-branch joins stay legal (never seeded).
         let mut bound = seeds[bi].clone();
@@ -126,7 +156,7 @@ pub fn lower_function(f: &Function, unsup: &mut Vec<String>) -> String {    // T
                         unsup.push(format!("{}:{} ConstValue", b.id, dest));
                         out.push(format!("    // UNSUPPORTED const-value -> {}: {}", dest, flat_comment(&why)));
                     } else {
-                        let line = render_rvalue(rvalue, dest, dest_place.as_deref(), unsup, &b.id, &mut mv_idx, &cmap, &spill);
+                        let line = render_rvalue(rvalue, dest, dest_place.as_deref(), unsup, &b.id, &mut mv_idx, &cmap, &spill, &agg_copy);
                         for l in line.split('\n') {
                             out.push(format!("    {}", l));
                         }
@@ -188,6 +218,18 @@ pub fn lower_function(f: &Function, unsup: &mut Vec<String>) -> String {    // T
         if let Some(ends) = borrow_plan.loop_ends.get(&bi) {
             for r in ends {
                 out.push(format!("    !{}", r));
+            }
+        }
+        // Join ends (borrow_end phase 5) for non-Call blocks: def-block
+        // borrower ends, then join-consume ends, before the terminator
+        // renders. Call blocks take theirs at the drop-glue point below
+        // (after the call, so call args are still live). Ordering here
+        // is borrower ends before source consumes by construction.
+        if let Some(ends) = borrow_plan.block_ends.get(&bi) {
+            for e in ends {
+                for l in join_end_lines(e, &spill) {
+                    out.push(l);
+                }
             }
         }
         match &b.terminator {
@@ -485,6 +527,27 @@ pub fn lower_function(f: &Function, unsup: &mut Vec<String>) -> String {    // T
             lines_by_orig[*bi] = out[*s..*e].to_vec();
             range_by_orig[*bi] = (*s, *e);
         }
+        // Phase-5 Call-block ends (borrow_end phase 5): they go after
+        // the call and before the block's jmp, so the call args are
+        // still live. Inject into the working copy BEFORE drop.rs runs
+        // so exit/stale analysis sees them as ordinary frees (a borrower
+        // ended here must not be freed again at an exit), and into the
+        // final splice at the same position below. Blocks whose last
+        // line is not a jmp (diverging calls) take no end.
+        for (bi, ends) in &borrow_plan.call_ends {
+            let lines = &mut lines_by_orig[*bi];
+            let is_jmp = lines.last().is_some_and(|l| l.trim_start().starts_with("jmp "));
+            if is_jmp {
+                let pos = lines.len() - 1;
+                let mut k = 0usize;
+                for e in ends {
+                    for l in join_end_lines(e, &spill) {
+                        lines.insert(pos + k, l);
+                        k += 1;
+                    }
+                }
+            }
+        }
         let mut frees = crate::drop::exit_frees(&lines_by_orig, &doms, f.params.len());
         let mut tfrees = crate::drop::temp_frees(&lines_by_orig);
         // Block-local plain-move frees (see drop::move_frees): merged
@@ -519,6 +582,66 @@ pub fn lower_function(f: &Function, unsup: &mut Vec<String>) -> String {    // T
         for v in tfrees.values_mut() {
             v.retain(|r| !exit_freed.contains(r));
         }
+        // Spill-slot pairing: a spilled base freed anywhere leaves its
+        // slot allocated forever unless the slot is freed alongside it
+        // (30: _4 freed by move_frees at bb4's end, _4_spill leaked).
+        // The slot is always bound at the base's free point (same block
+        // for block-local frees; the def block dominates the exit for
+        // exit frees). Skip when the slot is already freed (phase-5
+        // ends in lines_by_orig) or listed for the same block. A slot
+        // that is itself an exit candidate is dropped from exits
+        // dominated by the block-end free (every path to such an exit
+        // passes the block-end free, so the exit free would double).
+        {
+            let freed_in_lines: std::collections::BTreeSet<String> = lines_by_orig
+                .iter()
+                .flat_map(|ls| ls.iter())
+                .filter_map(|l| {
+                    let t = l.trim_start();
+                    t.strip_prefix('!').map(|r| r.trim().to_string())
+                })
+                .collect();
+            // (block, base, from_tfrees): collected first (borrow rules).
+            let mut pairs: Vec<(usize, String, bool)> = vec![];
+            for (bi, v) in frees.iter() {
+                for r in v {
+                    pairs.push((*bi, r.clone(), false));
+                }
+            }
+            for (bi, v) in tfrees.iter() {
+                for r in v {
+                    pairs.push((*bi, r.clone(), true));
+                }
+            }
+            for (bi, base, from_t) in pairs {
+                if !spill.contains_key(&base) {
+                    continue;
+                }
+                let slot = format!("{}_spill", base);
+                if freed_in_lines.contains(&slot) {
+                    continue;
+                }
+                let listed_here = if from_t {
+                    tfrees.get(&bi).is_some_and(|v| v.contains(&slot))
+                } else {
+                    frees.get(&bi).is_some_and(|v| v.contains(&slot))
+                };
+                if listed_here {
+                    continue;
+                }
+                if from_t {
+                    tfrees.entry(bi).or_default().push(slot.clone());
+                    // Drop the slot from exits dominated by this block.
+                    for (e, v) in frees.iter_mut() {
+                        if doms[*e].contains(&bi) {
+                            v.retain(|r| r != &slot);
+                        }
+                    }
+                } else {
+                    frees.entry(bi).or_default().push(slot);
+                }
+            }
+        }
         let mut mvfrees = crate::drop::mv_frees(&lines_by_orig);
         // A register already released at an exit or as a compare temp keeps
         // that release: re-releasing it block-locally would double-free.
@@ -541,6 +664,21 @@ pub fn lower_function(f: &Function, unsup: &mut Vec<String>) -> String {    // T
         let mut inserts: std::collections::BTreeMap<usize, Vec<String>> =
             std::collections::BTreeMap::new();
         for bi in 0..n {
+            // Phase-5 Call-block ends land at the same pre-terminator
+            // position as exit/temp frees; borrower ends precede any
+            // source free at a shared position.
+            if let Some(v) = borrow_plan.call_ends.get(&bi) {
+                let (s, e) = range_by_orig[bi];
+                let last_is_jmp = e > s && out[e - 1].trim_start().starts_with("jmp ");
+                if last_is_jmp && !v.is_empty() {
+                    let pos = e.saturating_sub(1).max(s);
+                    for e2 in v {
+                        for l in join_end_lines(e2, &spill) {
+                            inserts.entry(pos).or_default().push(l);
+                        }
+                    }
+                }
+            }
             let mut fs: Vec<String> = vec![];
             if let Some(v) = frees.get(&bi) {
                 fs.extend(v.iter().cloned());

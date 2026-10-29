@@ -33,7 +33,7 @@ MIR2SA_BIN="$SARUST_DIR/rsc/target/debug/mir2sa"
 ENV_SH="/content/sa_all/env.sh"
 RESULTS_FILE="$SARUST_DIR/tools/sweep-results-T28.tsv"
 SUMMARY_FILE="$SARUST_DIR/tools/sweep-baseline-T28.md"
-WORK_ROOT="/tmp/sarust-sweep-T28"
+WORK_ROOT="${SWEEP_WORK_ROOT:-/tmp/sarust-sweep-T28}"
 
 SARS_TIMEOUT=180
 MIR2SA_TIMEOUT=120
@@ -213,7 +213,7 @@ summarize() {
     echo ""
     echo "Classification rules: see tools/sweep-README.md. Per-file results:"
     echo "tools/sweep-results-T28.tsv. Per-file work outputs (mir.json, .sa,"
-    echo "stage logs) are under /tmp/sarust-sweep-T28/ and are not committed."
+    echo "stage logs) are under $WORK_ROOT/ and are not committed."
   } > "$SUMMARY_FILE"
   echo "summary: GREEN=$green CHECK_ONLY=$check_only TRAP=$trap_n SARS_FAIL=$sars_fail TOTAL=$total loud=$loud_total"
   echo "summary written to $SUMMARY_FILE"

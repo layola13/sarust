@@ -65,3 +65,7 @@ finishes, so a killed run loses at most the file in flight.
   `rsc/target/debug/mir2sa`, `sa` via `/content/sa_all/env.sh`.
 - `~/.cargo/bin` on PATH (rustc shim) and
   `RUSTUP_TOOLCHAIN=nightly-2026-09-28` for the sysroot lookup.
+
+## Parallel sweeps
+
+Set SWEEP_WORK_ROOT to a per-worktree directory when running sweeps from multiple worktrees concurrently; otherwise concurrent runs share the default work root and corrupt each other per-file work dirs.

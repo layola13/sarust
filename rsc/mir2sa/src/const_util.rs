@@ -140,6 +140,31 @@ pub fn const_elem_ty(value: &str) -> Option<(&'static str, usize)> {
     if v == "true" || v == "false" {
         return Some(("bool", 1));
     }
+    // Static-address const: `Val(Scalar(allocN), *mut T)` / `*const T`
+    // (driver Debug for a `static` item address, e.g. 118's
+    // `_1 = Val(Scalar(alloc1), *mut i32)` for `static mut COUNTER`).
+    // The address itself is NOT materializable (no SA static-address
+    // literal), so callers needing a decimal (const_scalar_text,
+    // lower_adt_init) still fail -> loud. But the TYPE is known: a thin
+    // raw pointer, 8 bytes - the spill gate uses exactly this to keep
+    // multi-use copies alive (see spill::build_spill).
+    // Only `*` raw pointers: `&` refs may be fat (`&str`, `&[T]` are
+    // (ptr,len) pairs, not one 8-byte slot), so they stay untyped here.
+    // Placed before the text-form branch: a pointee type containing `_`
+    // would otherwise trip that branch's unknown-suffix `return None`.
+    if let Some(rest) = v.strip_prefix("Val(Scalar(") {
+        if let Some(comma) = rest.find(", ") {
+            // Payload is `allocN)` - the Scalar( paren closes before `, `.
+            let payload = rest[..comma].trim_end_matches(')');
+            let ty = rest[comma + 2..].trim_end_matches(')');
+            let is_alloc = payload
+                .strip_prefix("alloc")
+                .is_some_and(|n| n.chars().all(|c| c.is_ascii_digit()));
+            if is_alloc && ty.starts_with('*') {
+                return Some(("ptr", 8));
+            }
+        }
+    }
     if let Some(us) = v.rfind('_') {
         let suf = &v[us + 1..];
         // Text form suffix is a bare type name (no parens/commas/spaces).
@@ -191,4 +216,53 @@ pub fn const_elem_ty(value: &str) -> Option<(&'static str, usize)> {
     // `Val(Scalar(0x01), bool)` single-hex bool is covered above via suffix;
     // bare `0`/`1` without suffix cannot be typed -> caller keeps UNSUPPORTED.
     None
+}
+
+#[cfg(test)]
+mod const_elem_ty_tests {
+    use super::*;
+
+    #[test]
+    fn static_addr_raw_ptr_is_ptr() {
+        assert_eq!(
+            const_elem_ty("Val(Scalar(alloc1), *mut i32)"),
+            Some(("ptr", 8))
+        );
+        assert_eq!(
+            const_elem_ty("Val(Scalar(alloc12), *const u8)"),
+            Some(("ptr", 8))
+        );
+        // Bare `alloc` (no digits) is the same shape family.
+        assert_eq!(
+            const_elem_ty("Val(Scalar(alloc), *mut i32)"),
+            Some(("ptr", 8))
+        );
+    }
+
+    #[test]
+    fn static_addr_non_ptr_stays_untyped() {
+        // Fat refs are (ptr,len) pairs, not one slot.
+        assert_eq!(
+            const_elem_ty("Val(Scalar(alloc1), &'{erased} str)"),
+            None
+        );
+        // Alloc payload with a scalar type is not a pointer.
+        assert_eq!(const_elem_ty("Val(Scalar(alloc1), i32)"), None);
+        // Hex payload with a pointer type is a concrete address, not a
+        // static item: out of this gate's scope.
+        assert_eq!(
+            const_elem_ty("Val(Scalar(0x00000001), *mut i32)"),
+            None
+        );
+    }
+
+    #[test]
+    fn scalar_shapes_unchanged() {
+        assert_eq!(
+            const_elem_ty("Val(Scalar(0x00000001), i32)"),
+            Some(("i32", 4))
+        );
+        assert_eq!(const_elem_ty("7_u8"), Some(("u8", 1)));
+        assert_eq!(const_elem_ty("true"), Some(("bool", 1)));
+    }
 }

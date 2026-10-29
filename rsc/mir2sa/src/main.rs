@@ -14,6 +14,7 @@ mod borrow_end;
 mod const_util;
 mod drop;
 mod layout;
+mod link;
 mod lower;
 mod mir;
 mod order;
@@ -52,6 +53,7 @@ fn cmd_coverage(args: &[String]) -> ExitCode {
     // conflicts marked — lower and coverage share the identical input.
     let mir = MirFile {
         source: mir.source.clone(),
+        crate_name: mir.crate_name.clone(),
         functions: mir.functions.iter().map(version_function).collect(),
     };
     for f in &mir.functions {
@@ -299,7 +301,7 @@ fn cmd_parse(args: &[String]) -> ExitCode {
         total_uns += u;
     }
     let nstmt: usize = blocks.iter().map(|b| b.statements.len()).sum();
-    let mir = MirFile { source: Some("rustc -Zunpretty=mir (real compiler output)".to_string()), functions: vec![Function { name: fname, locals: vec![], params: vec![], ret: None, sig_ok: true, blocks }] };
+    let mir = MirFile { source: Some("rustc -Zunpretty=mir (real compiler output)".to_string()), crate_name: None, functions: vec![Function { name: fname, path: None, locals: vec![], params: vec![], ret: None, sig_ok: true, blocks }] };
     let json = serde_json::to_string_pretty(&mir).unwrap();
     if std::fs::write(&out, json).is_err() {
         eprintln!("write {}", out);
@@ -312,12 +314,13 @@ fn cmd_parse(args: &[String]) -> ExitCode {
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.is_empty() {
-        eprintln!("usage: mir2sa <parse|lower|coverage> ...");
+        eprintln!("usage: mir2sa <parse|lower|coverage|link> ...");
         return ExitCode::from(2);
     }
     match args[0].as_str() {
         "parse" => cmd_parse(&args[1..]),
         "lower" => cmd_lower(&args[1..]),
+        "link" => crate::link::cmd_link(&args[1..]),
         "coverage" => cmd_coverage(&args[1..]),
         _ => { eprintln!("unknown subcommand {}", args[0]); ExitCode::from(2) }
     }
@@ -649,7 +652,7 @@ mod tests {
     }
 
     fn blank_fn(name: &str, blocks: Vec<Block>) -> Function {
-        Function { name: name.to_string(), locals: vec![], params: vec![], ret: None, sig_ok: true, blocks }
+        Function { name: name.to_string(), path: None, locals: vec![], params: vec![], ret: None, sig_ok: true, blocks }
     }
 
     fn blank_block(id: &str, term: Term) -> Block {
@@ -961,7 +964,7 @@ mod tests {
         let sa = lower_function(&f, &mut unsup);
         assert!(unsup.is_empty());
         assert!(sa.contains("@f_typed(_1: ptr) -> i32:"), "header:\n{}", sa);
-        let mir = MirFile { source: None, functions: vec![f] };
+        let mir = MirFile { source: None, crate_name: None, functions: vec![f] };
         let exts = collect_externs(&mir);
         assert_eq!(
             exts.get("some_fn"),

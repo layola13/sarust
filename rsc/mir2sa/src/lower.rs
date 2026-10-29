@@ -542,6 +542,45 @@ pub fn extern_decl(name: &str, sig: &Option<(Vec<String>, String)>) -> String {
     }
 }
 
+/// Assemble the .sa text for an already-versioned MirFile: `@extern`
+/// closure decls plus one body per function. Shared by `lower` (one
+/// input file) and `link` (several merged files) so both emit the
+/// same header/extern/body shape; returns (sa_text, unsupported).
+pub fn render_sa(mir: &MirFile) -> (String, Vec<String>) {
+    let mut unsup = vec![];
+    // Bodies joined by "\n"; each body already ends with one trailing newline.
+    // sla convention: `@extern` decls for all called-but-undefined symbols.
+    let mut sa_compat = String::from("@import \"sa_std/io/print.sai\"\n@import \"sa_std/num.sai\"\n\n");
+    let mut exts = collect_externs(mir);
+    let bodies: Vec<String> = mir.functions.iter().map(|f| lower_function(f, &mut unsup)).collect();
+    if bodies.iter().any(|b| b.contains("sa_mem_set")) {
+        // Repeat lowering emits `call @sa_mem_set` directly (not via Rvalue::Call).
+        // Signature mirrors `sci/sa_std/core/mem.sa` (`&dst: ptr, val: u8, count: u64 -> void`).
+        exts.insert(
+            "sa_mem_set".to_string(),
+            Some((vec!["ptr".to_string(), "u8".to_string(), "u64".to_string()], "void".to_string())),
+        );
+    }
+    if bodies.iter().any(|b| b.contains("sa_thread_local_slot")) {
+        // ThreadLocal lowering emits `call @sa_thread_local_slot` directly
+        // (registry lives in sci/sa_std/thread_local.sai: `(key: u64) -> ptr`).
+        exts.insert(
+            "sa_thread_local_slot".to_string(),
+            Some((vec!["u64".to_string()], "ptr".to_string())),
+        );
+    }
+    if !exts.is_empty() {
+        sa_compat += "// MIR callees (map to sci/sa_std per STD_MAP.md):\n";
+        for (e, sig) in &exts {
+            sa_compat += &extern_decl(e, sig);
+            sa_compat += "\n";
+        }
+        sa_compat += "\n";
+    }
+    sa_compat += &bodies.join("\n");
+    (sa_compat, unsup)
+}
+
 pub fn cmd_lower(args: &[String]) -> ExitCode {
     let (mut input, mut out, mut strict) = (None, None, false);
     let mut i = 0;
@@ -569,39 +608,11 @@ pub fn cmd_lower(args: &[String]) -> ExitCode {
     // SSA versioning (see version.rs): same transform coverage applies.
     let mir = MirFile {
         source: mir.source.clone(),
+        crate_name: mir.crate_name.clone(),
         functions: mir.functions.iter().map(crate::version::version_function).collect(),
     };
-    let mut unsup = vec![];
-    // Bodies joined by "\n"; each body already ends with one trailing newline.
-    // sla convention: `@extern` decls for all called-but-undefined symbols.
-    let mut sa_compat = String::from("@import \"sa_std/io/print.sai\"\n@import \"sa_std/num.sai\"\n\n");
-    let mut exts = collect_externs(&mir);
-    let bodies: Vec<String> = mir.functions.iter().map(|f| lower_function(f, &mut unsup)).collect();
-    if bodies.iter().any(|b| b.contains("sa_mem_set")) {
-        // Repeat lowering emits `call @sa_mem_set` directly (not via Rvalue::Call).
-        // Signature mirrors `sci/sa_std/core/mem.sa` (`&dst: ptr, val: u8, count: u64 -> void`).
-        exts.insert(
-            "sa_mem_set".to_string(),
-            Some((vec!["ptr".to_string(), "u8".to_string(), "u64".to_string()], "void".to_string())),
-        );
-    }
-    if bodies.iter().any(|b| b.contains("sa_thread_local_slot")) {
-        // ThreadLocal lowering emits `call @sa_thread_local_slot` directly
-        // (registry lives in sci/sa_std/thread_local.sai: `(key: u64) -> ptr`).
-        exts.insert(
-            "sa_thread_local_slot".to_string(),
-            Some((vec!["u64".to_string()], "ptr".to_string())),
-        );
-    }
-    if !exts.is_empty() {
-        sa_compat += "// MIR callees (map to sci/sa_std per STD_MAP.md):\n";
-        for (e, sig) in &exts {
-            sa_compat += &extern_decl(e, sig);
-            sa_compat += "\n";
-        }
-        sa_compat += "\n";
-    }
-    sa_compat += &bodies.join("\n");
+    let (sa_compat, unsup) = render_sa(&mir);
+
     if std::fs::write(&out, &sa_compat).is_err() {
         eprintln!("write {}", out);
         return ExitCode::from(2);

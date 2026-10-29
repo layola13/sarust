@@ -1,6 +1,6 @@
 # sarust 开发计划 ROADMAP（2026-10-29 修订：Cargo 提前）
 
-目标：支持所有 Rust 特性。节奏：每簇定向验证 + 全量扫表零回退 + 本地 commit（不 push）。
+目标：支持所有 Rust 特性。节奏：每簇定向验证 + 全量扫表零回退 + 及时 commit + push（2026-10-29 用户改令，不再只留本地）。
 方向问 Jev；低置信度先只读诊断/复核波及面再动手。sci/sla 及其他插件仓库只读，改动只落在 sarust。
 新特性先 loud 标记再实现，绝不静默吞。
 
@@ -10,7 +10,7 @@
 - sars 改名重做：rsc_driver → sars（build.sh 尊重 RUSTUP_TOOLCHAIN；运行须 LD_LIBRARY_PATH=<sysroot>/lib）
 - demos 全量扫表，重建 T28 基线（GREEN/CHECK_ONLY/TRAP/SARS_FAIL/loud）
 - 按旧簇记录重走，恢复到 TRAP 5 水平：phi 版本化 → UAM spill → phi2a 字面量 seeding → versioned_computed_source → borrow_end → callterm_308 → drop_glue_57_65 → reb_137_193 → uam_09_counting（SetDisc 计数门）
-- 验收：驱动编出冒烟（hi.rs 出 mir.json，APPROX=0）；基线表落盘；旧簇全部重提交（本地）
+- 验收：驱动编出冒烟（hi.rs 出 mir.json，APPROX=0）；基线表落盘；旧簇全部重提交并推送
 
 ## Phase 1：Cargo 工程（提前，原 Phase 5；一切的基础）
 - 为什么提前：真实 Rust 代码都活在 Cargo 工程里，不是单文件；没有 Cargo，网络（tokio 依赖）、宏（proc-macro crate）、插件（依赖）都立不住；多文件 mod 树本身也是基础能力。

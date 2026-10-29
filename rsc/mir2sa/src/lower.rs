@@ -477,6 +477,24 @@ pub fn lower_function(f: &Function, unsup: &mut Vec<String>) -> String {    // T
         }
         let mut frees = crate::drop::exit_frees(&lines_by_orig, &doms, f.params.len());
         let mut tfrees = crate::drop::temp_frees(&lines_by_orig);
+        // Block-local plain-move frees (see drop::move_frees): merged
+        // into the temp set so the same one-direction cross-filter with
+        // exit_frees applies, and deduped against temp_frees (an
+        // `_as_*`/`_sw_*` base temp is a plain move too, but move_frees
+        // already excludes that class; the dedup is belt-and-braces
+        // against any future overlap producing a double free).
+        {
+            let already: std::collections::BTreeSet<String> =
+                tfrees.values().flatten().cloned().collect();
+            for (bi, v) in crate::drop::move_frees(&lines_by_orig) {
+                let e = tfrees.entry(bi).or_default();
+                for r in v {
+                    if !already.contains(&r) && !e.contains(&r) {
+                        e.push(r);
+                    }
+                }
+            }
+        }
         // A temp already released at an exit keeps that release (the exit list
         // is dominance-verified, the block-local one is heuristic). Filter in
         // ONE direction only: cross-filtering both ways would drop a register

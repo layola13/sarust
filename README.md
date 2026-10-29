@@ -1,6 +1,6 @@
 # sa_plugin_rsc — Rust → SA (rsc → rs → sa), 100% Rust, 0 Python
 
-> 状态：真跑通。官方 rustc 做检查并产 MIR，`rsc_driver`（rustc_private）
+> 状态：真跑通。官方 rustc 做检查并产 MIR，`sars`（rustc_private）
 > 劫持 MIR → mir.json，`mir2sa`（纯 Rust）→ `.sa`，与 `tsgo → sci` 同构。
 > `bc2sa`（猜 LLVM bitcode）退役为实验对照。
 
@@ -9,7 +9,7 @@
   |
   +--(官方 rustc 前端: parse / resolve / hir / typeck / borrowck, 100% 官方)--> MIR
   |
-  +--(rsc_driver: rustc_driver + rustc_private, after_analysis 劫持)--> mir.json
+  +--(sars: rustc_driver + rustc_private, after_analysis 劫持)--> mir.json
   |
   +--(mir2sa lower: mir.json --> .sa, 复用 sci/sa_std, 落法对齐 sa_plugin_sla)--> .sa
 ```
@@ -54,7 +54,7 @@ sa_plugin_rsc/
 # 0. 真 Rust 工程
 cargo run --manifest-path /tmp/rsc_demo/Cargo.toml   # a=hi sum=10 moved len=4 big
 # 1. 真劫持（官方 API，borrowck 失败则拒绝输出，保证零错误输入）
-./rsc/driver/target/rsc_driver --edition 2021 /tmp/rsc_demo/src/main.rs \
+./rsc/driver/target/sars --edition 2021 /tmp/rsc_demo/src/main.rs \
     --rsc-out /tmp/driver.mir.json --crate-type bin  # APPROX=0
 # 2. 真后端（sla 落法：@extern 闭包 + &/^/!）
 ./rsc/target/debug/mir2sa lower /tmp/driver.mir.json --out /tmp/driver.sa

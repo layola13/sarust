@@ -1,4 +1,4 @@
-//! rsc_driver: real rustc_private driver — `.rs -> MIR -> mir.json`.
+//! sars: real rustc_private driver — `.rs -> MIR -> mir.json`.
 //!
 //! Official compiler does 100% checking (parse/resolve/hir/typeck/borrowck);
 //! we only hijack the resulting MIR in `after_analysis` and dump the stable
@@ -9,7 +9,7 @@
 //! Build (needs nightly + rustc-dev, both present):
 //!   ./build.sh
 //! Run:
-//!   ./target/rsc_driver --edition 2021 /tmp/rsc_demo/src/main.rs \
+//!   ./target/sars --edition 2021 /tmp/rsc_demo/src/main.rs \
 //!       --rsc-out /tmp/driver.mir.json --crate-type bin
 
 #![feature(rustc_private)]
@@ -41,7 +41,7 @@ mod util;
 impl Callbacks for RscCallbacks {
     fn after_analysis<'tcx>(&mut self, _compiler: &Compiler, tcx: TyCtxt<'tcx>) -> Compilation {
         if tcx.dcx().err_count() > 0 {
-            eprintln!("rsc_driver: analysis had errors; refusing to emit mir.json");
+            eprintln!("sars: analysis had errors; refusing to emit mir.json");
             std::process::exit(1);
         }
         let mut out = String::from("{\"source\": \"rsc_driver (rustc_private, real MIR)\", \"functions\": [");
@@ -69,10 +69,10 @@ impl Callbacks for RscCallbacks {
         out.push_str("]}");
         let approx = out.matches("RuntimeChecks-unsupported").count();
         if let Err(e) = std::fs::write(&self.out, &out) {
-            eprintln!("rsc_driver: write {}: {}", self.out, e);
+            eprintln!("sars: write {}: {}", self.out, e);
             std::process::exit(1);
         }
-        eprintln!("rsc_driver: wrote {} APPROX={}", self.out, approx);
+        eprintln!("sars: wrote {} APPROX={}", self.out, approx);
         Compilation::Stop
     }
 }
@@ -80,7 +80,7 @@ impl Callbacks for RscCallbacks {
 fn main() {
     let raw: Vec<String> = std::env::args().collect();
     let mut out = String::from("out.mir.json");
-    let mut rustc_args: Vec<String> = vec![raw.get(0).cloned().unwrap_or_else(|| "rsc_driver".to_string())];
+    let mut rustc_args: Vec<String> = vec![raw.get(0).cloned().unwrap_or_else(|| "sars".to_string())];
     let mut i = 1;
     while i < raw.len() {
         if raw[i] == "--rsc-out" {

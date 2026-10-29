@@ -10,6 +10,7 @@
 //!   Rvalue::Ref       -> &p        Terminator::Drop(p) -> !p
 
 mod asm;
+mod cargo;
 mod borrow_end;
 mod const_util;
 mod drop;
@@ -312,12 +313,13 @@ fn cmd_parse(args: &[String]) -> ExitCode {
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.is_empty() {
-        eprintln!("usage: mir2sa <parse|lower|coverage> ...");
+        eprintln!("usage: mir2sa <parse|lower|coverage|cargo> ...");
         return ExitCode::from(2);
     }
     match args[0].as_str() {
         "parse" => cmd_parse(&args[1..]),
         "lower" => cmd_lower(&args[1..]),
+        "cargo" => ExitCode::from(crate::cargo::run_cargo_cli(&args[1..]) as u8),
         "coverage" => cmd_coverage(&args[1..]),
         _ => { eprintln!("unknown subcommand {}", args[0]); ExitCode::from(2) }
     }

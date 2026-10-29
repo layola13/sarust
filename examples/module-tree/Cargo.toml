@@ -1,0 +1,8 @@
+[package]
+name = "modtree_demo"
+version = "0.1.0"
+edition = "2021"
+
+# Stream 8 fixture: multi-file mod tree. Cargo.toml is layout realism
+# for stream 7's parser; build-project.sh takes the crate root explicitly
+# and does not parse this file yet.

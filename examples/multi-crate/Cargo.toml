@@ -1,0 +1,8 @@
+[workspace]
+members = ["mylib", "mybin"]
+resolver = "2"
+
+# Stream 8 fixture: path-dependency multi-crate project. Cargo.toml
+# files are layout realism for stream 7's parser; build-project.sh takes
+# the crates explicitly (deps first, bin last) and does not parse these
+# yet.

@@ -9,12 +9,20 @@ use serde::{Deserialize, Serialize};
 pub struct MirFile {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
+    /// Crate name from sars (top-level "crate" key), when present.
+    /// Absent for old mir.json and for `mir2sa parse` output.
+    #[serde(default, rename = "crate", skip_serializing_if = "Option::is_none")]
+    pub crate_name: Option<String>,
     pub functions: Vec<Function>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Function {
     pub name: String,
+    /// Full def path (crate::mod::fn) from sars, when present.
+    /// Absent for old mir.json and for mir2sa parse output.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
     #[serde(default)]
     pub locals: Vec<serde_json::Value>,
     #[serde(default)]

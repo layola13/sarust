@@ -28,6 +28,7 @@ use rustc_interface::interface::Compiler;
 use rustc_middle::ty::TyCtxt;
 
 use crate::emit::body_json;
+use crate::util::esc;
 
 struct RscCallbacks {
     out: String,
@@ -44,7 +45,13 @@ impl Callbacks for RscCallbacks {
             eprintln!("sars: analysis had errors; refusing to emit mir.json");
             std::process::exit(1);
         }
-        let mut out = String::from("{\"source\": \"rsc_driver (rustc_private, real MIR)\", \"functions\": [");
+        // Crate name for link identity: local def paths are crate-relative
+        // (e.g. `m1::compute`), while cross-crate call paths are qualified
+        // (`mylib::triple`); mir2sa link prefixes local paths with this name.
+        let krate = tcx.crate_name(rustc_span::def_id::LOCAL_CRATE).to_string();
+        let mut out = String::from("{\"source\": \"rsc_driver (rustc_private, real MIR)\", \"crate\": \"");
+        esc(&krate, &mut out);
+        out.push_str("\", \"functions\": [");
         let mut first = true;
         for owner in tcx.hir_body_owners() {
             let did = owner.to_def_id();
@@ -64,7 +71,7 @@ impl Callbacks for RscCallbacks {
                 out.push_str(", ");
             }
             first = false;
-            body_json(tcx, tcx.param_env(did), short, body, &mut out);
+            body_json(tcx, tcx.param_env(did), short, &path, body, &mut out);
         }
         out.push_str("]}");
         let approx = out.matches("RuntimeChecks-unsupported").count();

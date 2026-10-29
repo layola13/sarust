@@ -228,6 +228,7 @@ pub fn version_function(f: &Function) -> Function {
     if multi.is_empty() {
         return Function {
             name: f.name.clone(),
+            path: f.path.clone(),
             locals: f.locals.clone(),
             params: f.params.clone(),
             ret: f.ret.clone(),
@@ -439,6 +440,7 @@ mod version_tests {
     fn mkfn(blocks: Vec<Block>) -> Function {
         Function {
             name: "f".to_string(),
+            path: None,
             locals: vec![],
             params: vec![],
             ret: None,

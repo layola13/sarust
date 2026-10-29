@@ -203,11 +203,19 @@ pub fn body_json<'tcx>(
     tcx: TyCtxt<'tcx>,
     param_env: ty::ParamEnv<'tcx>,
     name: &str,
+    path: &str,
     body: &Body<'tcx>,
     into: &mut String,
 ) {
     into.push_str("{\"name\": \"");
     esc(name, into);
+    // Full def path (crate::mod::fn): mir2sa link resolves same-name
+    // functions from different modules/crates through this, and rewrites
+    // cross-crate call sites (whose short func may carry a crate prefix
+    // from the Debug fallback) to the linked definition name.
+    // Additive: old mir.json without path still parses (serde default).
+    into.push_str("\", \"path\": \"");
+    esc(path, into);
     into.push_str("\", \"locals\": [], ");
     // Callee-visible signature: MIR arg locals `_1..=_arg_count` plus the
     // return-place type, mapped to SA tys (opaque `ptr` fallback). The

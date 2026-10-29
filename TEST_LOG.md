@@ -738,6 +738,33 @@ targets 的 bug，Rust 版已修正；另 `(_4.0: T)` 投影归一到基 local�
   纯记账修正；命名变化：sci 11 条 / sla 10 条 `SwitchConstValue` →
   `SwitchConflict`（它们本就是合流冲突）。测试 67/67。
 
+## leak-129：plain-move 目标的块内释放（129 泄漏消除，零回退）
+
+- 诊断（sa-check 探针，非理论）：129 基线为 TRAP，`sa check` 报
+  `error[MemoryLeak]: _mv_bb11_0`（sars 0 / mir2sa 0 / sa 1，loud 5）。
+  逐个补 `!` 实测：只补 `_mv_bb11_0/_mv_bb11_1` 仍报 `_32_v0`；
+  只补 `_32_v0` 仍报 `_mv_bb11_0`；两组都补则 `check ok`。其余未释放
+  寄存器（`_27` and 结果、`_21_v0` eq 结果、`_mv_bb12_0` 字面量 move、
+  `_as_bb9_eq` 分支读）此时均不泄漏——操作结果本身不是泄漏的
+  Active 所有者，泄漏的是 plain-move（`r = s`）转移后的目标。
+- 根因一句话：泄漏的两个 plain-move 目标定义在不支配出口的块里
+  （bb11 的 `_mv_*`、bb15 的 `_32_v0`），`exit_frees` 的支配门跳过
+  它们，而 `temp_frees` 只管 `_as_/_sw_` 比较临时量（`_mv_` 因 T27
+  的 UseAfterMove 实测被有意排除在外）。
+- 修复（`drop::move_frees`，Jev jev-1.14.0 定向 general_move_frees，
+  置信度 1.0）：新增严格门控的块内释放——单函数内恰好定义一次的
+  plain-move 目标、只在本块被提及、直行块（无块内中部标签、末行
+  为终结符）、从未被 move/释放/分支读取、不是借用源；满足才在块末
+  终结符前插 `!`。`_as_/_sw_` 排除在外（仍属 `temp_frees`），两类在
+  `lower.rs` 合并后复用已有的出口单向交叉过滤，杜绝双释。`_mv_`
+  只走这条窄门，不重进 `temp_frees`。
+- 实测：单元测试 69/69（新增 2 个 `move_frees` 用例）；129 定向
+  `sa check ok`，loud 仍 5（TRAP → CHECK_ONLY，非 GREEN 是诚实的，
+  Rem 等仍 loud）；全量扫表 --force 332 文件：GREEN 139 不变、
+  CHECK_ONLY 117→119、TRAP 63→61、SARS_FAIL 13 不变、loud 516
+  不变，零回退。变好的第二项是 182_mmap_memory_mapping（同为
+  MemoryLeak，同机制；该文件属另一流，合入时请协调员消歧）。
+
 ## 环境备注（不是仓库问题，但会反复咬人）
 
 - 本会话中 `cargo build` 突然全面失败，症状是 rustc 报 `<anon>:1: warning:

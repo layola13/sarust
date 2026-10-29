@@ -213,11 +213,133 @@ pub fn temp_frees(body_lines: &[Vec<String>]) -> BTreeMap<usize, Vec<String>> {
 
 /// The backend's own synthetic, block-local temporaries:
 /// `_as_*` (assert cond) and `_sw_*` (switch-int cond) plus their `_eq*`
-/// compare temps. `_mv_*` is deliberately EXCLUDED: extending the class to it
-/// was measured to introduce UseAfterMove (a move-binding temp is consumed by
-/// a statement whose operands interleave with the free).
+/// compare temps. `_mv_*` is deliberately EXCLUDED here: extending this
+/// class to it was measured to introduce UseAfterMove. Move temps are
+/// handled instead by `move_frees` below, under strictly narrower gates
+/// (single definition, single-block mention, straight-line block, never
+/// moved, never a borrow source) that the compare-temp gates do not give.
 fn is_compare_temp(reg: &str) -> bool {
     reg.starts_with("_as_") || reg.starts_with("_sw_")
+}
+
+/// Per-block frees for plain-move dests (`r = s`, s a register) that leak
+/// for the same dominance reason as compare temps but are NOT compare
+/// temps: the move transfers ownership to `r`, and if the defining block
+/// does not dominate the exit, `exit_frees` skips `r` (129:
+/// `_mv_bb11_*` in bb11 and the versioned `_32_v0` in bb15, both plain
+/// moves in non-dominating blocks; operation results such as `_27 = and
+/// ...` and `_21_v0 = eq ...` do NOT leak, verified by sa-check probes
+/// on the real 129 output, so they are not in this class).
+///
+/// Gates (all must hold; anything else is left to `exit_frees`, i.e.
+/// under-freeing, never a speculative free):
+/// - the block is straight-line: no mid-block label (its first line is
+///   its own label) and its last line is a terminator (`jmp`/`br`/
+///   `return`/`panic`). The free is then inserted before the terminator,
+///   after every use in the block, on the block's sole path.
+/// - `r` is defined exactly once in the whole function, by that plain
+///   move, and mentioned in no other block (comment lines do not count
+///   as mentions: loud comments name dests in other blocks).
+/// - `r` is never freed anywhere, never plain-moved (a move would
+///   already consume it), never read by a `br`/`return` line in its
+///   block, and never a borrow source (its liveness could extend
+///   through a borrower past the block).
+/// - `_as_*`/`_sw_*` temps are excluded: they are `temp_frees`' domain
+///   (their base temps ARE plain moves, e.g. `_as_bb9 = _24`); the two
+///   classes must stay disjoint so a register is never freed twice.
+pub fn move_frees(body_lines: &[Vec<String>]) -> BTreeMap<usize, Vec<String>> {
+    let is_label = |l: &str| {
+        let t = l.trim();
+        t.starts_with("L_") && t.ends_with(':') && !t.contains(' ')
+    };
+    let is_comment = |l: &str| l.trim_start().starts_with("//");
+    let cls: Vec<Vec<LineUse>> =
+        body_lines.iter().map(|ls| ls.iter().map(|l| classify(l)).collect()).collect();
+    let mut def_count: BTreeMap<String, usize> = BTreeMap::new();
+    let mut moved: BTreeSet<String> = BTreeSet::new();
+    let mut freed_anywhere: BTreeSet<String> = BTreeSet::new();
+    let mut borrow_sources: BTreeSet<String> = BTreeSet::new();
+    let mut where_: BTreeMap<String, BTreeSet<usize>> = BTreeMap::new();
+    for (bi, ls) in body_lines.iter().enumerate() {
+        for u in cls[bi].iter() {
+            if let Some(d) = &u.def {
+                *def_count.entry(d.clone()).or_insert(0) += 1;
+            }
+            for m in &u.move_srcs {
+                moved.insert(m.clone());
+            }
+            for f in &u.freed {
+                freed_anywhere.insert(f.clone());
+            }
+            if let Some((_, src)) = &u.borrow {
+                borrow_sources.insert(src.clone());
+            }
+        }
+        for l in ls {
+            if is_comment(l) {
+                continue;
+            }
+            for r in regs_in(l.as_str()) {
+                where_.entry(r).or_default().insert(bi);
+            }
+        }
+    }
+    let mut out: BTreeMap<usize, Vec<String>> = BTreeMap::new();
+    for (bi, ls) in body_lines.iter().enumerate() {
+        if ls.is_empty() {
+            continue;
+        }
+        // Straight-line only: no label past the block's own first line.
+        if ls.iter().skip(1).any(|l| is_label(l)) {
+            continue;
+        }
+        // Last line must be a terminator; otherwise the insertion point
+        // (before the last line) is not provably after every use.
+        let last = ls.last().map(|l| l.trim_start()).unwrap_or("");
+        if !(last.starts_with("jmp ")
+            || last.starts_with("br ")
+            || last.starts_with("return")
+            || last.starts_with("panic("))
+        {
+            continue;
+        }
+        let br_return_reads: BTreeSet<String> = ls
+            .iter()
+            .filter(|l| {
+                let t = l.trim_start();
+                t.starts_with("br ") || t.starts_with("return ")
+            })
+            .flat_map(|l| regs_in(l.as_str()))
+            .collect();
+        let mut keep: Vec<String> = vec![];
+        for u in cls[bi].iter() {
+            let Some(d) = &u.def else { continue };
+            // Plain move only: exactly one move source, not a borrow.
+            if u.move_srcs.len() != 1 || u.borrow.is_some() {
+                continue;
+            }
+            if is_compare_temp(d) {
+                continue;
+            }
+            if def_count.get(d).is_some_and(|&n| n != 1) {
+                continue;
+            }
+            if moved.contains(d) || freed_anywhere.contains(d) || borrow_sources.contains(d) {
+                continue;
+            }
+            if !where_.get(d).is_some_and(|bs| bs.len() == 1 && bs.contains(&bi)) {
+                continue;
+            }
+            if br_return_reads.contains(d) {
+                continue;
+            }
+            keep.push(d.clone());
+        }
+        if !keep.is_empty() {
+            out.insert(bi, keep);
+        }
+    }
+    out
 }
 
 /// Compute per-Return-block free lists. `dom_sets` holds raw dominator sets
@@ -480,5 +602,62 @@ mod drop_tests {
         // No candidates left (return consumes _r) -> no entry at all.
         let frees = out.get(&3).cloned().unwrap_or_default();
         assert!(!frees.contains(&"_x".to_string()), "{:?}", frees);
+    }
+
+    #[test]
+    fn move_frees_branch_local() {
+        // 129 shape: _m0 is a plain move in a branch block, read by a
+        // compound op in the same block, never read elsewhere. The
+        // branch block does not dominate the exit, so exit_frees would
+        // skip it; move_frees releases it at the branch block's end.
+        let body = vec![
+            lines(&["L_bb0:", "_c = eq _1, 1", "br _c -> L_bb1, L_bb2"]),
+            lines(&["L_bb1:", "_t = eq 2, -1", "_m0 = _t", "_u = and _m0, 3", "jmp L_bb3"]),
+            lines(&["L_bb2:", "jmp L_bb3"]),
+            lines(&["L_bb3:", "return 0"]),
+        ];
+        let out = move_frees(&body);
+        assert_eq!(out.get(&1), Some(&vec!["_m0".to_string()]), "{:?}", out);
+        assert!(!out.contains_key(&0), "{:?}", out);
+        assert!(!out.contains_key(&3), "{:?}", out);
+    }
+
+    #[test]
+    fn move_frees_skips_moved_crossblock_br_and_midlabel() {
+        // Moved: _m is consumed by a later plain move -> freeing it
+        // would be UseAfterMove. (_x, the move's dest, IS a candidate
+        // and is the only free in this block.)
+        let body = vec![lines(&["L_bb0:", "_m = _t", "_x = _m", "return 0"])];
+        let out = move_frees(&body);
+        assert_eq!(out.get(&0), Some(&vec!["_x".to_string()]), "{:?}", out);
+        assert!(!out.values().flatten().any(|r| r == "_m"), "{:?}", out);
+        // Cross-block: _m is read in another block -> not block-local.
+        let body = vec![
+            lines(&["L_bb0:", "jmp L_bb1"]),
+            lines(&["L_bb1:", "_m = _t", "jmp L_bb2"]),
+            lines(&["L_bb2:", "_u = eq _m, 0", "return 0"]),
+        ];
+        assert!(move_frees(&body).is_empty(), "{:?}", move_frees(&body));
+        // Branch-read: _m is the br condition -> must outlive the block.
+        let body = vec![
+            lines(&["L_bb0:", "_m = _t", "br _m -> L_bb1, L_bb2"]),
+            lines(&["L_bb1:", "jmp L_bb3"]),
+            lines(&["L_bb2:", "jmp L_bb3"]),
+            lines(&["L_bb3:", "return 0"]),
+        ];
+        assert!(move_frees(&body).is_empty(), "{:?}", move_frees(&body));
+        // Mid-block label (assert fail arm): the block-end insertion
+        // point would sit on the fail arm only, not the main path.
+        let body = vec![
+            lines(&["L_bb0:", "_m = _t", "br _c -> L_bb1, L_as_fail", "L_as_fail:", "panic(1)"]),
+            lines(&["L_bb1:", "return 0"]),
+        ];
+        assert!(move_frees(&body).is_empty(), "{:?}", move_frees(&body));
+        // Borrow source: liveness extends through the borrower.
+        let body = vec![lines(&["L_bb0:", "_m = _t", "_b = &_m", "return 0"])];
+        assert!(move_frees(&body).is_empty(), "{:?}", move_frees(&body));
+        // Compare-temp domain: _as_ base temps stay with temp_frees.
+        let body = vec![lines(&["L_bb0:", "_as_bb0 = _t", "jmp L_bb1"]), lines(&["L_bb1:", "return 0"])];
+        assert!(move_frees(&body).is_empty(), "{:?}", move_frees(&body));
     }
 }

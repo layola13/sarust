@@ -1,0 +1,332 @@
+01_hello_world/main.rs	CHECK_ONLY	1	0	0	0	ok
+02_mutability/main.rs	GREEN	0	0	0	0	ok
+03_if_else/main.rs	TRAP	2	0	0	1	check-fail: error[PhiStateConflict]: incoming control-flow states do not agree
+04_loop/main.rs	TRAP	6	0	0	1	check-fail: error[PhiStateConflict]: incoming control-flow states do not agree
+05_struct/main.rs	TRAP	0	0	0	1	check-fail: error[UseAfterMove]: moved value is no longer usable
+06_enum_and_match/main.rs	TRAP	2	0	0	1	check-fail: error[UseAfterMove]: moved value is no longer usable
+07_trait_vtable/main.rs	CHECK_ONLY	1	0	0	0	ok
+08_closures/main.rs	CHECK_ONLY	1	0	0	0	ok
+09_async_await/main.rs	TRAP	19	0	0	1	check-fail: error[UseAfterMove]: moved value is no longer usable
+100_full_app/main.rs	CHECK_ONLY	1	0	0	0	ok
+101_custom_drop/main.rs	SARS_FAIL	0	101	0	0	rustc-reject
+102_raii_guard/main.rs	TRAP	5	0	0	1	check-fail: error[BorrowConflict]: borrow rules reject this access
+103_labeled_break/main.rs	TRAP	10	0	0	1	check-fail: error[PhiStateConflict]: incoming control-flow states do not agree
+104_if_let_chains/main.rs	SARS_FAIL	0	101	0	0	rustc-reject
+105_let_else/main.rs	TRAP	1	0	0	1	check-fail: error[PhiStateConflict]: incoming control-flow states do not agree
+106_cell_interior_mut/main.rs	CHECK_ONLY	1	0	0	0	ok
+107_refcell_dynamic_borrow/main.rs	GREEN	0	0	0	0	ok
+108_atomic_spin_lock/main.rs	TRAP	1	0	0	1	check-fail: error[PhiStateConflict]: incoming control-flow states do not agree
+109_atomic_fetch_add/main.rs	CHECK_ONLY	1	0	0	0	ok
+10_generics_monomorph/main.rs	TRAP	1	0	0	1	check-fail: error[UseAfterMove]: moved value is no longer usable
+110_trait_super_vtable/main.rs	CHECK_ONLY	2	0	0	0	ok
+111_extern_c_abi/main.rs	CHECK_ONLY	1	0	0	0	ok
+112_raw_pointer_arithmetic/main.rs	CHECK_ONLY	3	0	0	0	ok
+113_union_ffi_types/main.rs	GREEN	0	0	0	0	ok
+114_callback_from_c/main.rs	CHECK_ONLY	3	0	0	0	ok
+115_opaque_pointers/main.rs	CHECK_ONLY	1	0	0	0	ok
+116_va_list_variadic/main.rs	CHECK_ONLY	1	0	0	0	ok
+117_inline_assembly/main.rs	GREEN	0	0	0	0	ok
+118_global_mutable_state/main.rs	TRAP	14	0	0	1	check-fail: error[UseAfterMove]: moved value is no longer usable
+119_simd_intrinsics/main.rs	CHECK_ONLY	1	0	0	0	ok
+11_tuples/main.rs	TRAP	0	0	0	1	check-fail: error[UseAfterMove]: moved value is no longer usable
+120_volatile_memory_access/main.rs	GREEN	0	0	0	0	ok
+121_rwlock_reader_writer/main.rs	CHECK_ONLY	2	0	0	0	ok
+122_condvar_wait_notify/main.rs	CHECK_ONLY	1	0	0	0	ok
+123_barrier_sync/main.rs	GREEN	0	0	0	0	ok
+124_thread_local_storage/main.rs	CHECK_ONLY	6	0	0	0	ok
+125_once_cell_lazy/main.rs	CHECK_ONLY	3	0	0	0	ok
+126_mpmc_channel/main.rs	TRAP	3	0	0	1	check-fail: error[UseAfterMove]: moved value is no longer usable
+127_hazard_pointers/main.rs	CHECK_ONLY	3	0	0	0	ok
+128_rcu_read_copy_update/main.rs	CHECK_ONLY	2	0	0	0	ok
+129_seqlock_optimistic/main.rs	TRAP	5	0	0	1	check-fail: error[MemoryLeak]: live registers remain at function exit
+12_destructuring/main.rs	TRAP	1	0	0	1	check-fail: error[UseAfterMove]: moved value is no longer usable
+130_park_unpark_thread/main.rs	TRAP	2	0	0	1	check-fail: error[UseAfterMove]: moved value is no longer usable
+131_waker_vtable_mechanics/main.rs	CHECK_ONLY	11	0	0	0	ok
+132_pinning_and_unpin/main.rs	CHECK_ONLY	1	0	0	0	ok
+133_select_macro_race/main.rs	SARS_FAIL	0	101	0	0	rustc-reject
+134_join_all_futures/main.rs	SARS_FAIL	0	101	0	0	rustc-reject
+135_async_streams/main.rs	SARS_FAIL	0	101	0	0	rustc-reject
+136_executor_task_queue/main.rs	SARS_FAIL	0	101	0	0	rustc-reject
+137_io_uring_submission/main.rs	TRAP	3	0	0	1	check-fail: error[UseAfterMove]: moved value is no longer usable
+138_epoll_kqueue_event/main.rs	CHECK_ONLY	1	0	0	0	ok
+139_cancellation_safety/main.rs	CHECK_ONLY	2	0	0	0	ok
+13_array_sum/main.rs	CHECK_ONLY	1	0	0	0	ok
+140_yield_now_suspend/main.rs	SARS_FAIL	0	101	0	0	rustc-reject
+141_dynamically_sized_types/main.rs	CHECK_ONLY	1	0	0	0	ok
+142_zero_sized_types/main.rs	GREEN	0	0	0	0	ok
+143_never_type_diverge/main.rs	CHECK_ONLY	2	0	0	0	ok
+144_phantom_data_marker/main.rs	GREEN	0	0	0	0	ok
+145_opaque_type_alias/main.rs	GREEN	0	0	0	0	ok
+146_never_type_fallback/main.rs	CHECK_ONLY	1	0	0	0	ok
+147_custom_dst_pointers/main.rs	CHECK_ONLY	1	0	0	0	ok
+148_transparent_repr/main.rs	GREEN	0	0	0	0	ok
+149_packed_repr/main.rs	TRAP	1	0	0	1	check-fail: error[UseAfterMove]: moved value is no longer usable
+14_slice_window/main.rs	GREEN	0	0	0	0	ok
+150_c_repr_alignment/main.rs	TRAP	1	0	0	1	check-fail: error[UseAfterMove]: moved value is no longer usable
+151_global_alloc_trait/main.rs	CHECK_ONLY	1	0	0	0	ok
+152_memory_layout_struct/main.rs	CHECK_ONLY	1	0	0	0	ok
+153_box_into_raw/main.rs	CHECK_ONLY	1	0	0	0	ok
+154_box_from_raw/main.rs	CHECK_ONLY	1	0	0	0	ok
+155_arena_allocator_bump/main.rs	CHECK_ONLY	1	0	0	0	ok
+156_slab_allocator_freelist/main.rs	CHECK_ONLY	1	0	0	0	ok
+157_aligned_alloc_simd/main.rs	GREEN	0	0	0	0	ok
+158_custom_dst_alloc/main.rs	CHECK_ONLY	1	0	0	0	ok
+159_mem_forget_leak/main.rs	CHECK_ONLY	1	0	0	0	ok
+15_string_bytes/main.rs	CHECK_ONLY	1	0	0	0	ok
+160_manually_drop_union/main.rs	GREEN	0	0	0	0	ok
+161_generic_associated_types/main.rs	SARS_FAIL	0	101	0	0	rustc-reject
+162_auto_traits_send_sync/main.rs	GREEN	0	0	0	0	ok
+163_object_safety_rules/main.rs	GREEN	0	0	0	0	ok
+164_trait_upcasting/main.rs	CHECK_ONLY	1	0	0	0	ok
+165_blanket_impl_resolution/main.rs	GREEN	0	0	0	0	ok
+166_specialization_fallback/main.rs	SARS_FAIL	0	101	0	0	rustc-reject
+167_const_generics_expansion/main.rs	CHECK_ONLY	1	0	0	0	ok
+168_type_alias_impl_trait/main.rs	SARS_FAIL	0	101	0	0	rustc-reject
+169_negative_impls/main.rs	SARS_FAIL	0	101	0	0	rustc-reject
+16_methods/main.rs	TRAP	3	0	0	1	check-fail: error[UseAfterMove]: moved value is no longer usable
+170_marker_traits/main.rs	GREEN	0	0	0	0	ok
+171_anyhow_dynamic_error/main.rs	CHECK_ONLY	1	0	0	0	ok
+172_eyre_color_eyre/main.rs	CHECK_ONLY	1	0	0	0	ok
+173_catch_unwind_panic/main.rs	CHECK_ONLY	2	0	0	0	ok
+174_backtrace_capture/main.rs	GREEN	0	0	0	0	ok
+175_thiserror_macro_derive/main.rs	CHECK_ONLY	1	0	0	0	ok
+176_result_flattening/main.rs	GREEN	0	0	0	0	ok
+177_unwrap_unwrap_err/main.rs	GREEN	0	0	0	0	ok
+178_panic_hook_override/main.rs	CHECK_ONLY	3	0	0	0	ok
+179_assert_macro_expansion/main.rs	CHECK_ONLY	3	0	0	0	ok
+17_associated_fn/main.rs	CHECK_ONLY	1	0	0	0	ok
+180_try_trait_v2/main.rs	GREEN	0	0	0	0	ok
+181_file_descriptor_raii/main.rs	CHECK_ONLY	3	0	0	0	ok
+182_mmap_memory_mapping/main.rs	TRAP	5	0	0	1	check-fail: error[MemoryLeak]: live registers remain at function exit
+183_signal_handling_setup/main.rs	TRAP	3	0	0	1	check-fail: error[UseAfterMove]: moved value is no longer usable
+184_pthread_spawn_join/main.rs	CHECK_ONLY	1	0	0	0	ok
+185_dynamic_lib_dlopen/main.rs	CHECK_ONLY	4	0	0	0	ok
+186_sqlite_c_api_binding/main.rs	TRAP	4	0	0	1	check-fail: error[UseAfterMove]: moved value is no longer usable
+187_opengl_context_swap/main.rs	TRAP	7	0	0	1	check-fail: error[UseAfterMove]: moved value is no longer usable
+188_websocket_frame_parse/main.rs	TRAP	12	0	0	1	check-fail: error[UseAfterMove]: moved value is no longer usable
+189_protobuf_varint_decode/main.rs	TRAP	9	0	0	1	check-fail: error[PhiStateConflict]: incoming control-flow states do not agree
+18_option_map/main.rs	CHECK_ONLY	1	0	0	0	ok
+190_base64_encode_simd/main.rs	TRAP	25	0	0	1	check-fail: error[UseAfterMove]: moved value is no longer usable
+191_macro_rules_ast_emit/main.rs	CHECK_ONLY	3	0	0	0	ok
+192_proc_macro_derive_ast/main.rs	TRAP	4	0	0	1	check-fail: error[UseAfterMove]: moved value is no longer usable
+193_attribute_macro_rewrite/main.rs	TRAP	5	0	0	1	check-fail: error[UseAfterMove]: moved value is no longer usable
+194_cfg_conditional_compilation/main.rs	CHECK_ONLY	1	0	0	0	ok
+195_build_script_codegen/main.rs	SARS_FAIL	0	101	0	0	rustc-reject
+196_lto_link_time_opt/main.rs	CHECK_ONLY	5	0	0	0	ok
+197_profile_guided_opt/main.rs	TRAP	4	0	0	1	check-fail: error[PhiStateConflict]: incoming control-flow states do not agree
+198_control_flow_guard_cfi/main.rs	CHECK_ONLY	6	0	0	0	ok
+199_address_sanitizer_asan/main.rs	TRAP	8	0	0	1	check-fail: error[UseAfterMove]: moved value is no longer usable
+19_result_question/main.rs	CHECK_ONLY	2	0	0	0	ok
+200_sa_asm_quine/main.rs	CHECK_ONLY	1	0	0	0	ok
+201_pkg_manifest_basic/main.rs	GREEN	0	0	0	0	ok
+202_pkg_dependencies_local/main.rs	GREEN	0	0	0	0	ok
+203_pkg_dependencies_git/main.rs	GREEN	0	0	0	0	ok
+204_pkg_dependencies_registry/main.rs	GREEN	0	0	0	0	ok
+205_pkg_cyclic_dependency_reject/main.rs	GREEN	0	0	0	0	ok
+206_pkg_version_resolution/main.rs	GREEN	0	0	0	0	ok
+207_pkg_multiple_versions_conflict/main.rs	GREEN	0	0	0	0	ok
+208_pkg_dev_dependencies/main.rs	GREEN	0	0	0	0	ok
+209_pkg_build_dependencies/main.rs	GREEN	0	0	0	0	ok
+20_boxed_value/main.rs	GREEN	0	0	0	0	ok
+210_pkg_workspace_root/main.rs	GREEN	0	0	0	0	ok
+211_pkg_workspace_inheritance/main.rs	GREEN	0	0	0	0	ok
+212_pkg_feature_flags/main.rs	GREEN	0	0	0	0	ok
+213_pkg_default_features/main.rs	GREEN	0	0	0	0	ok
+214_pkg_target_specific_deps/main.rs	GREEN	0	0	0	0	ok
+215_pkg_patch_override/main.rs	GREEN	0	0	0	0	ok
+216_pkg_profile_release/main.rs	GREEN	0	0	0	0	ok
+217_pkg_profile_debug/main.rs	GREEN	0	0	0	0	ok
+218_pkg_metadata_custom/main.rs	GREEN	0	0	0	0	ok
+219_pkg_bin_multiple/main.rs	GREEN	0	0	0	0	ok
+21_while_loop/main.rs	CHECK_ONLY	8	0	0	0	ok
+220_pkg_lib_dynamic/main.rs	GREEN	0	0	0	0	ok
+221_mod_relative_import/main.rs	GREEN	0	0	0	0	ok
+222_mod_absolute_import/main.rs	GREEN	0	0	0	0	ok
+223_mod_visibility_private/main.rs	GREEN	0	0	0	0	ok
+224_mod_reexport_pub_use/main.rs	GREEN	0	0	0	0	ok
+225_mod_namespace_prefix/main.rs	GREEN	0	0	0	0	ok
+226_mod_cyclic_import_detect/main.rs	GREEN	0	0	0	0	ok
+227_mod_shadowing_prevention/main.rs	GREEN	0	0	0	0	ok
+228_mod_iface_separation/main.rs	GREEN	0	0	0	0	ok
+229_mod_layout_injection/main.rs	GREEN	0	0	0	0	ok
+22_break_continue/main.rs	TRAP	8	0	0	1	check-fail: error[UseAfterMove]: moved value is no longer usable
+230_mod_std_prelude/main.rs	GREEN	0	0	0	0	ok
+231_mod_directory_module/main.rs	GREEN	0	0	0	0	ok
+232_mod_conditional_import/main.rs	GREEN	0	0	0	0	ok
+233_mod_alias_import/main.rs	GREEN	0	0	0	0	ok
+234_mod_unused_import_lint/main.rs	GREEN	0	0	0	0	ok
+235_mod_transitive_dependency/main.rs	GREEN	0	0	0	0	ok
+236_mod_extern_block_grouping/main.rs	GREEN	0	0	0	0	ok
+237_mod_inline_submodule/main.rs	GREEN	0	0	0	0	ok
+238_mod_path_resolution_order/main.rs	GREEN	0	0	0	0	ok
+239_mod_version_suffix_isolation/main.rs	GREEN	0	0	0	0	ok
+23_nested_loops/main.rs	TRAP	4	0	0	1	check-fail: error[PhiStateConflict]: incoming control-flow states do not agree
+240_mod_entry_point_override/main.rs	GREEN	0	0	0	0	ok
+241_contract_layout_stability/main.rs	GREEN	0	0	0	0	ok
+242_contract_opaque_struct/main.rs	GREEN	0	0	0	0	ok
+243_contract_sig_mismatch_link/main.rs	GREEN	0	0	0	0	ok
+244_contract_vtable_export/main.rs	GREEN	0	0	0	0	ok
+245_contract_generic_monomorph_share/main.rs	GREEN	0	0	0	0	ok
+246_contract_semver_minor_update/main.rs	GREEN	0	0	0	0	ok
+247_contract_semver_major_break/main.rs	GREEN	0	0	0	0	ok
+248_contract_ffi_boundary_trust/main.rs	GREEN	0	0	0	0	ok
+249_contract_macro_export/main.rs	GREEN	0	0	0	0	ok
+24_factorial/main.rs	CHECK_ONLY	4	0	0	0	ok
+250_contract_const_export/main.rs	GREEN	0	0	0	0	ok
+251_contract_resource_ownership/main.rs	GREEN	0	0	0	0	ok
+252_contract_error_code_mapping/main.rs	GREEN	0	0	0	0	ok
+253_contract_callback_registration/main.rs	GREEN	0	0	0	0	ok
+254_contract_plugin_system/main.rs	GREEN	0	0	0	0	ok
+255_contract_memory_allocator_swap/main.rs	GREEN	0	0	0	0	ok
+256_contract_panic_handler_propagate/main.rs	GREEN	0	0	0	0	ok
+257_contract_log_facade/main.rs	GREEN	0	0	0	0	ok
+258_contract_thread_local_isolation/main.rs	GREEN	0	0	0	0	ok
+259_contract_static_init_order/main.rs	GREEN	0	0	0	0	ok
+25_fibonacci/main.rs	TRAP	5	0	0	1	check-fail: error[PhiStateConflict]: incoming control-flow states do not agree
+260_contract_deprecated_warning/main.rs	GREEN	0	0	0	0	ok
+261_build_rs_codegen_saasm/main.rs	GREEN	0	0	0	0	ok
+262_build_bindgen_c_header/main.rs	GREEN	0	0	0	0	ok
+263_build_asset_bundling/main.rs	GREEN	0	0	0	0	ok
+264_build_env_var_injection/main.rs	GREEN	0	0	0	0	ok
+265_build_custom_linker_script/main.rs	GREEN	0	0	0	0	ok
+266_build_pre_compile_hook/main.rs	GREEN	0	0	0	0	ok
+267_build_post_compile_hook/main.rs	GREEN	0	0	0	0	ok
+268_build_cross_compile_wasm/main.rs	GREEN	0	0	0	0	ok
+269_build_cross_compile_windows/main.rs	GREEN	0	0	0	0	ok
+26_reference_return/main.rs	GREEN	0	0	0	0	ok
+270_build_sysroot_custom/main.rs	GREEN	0	0	0	0	ok
+271_build_optimization_passes/main.rs	GREEN	0	0	0	0	ok
+272_build_sanitizer_flags/main.rs	GREEN	0	0	0	0	ok
+273_build_test_harness/main.rs	GREEN	0	0	0	0	ok
+274_build_benchmark_runner/main.rs	GREEN	0	0	0	0	ok
+275_build_doc_generator/main.rs	GREEN	0	0	0	0	ok
+276_build_incremental_caching/main.rs	GREEN	0	0	0	0	ok
+277_build_parallel_compilation/main.rs	GREEN	0	0	0	0	ok
+278_build_reproducible_builds/main.rs	GREEN	0	0	0	0	ok
+279_build_artifact_caching_remote/main.rs	GREEN	0	0	0	0	ok
+27_move_semantics/main.rs	GREEN	0	0	0	0	ok
+280_build_ci_cd_integration/main.rs	GREEN	0	0	0	0	ok
+281_ffi_link_system_libc/main.rs	GREEN	0	0	0	0	ok
+282_ffi_link_static_c_lib/main.rs	GREEN	0	0	0	0	ok
+283_ffi_link_dynamic_c_lib/main.rs	GREEN	0	0	0	0	ok
+284_ffi_pkg_config_integration/main.rs	GREEN	0	0	0	0	ok
+285_ffi_objective_c_framework/main.rs	GREEN	0	0	0	0	ok
+286_ffi_rust_staticlib_integration/main.rs	GREEN	0	0	0	0	ok
+287_ffi_zig_export_integration/main.rs	GREEN	0	0	0	0	ok
+288_ffi_cxx_name_mangling/main.rs	GREEN	0	0	0	0	ok
+289_ffi_opaque_handle_passing/main.rs	GREEN	0	0	0	0	ok
+28_borrow_chains/main.rs	TRAP	1	0	0	1	check-fail: error[UseAfterMove]: moved value is no longer usable
+290_ffi_callback_thunk/main.rs	GREEN	0	0	0	0	ok
+291_eco_wasm_host_imports/main.rs	GREEN	0	0	0	0	ok
+292_eco_wasm_memory_export/main.rs	GREEN	0	0	0	0	ok
+293_eco_embedded_no_os/main.rs	GREEN	0	0	0	0	ok
+294_eco_os_kernel_module/main.rs	GREEN	0	0	0	0	ok
+295_eco_bpf_ebpf_bytecode/main.rs	GREEN	0	0	0	0	ok
+296_eco_gpu_ptx_shader/main.rs	GREEN	0	0	0	0	ok
+297_eco_game_engine_ecs/main.rs	GREEN	0	0	0	0	ok
+298_eco_cryptography_simd/main.rs	GREEN	0	0	0	0	ok
+299_eco_language_server_protocol/main.rs	GREEN	0	0	0	0	ok
+29_const_data/main.rs	CHECK_ONLY	2	0	0	0	ok
+300_eco_sa_lang_registry_publish/main.rs	GREEN	0	0	0	0	ok
+303_match_guard_macro/main.rs	TRAP	3	0	0	1	check-fail: error[UseAfterMove]: moved value is no longer usable
+304_while_let_macro/main.rs	TRAP	7	0	0	1	check-fail: error[PhiStateConflict]: incoming control-flow states do not agree
+305_range_pattern_macro/main.rs	TRAP	9	0	0	1	check-fail: error[UseAfterMove]: moved value is no longer usable
+306_or_pattern_macro/main.rs	CHECK_ONLY	2	0	0	0	ok
+307_at_binding_macro/main.rs	TRAP	7	0	0	1	check-fail: error[UseAfterMove]: moved value is no longer usable
+308_rest_pattern_macro/main.rs	TRAP	4	0	0	1	check-fail: error[PhiStateConflict]: incoming control-flow states do not agree
+309_try_block_macro/main.rs	SARS_FAIL	0	101	0	0	rustc-reject
+30_manual_guard_branch/main.rs	TRAP	2	0	0	1	check-fail: error[PhiStateConflict]: incoming control-flow states do not agree
+310_generator_yield_macro/main.rs	TRAP	5	0	0	1	check-fail: error[PhiStateConflict]: incoming control-flow states do not agree
+311_cstring_literal_macro/main.rs	CHECK_ONLY	1	0	0	0	ok
+312_dbg_macro/main.rs	CHECK_ONLY	6	0	0	0	ok
+313_matches_macro/main.rs	TRAP	5	0	0	1	check-fail: error[PhiStateConflict]: incoming control-flow states do not agree
+314_tail_call_become/main.rs	TRAP	4	0	0	1	check-fail: error[PhiStateConflict]: incoming control-flow states do not agree
+315_async_closure_macro/main.rs	CHECK_ONLY	4	0	0	0	ok
+316_select_with_patterns/main.rs	GREEN	0	0	0	0	ok
+317_for_each_iter_macro/main.rs	TRAP	4	0	0	1	check-fail: error[PhiStateConflict]: incoming control-flow states do not agree
+318_vec_literal_macro/main.rs	TRAP	2	0	0	1	check-fail: error[UseAfterMove]: moved value is no longer usable
+319_default_trait_macro/main.rs	CHECK_ONLY	1	0	0	0	ok
+31_trait_static_dispatch/main.rs	TRAP	1	0	0	1	check-fail: error[UseAfterMove]: moved value is no longer usable
+320_from_into_conversion/main.rs	CHECK_ONLY	4	0	0	0	ok
+321_operator_overload_macro/main.rs	TRAP	2	0	0	1	check-fail: error[UseAfterMove]: moved value is no longer usable
+322_deref_coercion_macro/main.rs	CHECK_ONLY	2	0	0	0	ok
+323_index_trait_macro/main.rs	TRAP	4	0	0	1	check-fail: error[UseAfterMove]: moved value is no longer usable
+324_drop_guard_macro/main.rs	GREEN	0	0	0	0	ok
+325_loop_break_value_macro/main.rs	CHECK_ONLY	6	0	0	0	ok
+326_lazy_static_macro/main.rs	CHECK_ONLY	2	0	0	0	ok
+327_thread_local_macro/main.rs	CHECK_ONLY	8	0	0	0	ok
+328_cfg_runtime_macro/main.rs	GREEN	0	0	0	0	ok
+329_assert_with_message/main.rs	CHECK_ONLY	5	0	0	0	ok
+32_trait_object_vector/main.rs	CHECK_ONLY	6	0	0	0	ok
+330_closure_with_state_macro/main.rs	CHECK_ONLY	4	0	0	0	ok
+331_rc_shared_ownership/main.rs	TRAP	0	0	0	1	check-fail: error[UseAfterMove]: moved value is no longer usable
+332_cell_interior_mutability/main.rs	GREEN	0	0	0	0	ok
+333_weak_cyclic_reference/main.rs	TRAP	2	0	0	1	check-fail: error[PhiStateConflict]: incoming control-flow states do not agree
+33_iterator_map/main.rs	CHECK_ONLY	1	0	0	0	ok
+34_iterator_filter/main.rs	GREEN	0	0	0	0	ok
+35_iterator_fold/main.rs	CHECK_ONLY	3	0	0	0	ok
+36_tuple_struct/main.rs	TRAP	2	0	0	1	check-fail: error[UseAfterMove]: moved value is no longer usable
+37_newtype/main.rs	GREEN	0	0	0	0	ok
+38_generic_struct_i32/main.rs	GREEN	0	0	0	0	ok
+39_generic_enum_i32/main.rs	TRAP	1	0	0	1	check-fail: error[PhiStateConflict]: incoming control-flow states do not agree
+40_impl_block_state/main.rs	CHECK_ONLY	2	0	0	0	ok
+41_module_imports/main.rs	CHECK_ONLY	1	0	0	0	ok
+42_export_visibility/main.rs	CHECK_ONLY	1	0	0	0	ok
+43_tagged_union/main.rs	CHECK_ONLY	4	0	0	0	ok
+44_slice_iteration/main.rs	CHECK_ONLY	1	0	0	0	ok
+45_config_merge/main.rs	TRAP	1	0	0	1	check-fail: error[UseAfterMove]: moved value is no longer usable
+46_option_default/main.rs	GREEN	0	0	0	0	ok
+47_tuple_swap/main.rs	TRAP	0	0	0	1	check-fail: error[UseAfterMove]: moved value is no longer usable
+48_generic_pair/main.rs	TRAP	0	0	0	1	check-fail: error[UseAfterMove]: moved value is no longer usable
+49_pipeline_map/main.rs	CHECK_ONLY	1	0	0	0	ok
+502_bare_crossdir_import_reject/main.rs	GREEN	0	0	0	0	ok
+50_error_chain/main.rs	CHECK_ONLY	1	0	0	0	ok
+51_refcount/main.rs	CHECK_ONLY	1	0	0	0	ok
+52_queue_rotate/main.rs	TRAP	0	0	0	1	check-fail: error[UseAfterMove]: moved value is no longer usable
+53_cache_hits/main.rs	CHECK_ONLY	2	0	0	0	ok
+54_mem_fill/main.rs	TRAP	5	0	0	1	check-fail: error[UseAfterMove]: moved value is no longer usable
+55_builder_pattern/main.rs	TRAP	4	0	0	1	check-fail: error[UseAfterMove]: moved value is no longer usable
+56_state_machine/main.rs	CHECK_ONLY	3	0	0	0	ok
+57_event_loop/main.rs	TRAP	3	0	0	1	check-fail: error[PhiStateConflict]: incoming control-flow states do not agree
+58_borrow_update/main.rs	CHECK_ONLY	2	0	0	0	ok
+59_method_counter/main.rs	CHECK_ONLY	2	0	0	0	ok
+60_enum_branch/main.rs	CHECK_ONLY	1	0	0	0	ok
+61_thread_pool/main.rs	CHECK_ONLY	3	0	0	0	ok
+62_channel_pingpong/main.rs	TRAP	0	0	0	1	check-fail: error[UseAfterMove]: moved value is no longer usable
+63_router_table/main.rs	CHECK_ONLY	3	0	0	0	ok
+64_file_manifest/main.rs	CHECK_ONLY	3	0	0	0	ok
+65_job_scheduler/main.rs	TRAP	3	0	0	1	check-fail: error[PhiStateConflict]: incoming control-flow states do not agree
+66_actor_mailbox/main.rs	CHECK_ONLY	2	0	0	0	ok
+67_resource_pool/main.rs	CHECK_ONLY	1	0	0	0	ok
+68_parser_tokens/main.rs	CHECK_ONLY	4	0	0	0	ok
+69_serializer/main.rs	CHECK_ONLY	1	0	0	0	ok
+70_integration_service/main.rs	CHECK_ONLY	1	0	0	0	ok
+71_pipeline_stage/main.rs	CHECK_ONLY	1	0	0	0	ok
+72_graph_walk/main.rs	TRAP	5	0	0	1	check-fail: error[UseAfterMove]: moved value is no longer usable
+73_scene_nodes/main.rs	CHECK_ONLY	1	0	0	0	ok
+74_component_store/main.rs	CHECK_ONLY	1	0	0	0	ok
+75_async_bridge/main.rs	GREEN	0	0	0	0	ok
+76_lockfree_counter/main.rs	GREEN	0	0	0	0	ok
+77_http_route/main.rs	CHECK_ONLY	1	0	0	0	ok
+78_cli_args/main.rs	CHECK_ONLY	2	0	0	0	ok
+79_metrics/main.rs	CHECK_ONLY	1	0	0	0	ok
+80_workflow/main.rs	CHECK_ONLY	1	0	0	0	ok
+81_kv_store/main.rs	CHECK_ONLY	2	0	0	0	ok
+82_sql_scan/main.rs	GREEN	0	0	0	0	ok
+83_blob_chunk/main.rs	CHECK_ONLY	1	0	0	0	ok
+84_sync_gate/main.rs	GREEN	0	0	0	0	ok
+85_scheduler_tree/main.rs	CHECK_ONLY	1	0	0	0	ok
+86_cache_eviction/main.rs	CHECK_ONLY	2	0	0	0	ok
+87_protocol_frame/main.rs	CHECK_ONLY	1	0	0	0	ok
+88_text_index/main.rs	CHECK_ONLY	3	0	0	0	ok
+89_job_queue/main.rs	CHECK_ONLY	1	0	0	0	ok
+90_app_shell/main.rs	CHECK_ONLY	4	0	0	0	ok
+91_db_session/main.rs	GREEN	0	0	0	0	ok
+92_query_plan/main.rs	CHECK_ONLY	1	0	0	0	ok
+93_log_aggregator/main.rs	CHECK_ONLY	1	0	0	0	ok
+94_graphql_router/main.rs	CHECK_ONLY	1	0	0	0	ok
+95_repl_shell/main.rs	CHECK_ONLY	1	0	0	0	ok
+96_task_orchestrator/main.rs	CHECK_ONLY	1	0	0	0	ok
+97_sync_service/main.rs	GREEN	0	0	0	0	ok
+98_build_pipeline/main.rs	CHECK_ONLY	1	0	0	0	ok
+99_release_bundle/main.rs	CHECK_ONLY	3	0	0	0	ok

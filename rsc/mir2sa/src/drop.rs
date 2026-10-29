@@ -211,6 +211,139 @@ pub fn temp_frees(body_lines: &[Vec<String>]) -> BTreeMap<usize, Vec<String>> {
     out
 }
 
+/// Block-local release for MIR Move-operand temps (`_mv_*`).
+///
+/// Shape (182_mmap_memory_mapping, 129_seqlock_optimistic): a branch block
+/// binds `_mv_bbN_K = <local>` and consumes it in one statement of the same
+/// block (`_v = eq _mv_bbN_K, ...`), then joins a bypass block. The exit
+/// block is dominated by neither branch, so `exit_frees` (dominance-gated)
+/// never releases the temp and `sa check` traps MemoryLeak at `return`.
+/// Releasing at the exit is unsound (UnknownRegister on the bypass path,
+/// the `_constant_0_` incident); extending `temp_frees` to `_mv_` broke
+/// UseAfterMove when the temp was consumed by the terminator. So the release
+/// goes immediately after the temp LAST use inside its own block, and only
+/// when every guard holds:
+/// - defined exactly once, in block B;
+/// - every non-comment mention is in B (temps are single-statement bindings
+///   by construction; a cross-block mention vetoes);
+/// - never move-consumed (`x = _mv_...`), never borrowed-from
+///   (`x = &_mv_...`), never already freed (`!_mv_...`) anywhere;
+/// - every non-def mention is a read on a computation line (`dest = <op> ...`
+///   with a read mnemonic); call/store/branch/return mentions veto, since
+///   their ownership shape is not a plain read;
+/// - the last use follows the def, is not the block last line (a
+///   terminator must not be followed by a label-less line), and no mid-block
+///   label sits between the def and the last use (same straight-line region).
+/// Returns per-block (insert-after line index, reg) pairs, sorted by line
+/// then reg. Callers must still exclude regs already released by
+/// `exit_frees` / `temp_frees` (double-free traps); this function does not
+/// know those lists.
+pub fn mv_frees(body_lines: &[Vec<String>]) -> BTreeMap<usize, Vec<(usize, String)>> {
+    const READ_OPS: [&str; 23] = [
+        "eq", "ne", "and", "or", "xor", "not", "neg", "sext", "zext", "trunc", "bitcast", "load",
+        "fptosi", "sitofp", "uitofp", "fpext", "fptrunc", "add", "sub", "mul", "div", "rem", "shl",
+    ];
+    let is_mv = |r: &str| r.starts_with("_mv_");
+    let is_label = |l: &str| {
+        let t = l.trim();
+        t.starts_with("L_") && t.ends_with(':') && !t.contains(' ')
+    };
+    let mut def_count: BTreeMap<String, usize> = BTreeMap::new();
+    let mut def_at: BTreeMap<String, (usize, usize)> = BTreeMap::new();
+    let mut mentions: BTreeMap<String, Vec<(usize, usize)>> = BTreeMap::new();
+    let mut moved: BTreeSet<String> = BTreeSet::new();
+    let mut borrowed_from: BTreeSet<String> = BTreeSet::new();
+    let mut freed: BTreeSet<String> = BTreeSet::new();
+    for (bi, ls) in body_lines.iter().enumerate() {
+        for (li, l) in ls.iter().enumerate() {
+            if l.trim_start().starts_with("//") {
+                continue;
+            }
+            let u = classify(l);
+            if let Some(d) = &u.def {
+                if is_mv(d) {
+                    *def_count.entry(d.clone()).or_insert(0) += 1;
+                    def_at.entry(d.clone()).or_insert((bi, li));
+                }
+            }
+            for m in &u.move_srcs {
+                if is_mv(m) {
+                    moved.insert(m.clone());
+                }
+            }
+            for f in &u.freed {
+                if is_mv(f) {
+                    freed.insert(f.clone());
+                }
+            }
+            if let Some((_, s)) = &u.borrow {
+                if is_mv(s) {
+                    borrowed_from.insert(s.clone());
+                }
+            }
+            for r in regs_in(l.as_str()) {
+                if is_mv(&r) {
+                    mentions.entry(r).or_default().push((bi, li));
+                }
+            }
+        }
+    }
+    let mut out: BTreeMap<usize, Vec<(usize, String)>> = BTreeMap::new();
+    for (r, &(dbi, dli)) in def_at.iter() {
+        if def_count.get(r).is_some_and(|&n| n != 1) {
+            continue;
+        }
+        if moved.contains(r) || borrowed_from.contains(r) || freed.contains(r) {
+            continue;
+        }
+        let ms = match mentions.get(r) {
+            Some(ms) => ms,
+            None => continue,
+        };
+        if ms.iter().any(|(b, _)| *b != dbi) {
+            continue;
+        }
+        let uses: Vec<usize> = ms
+            .iter()
+            .map(|(_, li)| *li)
+            .filter(|&li| li != dli)
+            .collect();
+        if uses.is_empty() {
+            continue;
+        }
+        let last = *uses.iter().max().unwrap();
+        if last <= dli {
+            continue;
+        }
+        let block = &body_lines[dbi];
+        if last + 1 >= block.len() {
+            continue;
+        }
+        if (dli..=last).any(|k| block.get(k).is_some_and(|l| is_label(l))) {
+            continue;
+        }
+        let read_ok = uses.iter().all(|&li| {
+            let line = block.get(li).map(|l| l.trim()).unwrap_or("");
+            match line.find(" = ") {
+                Some(eq) => {
+                    let rhs = line[eq + 3..].trim();
+                    let op = rhs.split_whitespace().next().unwrap_or("");
+                    READ_OPS.contains(&op)
+                }
+                None => false,
+            }
+        });
+        if !read_ok {
+            continue;
+        }
+        out.entry(dbi).or_default().push((last, r.clone()));
+    }
+    for v in out.values_mut() {
+        v.sort();
+    }
+    out
+}
+
 /// The backend's own synthetic, block-local temporaries:
 /// `_as_*` (assert cond) and `_sw_*` (switch-int cond) plus their `_eq*`
 /// compare temps. `_mv_*` is deliberately EXCLUDED here: extending this
@@ -517,6 +650,89 @@ mod drop_tests {
         // `_as_bb0_eq` is redefined in bb1 (two blocks mention it) and is read
         // by the branch in bb0: both veto a release.
         assert_eq!(out.get(&0), Some(&vec!["_as_bb0".to_string()]), "{:?}", out);
+    }
+
+    #[test]
+    fn mv_frees_branch_temp_after_last_use() {
+        // 182 shape: bb1 binds the temp and consumes it, bb2 bypasses,
+        // bb3 joins and returns. The temp is released after its use in bb1.
+        let body = vec![
+            lines(&["L_bb0:", "br _c -> L_bb1, L_bb2"]),
+            lines(&[
+                "L_bb1:",
+                "_mv_bb1_0 = _16",
+                "_11_v0 = eq _mv_bb1_0, 4",
+                "jmp L_bb3",
+            ]),
+            lines(&["L_bb2:", "_11_v1 = 0", "jmp L_bb3"]),
+            lines(&["L_bb3:", "return 0"]),
+        ];
+        let out = mv_frees(&body);
+        assert_eq!(
+            out.get(&1),
+            Some(&vec![(2, "_mv_bb1_0".to_string())]),
+            "{:?}",
+            out
+        );
+        assert!(!out.contains_key(&3), "{:?}", out);
+    }
+
+    #[test]
+    fn mv_frees_two_temps_one_use_line() {
+        // 129 shape: two temps consumed by a single `and`.
+        let body = vec![
+            lines(&["L_bb0:", "br _c -> L_bb1, L_bb2"]),
+            lines(&[
+                "L_bb1:",
+                "_mv_bb1_0 = _25",
+                "_mv_bb1_1 = _26",
+                "_27 = and _mv_bb1_0, _mv_bb1_1",
+                "jmp L_bb3",
+            ]),
+            lines(&["L_bb2:", "jmp L_bb3"]),
+            lines(&["L_bb3:", "return 0"]),
+        ];
+        let out = mv_frees(&body);
+        assert_eq!(
+            out.get(&1),
+            Some(&vec![
+                (3, "_mv_bb1_0".to_string()),
+                (3, "_mv_bb1_1".to_string())
+            ]),
+            "{:?}",
+            out
+        );
+    }
+
+    #[test]
+    fn mv_frees_skips_moved_borrowed_freed_and_cross_block() {
+        let body = vec![
+            lines(&["L_bb0:", "_mv_bb0_0 = _1", "_6 = _mv_bb0_0", "jmp L_bb2"]),
+            lines(&["L_bb1:", "_mv_bb1_0 = _2", "_x = &_mv_bb1_0", "jmp L_bb2"]),
+            lines(&[
+                "L_bb2:",
+                "_mv_bb2_0 = _3",
+                "_y = eq _mv_bb2_0, 0",
+                "!_mv_bb2_0",
+                "jmp L_bb3",
+            ]),
+            lines(&["L_bb3:", "_z = eq _mv_bb0_0, 1", "return 0"]),
+        ];
+        // Moved (bb0), borrowed-from (bb1), already freed (bb2) all veto;
+        // the bb0 temp is additionally mentioned cross-block (bb3).
+        assert!(mv_frees(&body).is_empty(), "{:?}", mv_frees(&body));
+    }
+
+    #[test]
+    fn mv_frees_skips_terminator_use() {
+        // The temp only use is the branch itself: no label-less line may
+        // follow the terminator, and the read-shape gate vetoes it anyway.
+        let body = vec![
+            lines(&["L_bb0:", "_mv_bb0_0 = _1", "br _mv_bb0_0 -> L_bb1, L_bb2"]),
+            lines(&["L_bb1:", "return 0"]),
+            lines(&["L_bb2:", "return 0"]),
+        ];
+        assert!(mv_frees(&body).is_empty(), "{:?}", mv_frees(&body));
     }
 
     #[test]

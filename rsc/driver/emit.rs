@@ -1,22 +1,51 @@
 //! rsc_driver::emit.
 use crate::place::{place_name, place_via};
-use crate::tyinfo::{aggregate_layout, fn_operand_sig, operand_ty_short, resolve_const, str_const_bytes, ty_sa_sig_opt};
+use crate::tyinfo::{aggregate_layout, fn_operand_sig, operand_ty_short, place_proj, resolve_const, str_const_bytes, ty_sa_sig_opt};
 use crate::util::{bb_name, esc, local_name, sanitize, trunc};
 use rustc_ast::ast::InlineAsmTemplatePiece;
-use rustc_middle::mir::{Body, BorrowKind, Const, ConstOperand, InlineAsmOperand, Local, Operand, Rvalue, StatementKind, TerminatorKind};
+use rustc_middle::mir::{Body, BorrowKind, Const, ConstOperand, InlineAsmOperand, Local, Operand, Place, Rvalue, StatementKind, TerminatorKind};
 use rustc_middle::ty::{ConstKind, TyCtxt, TyKind};
 use rustc_middle::ty;
 use std::fmt::Write as _;
 
-pub fn operand_json<'a>(op: &Operand<'a>, tcx: TyCtxt<'a>, into: &mut String) {
+/// Projection fields for one place operand, appended inside its JSON
+/// object (after `"place"`). Absent keys keep old mir.json parsing
+/// identical (serde defaults); unknown keys are ignored by old mir2sa.
+fn proj_json<'a>(tcx: TyCtxt<'a>, body: &Body<'a>, p: &Place<'a>, into: &mut String) {
+    let pr = place_proj(tcx, body, p);
+    if pr.off != 0 {
+        write!(into, ", \"off\": {}", pr.off).unwrap();
+    }
+    if pr.off2 != 0 {
+        write!(into, ", \"off2\": {}", pr.off2).unwrap();
+    }
+    if pr.deref {
+        into.push_str(", \"deref\": true");
+    }
+    if pr.deref_first {
+        into.push_str(", \"deref_first\": true");
+    }
+    if let Some(t) = pr.pty {
+        write!(into, ", \"pty\": \"{}\"", t).unwrap();
+    }
+    if pr.loud {
+        into.push_str(", \"proj_loud\": true");
+    }
+}
+
+pub fn operand_json<'a>(op: &Operand<'a>, tcx: TyCtxt<'a>, body: &Body<'a>, into: &mut String) {
     match op {
         Operand::Copy(p) => {
             let (s, _) = place_name(p);
-            write!(into, "{{\"kind\": \"Copy\", \"place\": \"{}\"}}", s).unwrap();
+            write!(into, "{{\"kind\": \"Copy\", \"place\": \"{}\"", s).unwrap();
+            proj_json(tcx, body, p, into);
+            into.push('}');
         }
         Operand::Move(p) => {
             let (s, _) = place_name(p);
-            write!(into, "{{\"kind\": \"Move\", \"place\": \"{}\"}}", s).unwrap();
+            write!(into, "{{\"kind\": \"Move\", \"place\": \"{}\"", s).unwrap();
+            proj_json(tcx, body, p, into);
+            into.push('}');
         }
         Operand::Constant(c) => {
             // Unevaluated consts (const items that escaped substitution)
@@ -65,13 +94,14 @@ pub fn rvalue_json<'tcx>(
     match rv {
         Rvalue::Use(op, _) => {
             into.push_str("{\"kind\": \"Use\", \"op\": ");
-            operand_json(op, tcx, into);
+            operand_json(op, tcx, body, into);
             into.push('}');
         }
         Rvalue::Ref(_, kind, p) => {
             let (s, _) = place_name(p);
             let m = matches!(kind, BorrowKind::Mut { .. });
             write!(into, "{{\"kind\": \"Ref\", \"place\": \"{}\"", s).unwrap();
+            proj_json(tcx, body, p, into);
             if m {
                 into.push_str(", \"mut\": true");
             }
@@ -91,6 +121,7 @@ pub fn rvalue_json<'tcx>(
             let (s, _) = place_name(p);
             let m = matches!(kind, rustc_middle::mir::RawPtrKind::Mut);
             write!(into, "{{\"kind\": \"RawPtr\", \"place\": \"{}\"", s).unwrap();
+            proj_json(tcx, body, p, into);
             if m {
                 into.push_str(", \"mut\": true");
             }
@@ -98,7 +129,7 @@ pub fn rvalue_json<'tcx>(
         }
         Rvalue::Repeat(op, len) => {
             into.push_str("{\"kind\": \"Repeat\", \"op\": ");
-            operand_json(op, tcx, into);
+            operand_json(op, tcx, body, into);
             into.push_str(", \"len\": \"");
             esc(&trunc(format!("{:?}", len), 40), into);
             into.push_str("\"}");
@@ -112,21 +143,21 @@ pub fn rvalue_json<'tcx>(
             into.push_str("{\"kind\": \"BinOp\", \"op\": \"");
             into.push_str(&format!("{:?}", op));
             into.push_str("\", \"left\": ");
-            operand_json(&box_ops.0, tcx, into);
+            operand_json(&box_ops.0, tcx, body, into);
             into.push_str(", \"right\": ");
-            operand_json(&box_ops.1, tcx, into);
+            operand_json(&box_ops.1, tcx, body, into);
             into.push('}');
         }
         Rvalue::UnaryOp(op, o) => {
             into.push_str("{\"kind\": \"UnOp\", \"op\": \"");
             into.push_str(&format!("{:?}", op));
             into.push_str("\", \"operand\": ");
-            operand_json(o, tcx, into);
+            operand_json(o, tcx, body, into);
             into.push('}');
         }
         Rvalue::Cast(kind, op, ty) => {
             into.push_str("{\"kind\": \"Cast\", \"op\": ");
-            operand_json(op, tcx, into);
+            operand_json(op, tcx, body, into);
             into.push_str(", \"ty\": \"");
             esc(&trunc(format!("{:?}", ty), 60), into);
             into.push_str("\", \"castkind\": \"");
@@ -141,7 +172,7 @@ pub fn rvalue_json<'tcx>(
                 if i > 0 {
                     into.push_str(", ");
                 }
-                operand_json(o, tcx, into);
+                operand_json(o, tcx, body, into);
             }
             into.push_str("]");
             if let Some((size, offsets)) = layout {
@@ -342,7 +373,7 @@ pub fn body_json<'tcx>(
             }
             TerminatorKind::SwitchInt { discr, targets } => {
                 into.push_str("{\"kind\": \"SwitchInt\", \"discr\": ");
-                operand_json(discr, tcx, into);
+                operand_json(discr, tcx, body, into);
                 into.push_str(", \"targets\": [");
                 let mut fi = true;
                 for (v, t) in targets.iter() {
@@ -378,7 +409,7 @@ pub fn body_json<'tcx>(
                     if i > 0 {
                         into.push_str(", ");
                     }
-                    operand_json(&a.node, tcx, into);
+                    operand_json(&a.node, tcx, body, into);
                 }
                 into.push(']');
                 // Callee signature for typed `@extern` decls (bare `()` decls
@@ -407,7 +438,7 @@ pub fn body_json<'tcx>(
             }
             TerminatorKind::Assert { cond, target, msg, expected, .. } => {
                 into.push_str("{\"kind\": \"Assert\", \"cond\": ");
-                operand_json(cond, tcx, into);
+                operand_json(cond, tcx, body, into);
                 into.push_str(", \"target\": \"");
                 into.push_str(&bb_name(*target));
                 into.push_str("\", \"msg\": \"");
@@ -445,7 +476,7 @@ pub fn body_json<'tcx>(
                         }
                         InlineAsmOperand::In { value, .. } => {
                             let mut tmp = String::new();
-                            operand_json(value, tcx, &mut tmp);
+                            operand_json(value, tcx, body, &mut tmp);
                             ins.push(tmp);
                         }
                         InlineAsmOperand::InOut { in_value, out_place, .. } => {
@@ -457,7 +488,7 @@ pub fn body_json<'tcx>(
                                 None => outs.push("_proj".to_string()),
                             }
                             let mut tmp = String::new();
-                            operand_json(in_value, tcx, &mut tmp);
+                            operand_json(in_value, tcx, body, &mut tmp);
                             ins.push(tmp);
                         }
                         InlineAsmOperand::Const { .. } => {

@@ -265,3 +265,181 @@ pub fn aggregate_layout<'tcx>(
     }
     Some((layout.size.bytes(), offsets))
 }
+
+/// Structured projection info for one MIR place (field-precision).
+///
+/// The driver used to collapse every place to its root local
+/// (`place_name`), so a field read `_1.1` arrived in mir.json as plain
+/// `_1` and mir2sa rendered the whole buffer pointer as the field value.
+/// `place_proj` walks the projection chain under rustc layouts and
+/// reports what mir2sa needs to render the place exactly:
+///
+/// - `off`: with no deref, the total field byte offset from the root
+///   buffer; with a deref, the offset from the root buffer to the cell
+///   holding the dereferenced pointer (0 when the deref is first).
+/// - `off2`: trailing field offset after the deref (0 without one).
+/// - `deref` / `deref_first`: the chain holds exactly one `Deref`, and
+///   whether it is the first element.
+/// - `pty`: SA kind of the projected place: a scalar name (`u64`,
+///   `i32`, `u8`, `f64`, ...), `ptr` for a reference/raw-pointer/fn-ptr
+///   value (loaded, not added), `buf` for an aggregate/array/tuple
+///   value (address = base + offset), `zst` for a zero-sized value
+///   (renders as 0). `None` for old/unknown shapes.
+/// - `loud`: the chain cannot be resolved exactly (dynamic index,
+///   subslice, opaque cast, multiple derefs, unresolvable layout,
+///   unmappable final type). mir2sa must render such operands loud,
+///   never as a plain root local.
+///
+/// Projectionless places return the default (no offset, no type, not
+/// loud): they keep exactly today's rendering, including generic
+/// locals whose layout cannot be resolved.
+#[derive(Clone, Debug, Default)]
+pub struct PlaceProj {
+    pub off: u64,
+    pub off2: u64,
+    pub deref: bool,
+    pub deref_first: bool,
+    pub pty: Option<String>,
+    pub loud: bool,
+}
+
+fn proj_layout<'tcx>(
+    tcx: TyCtxt<'tcx>,
+    ty: Ty<'tcx>,
+) -> Option<rustc_middle::ty::layout::TyAndLayout<'tcx>> {
+    let typing_env = ty::TypingEnv::fully_monomorphized();
+    tcx.layout_of(ty::PseudoCanonicalInput { typing_env, value: ty })
+        .ok()
+}
+
+pub fn place_proj<'tcx>(
+    tcx: TyCtxt<'tcx>,
+    body: &Body<'tcx>,
+    place: &Place<'tcx>,
+) -> PlaceProj {
+    use rustc_middle::mir::ProjectionElem;
+    use rustc_middle::ty::layout::LayoutCx;
+    let mut out = PlaceProj::default();
+    if place.projection.is_empty() {
+        return out;
+    }
+    let mut cur_ty = body.local_decls[place.local].ty;
+    let mut variant: Option<rustc_middle::ty::layout::TyAndLayout<'tcx>> = None;
+    let mut seen_deref = false;
+    for (i, (_base, elem)) in place.iter_projections().enumerate() {
+        match elem {
+            ProjectionElem::Field(idx, field_ty) => {
+                let lay = match &variant {
+                    Some(v) => Some(*v),
+                    None => proj_layout(tcx, cur_ty),
+                };
+                let Some(lay) = lay else {
+                    out.loud = true;
+                    return out;
+                };
+                if !matches!(
+                    lay.fields,
+                    rustc_abi::FieldsShape::Arbitrary { .. }
+                        | rustc_abi::FieldsShape::Array { .. }
+                ) {
+                    out.loud = true;
+                    return out;
+                }
+                if idx.index() >= lay.fields.count() {
+                    out.loud = true;
+                    return out;
+                }
+                let o = lay.fields.offset(idx.index()).bytes();
+                if seen_deref {
+                    out.off2 += o;
+                } else {
+                    out.off += o;
+                }
+                variant = None;
+                cur_ty = field_ty;
+            }
+            ProjectionElem::Deref => {
+                if seen_deref {
+                    out.loud = true;
+                    return out;
+                }
+                seen_deref = true;
+                out.deref = true;
+                out.deref_first = i == 0;
+                cur_ty = match cur_ty.kind() {
+                    TyKind::Ref(_, inner, _) | TyKind::RawPtr(inner, _) => *inner,
+                    _ => {
+                        out.loud = true;
+                        return out;
+                    }
+                };
+                variant = None;
+            }
+            ProjectionElem::Downcast(_, variant_idx) => {
+                if !matches!(cur_ty.kind(), TyKind::Adt(..)) {
+                    out.loud = true;
+                    return out;
+                }
+                let Some(lay) = proj_layout(tcx, cur_ty) else {
+                    out.loud = true;
+                    return out;
+                };
+                let typing_env = ty::TypingEnv::fully_monomorphized();
+                let cx = LayoutCx::new(tcx, typing_env);
+                variant = Some(lay.for_variant(&cx, variant_idx));
+            }
+            ProjectionElem::ConstantIndex { offset, from_end, .. } => {
+                if from_end {
+                    out.loud = true;
+                    return out;
+                }
+                let TyKind::Array(elem_ty, _) = cur_ty.kind() else {
+                    out.loud = true;
+                    return out;
+                };
+                let Some(lay) = proj_layout(tcx, cur_ty) else {
+                    out.loud = true;
+                    return out;
+                };
+                if !matches!(lay.fields, rustc_abi::FieldsShape::Array { .. }) {
+                    out.loud = true;
+                    return out;
+                }
+                let o = lay.fields.offset(offset as usize).bytes();
+                if seen_deref {
+                    out.off2 += o;
+                } else {
+                    out.off += o;
+                }
+                cur_ty = *elem_ty;
+            }
+            _ => {
+                out.loud = true;
+                return out;
+            }
+        }
+    }
+    let Some(final_lay) = proj_layout(tcx, cur_ty) else {
+        out.loud = true;
+        return out;
+    };
+    if final_lay.size.bytes() == 0 {
+        out.pty = Some("zst".to_string());
+    } else {
+        out.pty = match cur_ty.kind() {
+            TyKind::Uint(_) | TyKind::Int(_) | TyKind::Float(_)
+            | TyKind::Bool | TyKind::Char => ty_sa_sig_opt(cur_ty),
+            TyKind::Ref(..) | TyKind::RawPtr(..) | TyKind::FnPtr(..) => {
+                Some("ptr".to_string())
+            }
+            TyKind::Adt(..) | TyKind::Tuple(..) | TyKind::Array(..) => {
+                Some("buf".to_string())
+            }
+            _ => None,
+        };
+        if out.pty.is_none() {
+            out.loud = true;
+        }
+    }
+    out
+}

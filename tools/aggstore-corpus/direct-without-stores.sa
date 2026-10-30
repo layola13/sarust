@@ -1,0 +1,20 @@
+@import "sa_std/io/print.sai"
+@import "sa_std/num.sai"
+
+@probe() -> u64:
+    _buf = alloc 16
+    _slot = alloc 8
+    store _slot+0, _buf as ptr
+    _25 = load _slot+0 as ptr
+    _v0 = load _25+0 as i32
+    _v1 = load _25+4 as i32
+    _v2 = load _25+8 as i32
+    _v3 = load _25+12 as i32
+    _s0 = call @sa_num_add_checked(_v0, _v1)
+    _s1 = call @sa_num_add_checked(_s0, _v2)
+    _s2 = call @sa_num_add_checked(_s1, _v3)
+    _r = sext _s2 as u64
+    return _r
+@main() -> u64:
+    _r = call @probe()
+    return _r

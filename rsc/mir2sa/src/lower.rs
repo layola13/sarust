@@ -298,7 +298,11 @@ pub fn lower_function_with_layouts(
                     // base is not a redefinition — lower the store, bind
                     // nothing, and leave phi/spill slots untouched.
                     if bound.contains(dest) {
-                        if let Some(lines) = crate::place_store::emit_place_store(
+                        // Aggregate place store (W2 aggstore): a whole
+                        // aggregate written through an already-bound
+                        // base (vec! MaybeUninit buffer) is a store,
+                        // not a redefinition, exactly like C5 scalars.
+                        let place_lines = crate::place_store::emit_place_store(
                             dest_place.as_deref(),
                             dest,
                             rvalue,
@@ -309,7 +313,22 @@ pub fn lower_function_with_layouts(
                             &cmap,
                             &b.id,
                             &mut mv_idx,
-                        ) {
+                        )
+                        .or_else(|| {
+                            crate::place_store::emit_agg_place_store(
+                                dest_place.as_deref(),
+                                dest,
+                                rvalue,
+                                f,
+                                layouts,
+                                phi_b,
+                                &spill,
+                                &cmap,
+                                &b.id,
+                                &mut mv_idx,
+                            )
+                        });
+                        if let Some(lines) = place_lines {
                             // Statement-level store conflict ends
                             // (borrow_end plan_store_ends, 02): end
                             // conflicting borrows before the store and

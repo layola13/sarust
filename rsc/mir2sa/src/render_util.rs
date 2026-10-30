@@ -223,6 +223,122 @@ pub fn binop_mnemonic(op: &str) -> Option<&'static str> {
     }
 }
 
+/// Signedness of a MIR integer type name: true = signed, false = unsigned.
+/// None for everything SA cannot order/divide as a scalar int here:
+/// floats (fcmp_* is a different family), bool, pointers/references,
+/// aggregates, and 128-bit ints (no SA slot type).
+pub fn int_type_signedness(ty: &str) -> Option<bool> {
+    match ty.trim() {
+        "i8" | "i16" | "i32" | "i64" | "isize" => Some(true),
+        "u8" | "u16" | "u32" | "u64" | "usize" => Some(false),
+        _ => None,
+    }
+}
+
+/// Base local for a (possibly versioned) place: `_3_v2` -> `_3`.
+/// None unless the place is a plain local (`_N`, optionally versioned).
+fn base_local(place: &str) -> Option<&str> {
+    let p = place.strip_prefix('_')?;
+    let digits: String = p.chars().take_while(|c| c.is_ascii_digit()).collect();
+    if digits.is_empty() {
+        return None;
+    }
+    let rest = &p[digits.len()..];
+    if rest.is_empty() {
+        return Some(place);
+    }
+    if let Some(v) = rest.strip_prefix("_v") {
+        if !v.is_empty() && v.chars().all(|c| c.is_ascii_digit()) {
+            return Some(&place[..1 + digits.len()]);
+        }
+        return None;
+    }
+    None
+}
+
+/// Signedness of one BinOp operand from MIR type info: a Const's own
+/// type suffix, or a Move/Copy place's `local_types` entry (version
+/// suffix stripped). None when the type is unknown or not a scalar int.
+pub fn binop_operand_signedness(
+    op: &Operand,
+    local_types: &std::collections::BTreeMap<String, String>,
+) -> Option<bool> {
+    match op {
+        Operand::Move { place } | Operand::Copy { place } => {
+            let base = base_local(place)?;
+            int_type_signedness(local_types.get(base)?)
+        }
+        Operand::Const { value, .. } => {
+            let (ty, _) = crate::const_util::const_elem_ty(value)?;
+            int_type_signedness(ty)
+        }
+        Operand::Conflict { .. } => None,
+    }
+}
+
+/// MIR ordered/div/rem/shift op -> SA mnemonic for a known signedness.
+/// None for ops outside this family (callers try the sign-agnostic
+/// table first).
+pub fn signed_binop_mnemonic(op: &str, signed: bool) -> Option<&'static str> {
+    match (op, signed) {
+        ("Lt", true) => Some("slt"),
+        ("Lt", false) => Some("ult"),
+        ("Le", true) => Some("sle"),
+        ("Le", false) => Some("ule"),
+        ("Gt", true) => Some("sgt"),
+        ("Gt", false) => Some("ugt"),
+        ("Ge", true) => Some("sge"),
+        ("Ge", false) => Some("uge"),
+        ("Div", true) => Some("sdiv"),
+        ("Div", false) => Some("udiv"),
+        ("Rem", true) => Some("srem"),
+        ("Rem", false) => Some("urem"),
+        ("Shr", true) => Some("ashr"),
+        ("Shr", false) => Some("lshr"),
+        _ => None,
+    }
+}
+
+/// Signedness-resolved mnemonic for a BinOp, or None when the op is
+/// outside the signed family or its signedness cannot be established.
+/// Shr reads only its left operand (the right one is a shift amount,
+/// whose type never affects the shift kind); every other op in the
+/// family needs both operands to resolve to the same signedness
+/// (Rust BinOp operands share one type -- a mismatch means the type
+/// info is inconsistent, so stay loud rather than guess).
+pub fn signed_binop_for(
+    op: &str,
+    left: &Operand,
+    right: &Operand,
+    local_types: &std::collections::BTreeMap<String, String>,
+) -> Option<&'static str> {
+    if op == "Shr" {
+        let s = binop_operand_signedness(left, local_types)?;
+        return signed_binop_mnemonic(op, s);
+    }
+    let l = binop_operand_signedness(left, local_types)?;
+    let r = binop_operand_signedness(right, local_types)?;
+    if l != r {
+        return None;
+    }
+    signed_binop_mnemonic(op, l)
+}
+
+/// True when render_rvalue can emit a real instruction for this BinOp:
+/// the sign-agnostic table, a checked-arith helper, or a signedness-
+/// resolved mnemonic. Shared by render and coverage so the loud count
+/// can never drift from what lower() actually emits.
+pub fn binop_emittable(
+    op: &str,
+    left: &Operand,
+    right: &Operand,
+    local_types: &std::collections::BTreeMap<String, String>,
+) -> bool {
+    binop_mnemonic(op).is_some()
+        || checked_arith_helper(op).is_some()
+        || signed_binop_for(op, left, right, local_types).is_some()
+}
+
 /// `*WithOverflow` -> the `sci/sa_std` checked helper that returns the exact
 /// value and traps on overflow. None for every other binop.
 pub fn checked_arith_helper(op: &str) -> Option<&'static str> {

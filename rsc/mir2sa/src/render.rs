@@ -67,6 +67,7 @@ pub fn render_rvalue(
     cmap: &std::collections::HashMap<String, String>,
     spill: &crate::spill::SpillMap,
     agg_copy: &AggCopyMap,
+    local_types: &std::collections::BTreeMap<String, String>,
 ) -> String {
     match rv {
         Rvalue::Use { op } => {
@@ -243,7 +244,7 @@ pub fn render_rvalue(
             }
             let (pl, lt) = bind_move_operand(left, bid, mv_idx);
             let (pr, rt) = bind_move_operand(right, bid, mv_idx);
-            match binop_mnemonic(op) {
+            match binop_mnemonic(op).or_else(|| signed_binop_for(op, left, right, local_types)) {
                 Some(m) => {
                     let mut lines = pl;
                     lines.extend(pr);
@@ -498,6 +499,7 @@ mod render_tests {
             &Rvalue::Use { op: Operand::Copy { place: "_9".to_string() } },
             "_17", Some("_17"), &mut unsup, "bb2", &mut idx,
             &std::collections::HashMap::new(), &std::collections::BTreeMap::new(), &map,
+            &std::collections::BTreeMap::new(),
         );
         assert!(unsup.is_empty());
         assert!(line.contains("_aggcp_bb2__17 = alloc 16"), "alloc:
@@ -556,6 +558,7 @@ mod render_tests {
             &std::collections::HashMap::new(),
             &spill,
             &std::collections::BTreeMap::new(),
+            &std::collections::BTreeMap::new(),
         );
         assert!(line.contains("_2_spill = alloc 8"), "slot alloc:
 {}", line);
@@ -582,9 +585,108 @@ mod render_tests {
             },
             "_1_v0", Some("_1_v0"), &mut unsup, "bb2", &mut idx,
             &std::collections::HashMap::new(), &spill, &std::collections::BTreeMap::new(),
+            &std::collections::BTreeMap::new(),
         );
         assert!(unsup.is_empty());
         assert!(line.contains("_1_v0_spill = alloc 8"), "slot alloc:\n{}", line);
         assert!(line.contains("store _1_v0_spill+0, _1_v0 as ptr"), "slot store:\n{}", line);
+    }
+
+    #[test]
+    fn signed_binop_renders_true_values() {
+        // C4: ordered/div/rem/shift binops lower to signedness-resolved
+        // SA mnemonics when both operand types are known and agree;
+        // unknown, 128-bit, float and mismatched-signedness operands
+        // stay loud (never guessed).
+        let lt: std::collections::BTreeMap<String, String> = [
+            ("_1".to_string(), "i32".to_string()),
+            ("_2".to_string(), "u8".to_string()),
+            ("_3".to_string(), "u128".to_string()),
+            ("_4".to_string(), "f64".to_string()),
+            ("_5".to_string(), "usize".to_string()),
+        ]
+        .into_iter()
+        .collect();
+        let bin = |op: &str, left: Operand, right: Operand| {
+            let mut unsup = vec![];
+            let mut idx = 0usize;
+            let line = render_rvalue(
+                &Rvalue::BinOp {
+                    op: op.to_string(),
+                    left: Box::new(left),
+                    right: Box::new(right),
+                },
+                "_9",
+                Some("_9"),
+                &mut unsup,
+                "bb0",
+                &mut idx,
+                &std::collections::HashMap::new(),
+                &std::collections::BTreeMap::new(),
+                &std::collections::BTreeMap::new(),
+                &lt,
+            );
+            (line, unsup)
+        };
+        let c = |v: &str| Operand::Const {
+            value: v.to_string(),
+            str_bytes: None,
+            str_len: None,
+        };
+        let cp = |p: &str| Operand::Copy {
+            place: p.to_string(),
+        };
+        let mv = |p: &str| Operand::Move {
+            place: p.to_string(),
+        };
+        // Signed comparison (24-factorial shape): Le(i32, 1_i32).
+        let (line, unsup) = bin("Le", cp("_1"), c("Val(Scalar(0x00000001), i32)"));
+        assert!(unsup.is_empty(), "{:?}", unsup);
+        assert_eq!(line, "_9 = sle _1, 1");
+        // Versioned place strips to its base local.
+        let (line, unsup) = bin("Le", cp("_1_v0"), c("Val(Scalar(0x00000001), i32)"));
+        assert!(unsup.is_empty(), "{:?}", unsup);
+        assert_eq!(line, "_9 = sle _1_v0, 1");
+        // Signed comparison with a Move operand binds a temp first.
+        let (line, unsup) = bin("Gt", mv("_1"), c("Val(Scalar(0x00000005), i32)"));
+        assert!(unsup.is_empty(), "{:?}", unsup);
+        assert_eq!(line, "_mv_bb0_0 = _1\n_9 = sgt _mv_bb0_0, 5");
+        // Unsigned div/rem (190-base64 shape): Div/Rem(u8, 4_u8).
+        let (line, unsup) = bin("Div", mv("_2"), c("Val(Scalar(0x04), u8)"));
+        assert!(unsup.is_empty(), "{:?}", unsup);
+        assert_eq!(line, "_mv_bb0_0 = _2\n_9 = udiv _mv_bb0_0, 4");
+        let (line, unsup) = bin("Rem", mv("_2"), c("Val(Scalar(0x04), u8)"));
+        assert!(unsup.is_empty(), "{:?}", unsup);
+        assert_eq!(line, "_mv_bb0_0 = _2\n_9 = urem _mv_bb0_0, 4");
+        // Unsigned comparison (usize).
+        let (line, unsup) = bin("Lt", cp("_5"), c("Val(Scalar(0x00000020), usize)"));
+        assert!(unsup.is_empty(), "{:?}", unsup);
+        assert_eq!(line, "_9 = ult _5, 32");
+        // Shr reads only its left operand: signed -> ashr, unsigned -> lshr.
+        let (line, unsup) = bin("Shr", mv("_1"), c("Val(Scalar(0x00000002), u32)"));
+        assert!(unsup.is_empty(), "{:?}", unsup);
+        assert_eq!(line, "_mv_bb0_0 = _1\n_9 = ashr _mv_bb0_0, 2");
+        let (line, unsup) = bin("Shr", mv("_5"), c("Val(Scalar(0x00000002), u32)"));
+        assert!(unsup.is_empty(), "{:?}", unsup);
+        assert_eq!(line, "_mv_bb0_0 = _5\n_9 = lshr _mv_bb0_0, 2");
+        // Loud: 128-bit, float, mismatched signedness, unknown place.
+        for (op, left, right) in [
+            ("Ge", cp("_3"), cp("_3")),
+            ("Le", cp("_4"), c("Val(Scalar(0x0000000000000000), f64)")),
+            ("Le", cp("_1"), c("Val(Scalar(0x00000001), u32)")),
+            ("Le", cp("_9"), c("Val(Scalar(0x00000001), i32)")),
+        ] {
+            let (line, unsup) = bin(op, left, right);
+            assert!(!unsup.is_empty(), "{} should stay loud: {}", op, line);
+            assert!(line.starts_with("// UNSUPPORTED binop"), "{}", line);
+        }
+        // Coverage mirror agrees with render.
+        assert!(crate::render_util::binop_emittable(
+            "Le",
+            &cp("_1"),
+            &c("Val(Scalar(0x00000001), i32)"),
+            &lt
+        ));
+        assert!(!crate::render_util::binop_emittable("Ge", &cp("_3"), &cp("_3"), &lt));
     }
 }

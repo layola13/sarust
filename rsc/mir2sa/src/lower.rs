@@ -87,13 +87,19 @@ fn early_ended_regs(lines: &[String]) -> std::collections::BTreeSet<String> {
         .collect()
 }
 
-/// Scalar field-0 read of a buffer (192): a Copy/Move operand with
+/// Scalar or pointer field-0 read of a buffer (192; pointer fields
+/// added by the fp-off0 follow-up): a Copy/Move operand with
 /// offset 0, no deref flags, a scalar field type, and a source local
 /// that directly binds a buffer (multi-elem Aggregate, Repeat, or a
 /// buf-typed Use def) or an aggregate-typed param, renders as a
 /// field-cell load (`dest = load base+0 as <pty>`) instead of a plain
 /// move. A plain move would bind the buffer pointer itself (wrong
 /// value) and consume it, so later field reads trap UseAfterMove.
+/// A pointer field at offset 0 is the same hole: rustc reorders
+/// struct fields, so a reference field can legitimately sit at
+/// offset 0 (holder-16: `H { r: &P }` reordered to `r` at 0), and a
+/// plain move then binds the holder buffer instead of the field
+/// pointer, silently misreading every later deref offset.
 /// Collapsed pairs (BinOp defs) and plain-Use chains are NOT buffers,
 /// so their field-0 reads keep today's plain rendering. Returns None
 /// (fall through to render_rvalue) for every non-matching shape.
@@ -113,7 +119,7 @@ fn field_zero_load(
         }
         _ => return None,
     };
-    if pty == "ptr" || pty == "buf" || pty == "zst" || pty.contains('*') || pty.contains('&') {
+    if pty == "buf" || pty == "zst" || pty.contains('*') || pty.contains('&') {
         return None;
     }
     if !matches!(crate::asm::scalar_width_bits(pty), Some(w) if w <= 64) {

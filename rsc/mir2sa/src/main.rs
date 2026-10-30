@@ -972,6 +972,45 @@ mod tests {
     }
 
     #[test]
+    fn field_zero_ptr_of_buffer_loads() {
+        // fp-off0 (holder-16): a reference field reordered to offset 0
+        // must load its cell like a scalar field-0, not plain-move the
+        // holder buffer. Same buf_def gates as field_zero_of_buffer_loads.
+        fn copy_op(place: &str, off: u64, pty: Option<&str>) -> Operand {
+            Operand::Copy { place: place.to_string(), off, off2: 0, deref: false, deref_first: false, deref_last: false, pty: pty.map(|s| s.to_string()), proj_loud: false }
+        }
+        fn use_stmt(dest: &str, op: Operand) -> Stmt {
+            Stmt::Assign { dest: dest.to_string(), dest_place: Some(dest.to_string()), rvalue: Rvalue::Use { op } }
+        }
+        let mut f = ret_fn("f_f0ptr", Some("i32"), vec![
+            Block {
+                id: "bb0".to_string(),
+                statements: vec![
+                    // _2 = Copy _1 (whole-struct deref share, buf).
+                    Stmt::Assign {
+                        dest: "_2".to_string(),
+                        dest_place: Some("_2".to_string()),
+                        rvalue: Rvalue::Use { op: Operand::Copy { place: "_1".to_string(), off: 0, off2: 0, deref: true, deref_first: true, deref_last: true, pty: Some("buf".to_string()), proj_loud: false } },
+                    },
+                    use_stmt("_5", copy_op("_2", 0, Some("ptr"))),
+                ],
+                terminator: Term::Return { ret: None },
+            },
+        ]);
+        f.params = vec!["ptr".to_string()];
+        f.local_types = [
+            ("_1".to_string(), "&Holder".to_string()),
+            ("_2".to_string(), "Holder".to_string()),
+            ("_5".to_string(), "&P".to_string()),
+        ].into_iter().collect();
+        let mut unsup = vec![];
+        let sa = lower_function_with_layouts(&f, &mut unsup, &crate::place_store::AdtLayoutIndex::default());
+        assert!(unsup.is_empty(), "{:?}\n{}", unsup, sa);
+        assert!(sa.contains("_5 = load _2+0 as ptr"), "ptr field-0 load missing:\n{}", sa);
+        assert!(!sa.contains("_5 = _2\n"), "ptr field-0 must not plain-move the buffer:\n{}", sa);
+    }
+
+    #[test]
     fn ptr_metadata_reads_offset_8() {
         // Fat-pointer meta is the (ptr,len) tail: exact `load p+8` (no SA
         // mnemonic exists). Probe m1/m2 confirm the shape assembles.

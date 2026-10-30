@@ -248,6 +248,15 @@ pub fn lower_function_with_layouts(
                     } else if let Some(why) = assign_loud_const(rvalue) {
                         unsup.push(format!("{}:{} ConstValue", b.id, dest));
                         out.push(format!("    // UNSUPPORTED const-value -> {}: {}", dest, flat_comment(&why)));
+                    } else if crate::render_util::rvalue_proj_loud(rvalue)
+                        || crate::render_util::rvalue_agg_field_copy_loud(rvalue)
+                    {
+                        // Field-precision: same shape as the const branch
+                        // (one marker; the post-chain placeholder binds
+                        // dest = 0 below). render_rvalue is never reached
+                        // for these, so there is no double count.
+                        unsup.push(format!("{}:{} FieldProjection", b.id, dest));
+                        out.push(format!("    // UNSUPPORTED field-projection -> {}: unrenderable projection", dest));
                     } else {
                         for l in &phi_loads {
                             out.push(format!("    {}", l));
@@ -392,8 +401,16 @@ pub fn lower_function_with_layouts(
                         if ret.as_deref().is_some_and(|r| crate::phi::phi_place(r).is_some() || r == "__VERSION_CONFLICT__") {
                             unsup.push(format!("{}: ReturnConflict", b.id));
                             out.push("    // UNSUPPORTED return-value: version conflict at join (multiple reaching defs)".to_string());
+                            out.push("    return 0".to_string());
+                        } else if ret.is_none() && !is_void && bound.contains("_0") {
+                            // Single-def fast path (version.rs) leaves ret
+                            // unset even though _0 is bound: returning it
+                            // is exact (drop glue vetoes freeing registers
+                            // read by `return` lines).
+                            out.push("    return _0".to_string());
+                        } else {
+                            out.push("    return 0".to_string());
                         }
-                        out.push("    return 0".to_string());
                     }
                 }
                 }
@@ -451,6 +468,20 @@ pub fn lower_function_with_layouts(
                         "    // UNSUPPORTED call-args: {} (control preserved)",
                         loud_operand_reason(args.iter().find(|a| loud_const_kind_call(a).is_some()).unwrap()).unwrap_or_default()
                     ));
+                    bind_placeholder(&mut out, &mut bound, dest);
+                    spill_placeholder(&mut out, &spill, dest);
+                    match target {
+                        Some(t) => out.push(format!("    jmp {}", sa_label(t))),
+                        None => out.push(format!("    panic({})", unreachable_panic_code(&b.id))),
+                    }
+                    continue;
+                }
+                // Field-precision: an unrenderable projection in any
+                // call arg goes loud (control preserved), same shape as
+                // the const gate above.
+                if args.iter().any(|a| crate::render_util::operand_proj_loud(a)) {
+                    unsup.push(format!("{}: CallFieldProjection", b.id));
+                    out.push("    // UNSUPPORTED call-args: unrenderable field projection (control preserved)".to_string());
                     bind_placeholder(&mut out, &mut bound, dest);
                     spill_placeholder(&mut out, &spill, dest);
                     match target {
@@ -595,13 +626,31 @@ pub fn lower_function_with_layouts(
                     out.push(format!("    jmp {}", sa_label(otherwise)));
                     continue;
                 }
-                let d = match discr.as_ref() {
-                    Operand::Move { place , .. } => {
-                        let tmp = format!("_sw_{}", b.id);
-                        out.push(format!("    {} = {}", tmp, place));
-                        tmp
+                // Field-precision: an unrenderable projection goes
+                // loud (control preserved); a renderable field/deref
+                // discriminant loads into a temp first (a plain `tmp =
+                // place` would bind the root local).
+                if crate::render_util::operand_proj_loud(discr) {
+                    unsup.push(format!("{}: SwitchFieldProjection", b.id));
+                    out.push("    // UNSUPPORTED switch-discr: unrenderable field projection (control preserved)".to_string());
+                    out.push(format!("    jmp {}", sa_label(otherwise)));
+                    continue;
+                }
+                let d = if crate::render_util::operand_is_projected(discr) {
+                    let (lines, tmp) = crate::render_util::bind_move_operand(discr, &b.id, &mut mv_idx);
+                    for l in lines {
+                        out.push(format!("    {}", l));
                     }
-                    _ => render_operand(discr),
+                    tmp
+                } else {
+                    match discr.as_ref() {
+                        Operand::Move { place , .. } => {
+                            let tmp = format!("_sw_{}", b.id);
+                            out.push(format!("    {} = {}", tmp, place));
+                            tmp
+                        }
+                        _ => render_operand(discr),
+                    }
                 };
                 for (i, (v, t)) in targets.iter().enumerate() {
                     // Else-edge of the previous arm lands here (col-0 label),
@@ -677,13 +726,29 @@ pub fn lower_function_with_layouts(
                     out.push(format!("    jmp {}", sa_label(target)));
                     continue;
                 }
-                let c = match cond.as_ref() {
-                    Operand::Move { place , .. } => {
-                        let tmp = format!("_as_{}", b.id);
-                        out.push(format!("    {} = {}", tmp, place));
-                        tmp
+                // Field-precision: same rule as the switch
+                // discriminant above (loud gate, then field load).
+                if crate::render_util::operand_proj_loud(cond) {
+                    unsup.push(format!("{}: AssertFieldProjection", b.id));
+                    out.push("    // UNSUPPORTED assert-cond: unrenderable field projection (control preserved)".to_string());
+                    out.push(format!("    jmp {}", sa_label(target)));
+                    continue;
+                }
+                let c = if crate::render_util::operand_is_projected(cond) {
+                    let (lines, tmp) = crate::render_util::bind_move_operand(cond, &b.id, &mut mv_idx);
+                    for l in lines {
+                        out.push(format!("    {}", l));
                     }
-                    _ => render_operand(cond),
+                    tmp
+                } else {
+                    match cond.as_ref() {
+                        Operand::Move { place , .. } => {
+                            let tmp = format!("_as_{}", b.id);
+                            out.push(format!("    {} = {}", tmp, place));
+                            tmp
+                        }
+                        _ => render_operand(cond),
+                    }
                 };
                 let e = format!("_as_{}_eq", b.id);
                 out.push(format!("    {} = eq {}, {}", e, c, if expected.unwrap_or(true) { 1 } else { 0 }));

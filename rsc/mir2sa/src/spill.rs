@@ -69,15 +69,15 @@ fn copy_use_targets(st: &Stmt) -> Vec<String> {
     match st {
         Stmt::Assign { rvalue, .. } => match rvalue {
             Rvalue::Use { op } => match op {
-                Operand::Copy { place , .. } => vec![place.clone()],
+                Operand::Copy { place, off, deref, .. } if *off == 0 && !*deref => vec![place.clone()],
                 _ => vec![],
             },
             Rvalue::Aggregate { elems, .. } if elems.len() == 1 => match &elems[0] {
-                Operand::Copy { place , .. } => vec![place.clone()],
+                Operand::Copy { place, off, deref, .. } if *off == 0 && !*deref => vec![place.clone()],
                 _ => vec![],
             },
             Rvalue::Cast { op, .. } => match op.as_ref() {
-                Operand::Copy { place , .. } => vec![place.clone()],
+                Operand::Copy { place, off, deref, .. } if *off == 0 && !*deref => vec![place.clone()],
                 _ => vec![],
             },
             _ => vec![],
@@ -93,15 +93,15 @@ fn consuming_use_targets(st: &Stmt) -> Vec<String> {
     match st {
         Stmt::Assign { rvalue, .. } => match rvalue {
             Rvalue::Use { op } => match op {
-                Operand::Move { place , .. } => vec![place.clone()],
+                Operand::Move { place, off, deref, .. } if *off == 0 && !*deref => vec![place.clone()],
                 _ => vec![],
             },
             Rvalue::Aggregate { elems, .. } if elems.len() == 1 => match &elems[0] {
-                Operand::Move { place , .. } => vec![place.clone()],
+                Operand::Move { place, off, deref, .. } if *off == 0 && !*deref => vec![place.clone()],
                 _ => vec![],
             },
             Rvalue::Cast { op, .. } => match op.as_ref() {
-                Operand::Move { place , .. } => vec![place.clone()],
+                Operand::Move { place, off, deref, .. } if *off == 0 && !*deref => vec![place.clone()],
                 _ => vec![],
             },
             _ => vec![],

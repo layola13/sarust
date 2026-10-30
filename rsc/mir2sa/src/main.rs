@@ -141,6 +141,11 @@ fn cmd_coverage(args: &[String]) -> ExitCode {
                             true
                         } else if assign_loud_const(rvalue).is_some() {
                             true
+                        } else if crate::render_util::rvalue_proj_loud(rvalue)
+                            || crate::render_util::rvalue_agg_field_copy_loud(rvalue)
+                        {
+                            // Mirror lower()'s field-projection gate.
+                            true
                         } else if let Rvalue::Call { args, sig, .. } = rvalue {
                             call_sig_loud(sig, args)
                         } else {
@@ -256,6 +261,11 @@ fn cmd_coverage(args: &[String]) -> ExitCode {
                         tot_unsup += 1;
                         let kind = args.iter().find_map(loud_const_kind_call).unwrap_or("ConstValue");
                         unsup.push(format!("{}: T/Call{}", b.id, kind));
+                    } else if args.iter().any(crate::render_util::operand_proj_loud) {
+                        // Mirror lower()'s call-arg projection gate (the
+                        // gate runs on phi-rewritten args, same as here).
+                        tot_unsup += 1;
+                        unsup.push(format!("{}: T/CallFieldProjection", b.id));
                     } else if call_sig_loud(sig, args) {
                         tot_unsup += 1;
                         unsup.push(format!("{}: T/CallNoSig", b.id));
@@ -295,6 +305,26 @@ fn cmd_coverage(args: &[String]) -> ExitCode {
                     tot_unsup += 1;
                     let kind = loud_const_kind(discr).unwrap_or("ConstValue");
                     unsup.push(format!("{}: T/Switch{}", b.id, kind));
+                }
+                Term::Assert { cond, .. } if {
+                    let mut cov_idx = 0usize;
+                    let rw = crate::phi::rewrite_operand(cond, phi_b, &b.id, &mut cov_idx)
+                        .map(|(n, _, _)| n)
+                        .unwrap_or_else(|| cond.as_ref().clone());
+                    crate::render_util::operand_proj_loud(&rw)
+                } => {
+                    tot_unsup += 1;
+                    unsup.push(format!("{}: T/AssertFieldProjection", b.id));
+                }
+                Term::SwitchInt { discr, .. } if {
+                    let mut cov_idx = 0usize;
+                    let rw = crate::phi::rewrite_operand(discr, phi_b, &b.id, &mut cov_idx)
+                        .map(|(n, _, _)| n)
+                        .unwrap_or_else(|| discr.as_ref().clone());
+                    crate::render_util::operand_proj_loud(&rw)
+                } => {
+                    tot_unsup += 1;
+                    unsup.push(format!("{}: T/SwitchFieldProjection", b.id));
                 }
                 _ => {}
             }

@@ -454,6 +454,36 @@ pub fn field_value_temp(
     (lines, tmp)
 }
 
+/// Same value rule as field_value_into but with a caller-chosen temp
+/// name and no shared counter: the deref-after-fields pointer temp
+/// derives from `tmp` itself, so names stay unique per caller context.
+/// Used by lower_adt_init, which has no mv_idx to thread.
+pub fn field_value_named(op: &Operand, tmp: &str) -> Vec<String> {
+    let pr = match operand_proj(op) {
+        Some(pr) => pr,
+        None => return vec![format!("{} = {}", tmp, render_operand(op))],
+    };
+    let mut lines = vec![];
+    let (bp, off) = if !pr.deref {
+        (pr.place.to_string(), pr.off)
+    } else if pr.deref_first {
+        (pr.place.to_string(), pr.off2)
+    } else {
+        let dt = format!("{}_deref", tmp);
+        lines.push(format!("{} = load {}+{} as ptr", dt, pr.place, pr.off));
+        (dt, pr.off2)
+    };
+    match pr.pty {
+        Some("zst") => lines.push(format!("{} = 0", tmp)),
+        Some("buf") | Some("ptr") => {
+            lines.push(format!("{} = load {}+{} as ptr", tmp, bp, off))
+        }
+        Some(ty) => lines.push(format!("{} = load {}+{} as {}", tmp, bp, off, ty)),
+        None => lines.push(format!("{} = {}", tmp, bp)),
+    }
+    lines
+}
+
 /// Lines binding `dest` to a projected Ref/RawPtr's ADDRESS. Scalar
 /// and reference fields live in their cell, so the address is
 /// `base + off` (always an `add`, even at offset 0: a plain assign

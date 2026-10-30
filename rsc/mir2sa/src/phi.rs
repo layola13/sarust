@@ -382,7 +382,7 @@ pub fn rewrite_rvalue(
             }
             Rvalue::Call { func: func.clone(), args: new_args, sig: sig.clone() }
         }
-        Rvalue::Ref { place, mut_, via, zst , off: 0, off2: 0, deref: false, deref_first: false, proj_loud: false , pty: None } => {
+        Rvalue::Ref { place, mut_, via, zst, off, off2, deref, deref_first, pty, proj_loud, .. } => {
             if let Some(base) = phi_place(place) {
                 if *mut_ || !ref_ok {
                     return None;
@@ -396,7 +396,9 @@ pub fn rewrite_rvalue(
                 if *zst {
                     frees.push(temp.clone());
                 }
-                Rvalue::Ref { place: temp, mut_: *mut_, via: via.clone(), zst: *zst , off: 0, off2: 0, deref: false, deref_first: false, proj_loud: false , pty: None }
+                // The phi temp holds the base's current value, so
+                // the same projection still applies to it.
+                Rvalue::Ref { place: temp, mut_: *mut_, via: via.clone(), zst: *zst, off: *off, off2: *off2, deref: *deref, deref_first: *deref_first, pty: pty.clone(), proj_loud: *proj_loud }
             } else {
                 rv.clone()
             }
@@ -413,14 +415,15 @@ pub fn rewrite_rvalue(
                 rv.clone()
             }
         }
-        Rvalue::RawPtr { place, mut_ , off: 0, off2: 0, deref: false, deref_first: false, proj_loud: false , pty: None } => {
+        Rvalue::RawPtr { place, mut_, off, off2, deref, deref_first, pty, proj_loud, .. } => {
             if let Some(base) = phi_place(place) {
                 let ty = phi.get(base)?;
                 let temp = format!("_phi_{}_{}", bid, *idx);
                 *idx += 1;
                 loads.push(format!("{} = load {}+0 as {}", temp, spill_slot(base), ty));
                 // Plain copy: the use moves the temp.
-                Rvalue::RawPtr { place: temp, mut_: *mut_ , off: 0, off2: 0, deref: false, deref_first: false, proj_loud: false , pty: None }
+                // Same projection-preservation rule as Ref above.
+                Rvalue::RawPtr { place: temp, mut_: *mut_, off: *off, off2: *off2, deref: *deref, deref_first: *deref_first, pty: pty.clone(), proj_loud: *proj_loud }
             } else {
                 rv.clone()
             }

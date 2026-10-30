@@ -1178,11 +1178,14 @@ fn plan_join_ends(
         // or multi-elem aggregate stores.
         let moved_in_def = blocks[*db].statements.iter().any(|st| match st {
             Stmt::Assign { rvalue, .. } => match rvalue {
-                Rvalue::Use { op: Operand::Move { place , .. } } => place == b,
+                // Field-precision: projected moves/borrows render
+                // as field loads/adds and never consume the base, so
+                // they do not veto the 5a end (plain forms still do).
+                Rvalue::Use { op: Operand::Move { place, off, deref, .. } } if *off == 0 && !*deref => place == b,
                 Rvalue::Aggregate { elems, .. } if elems.len() == 1 => {
-                    matches!(&elems[0], Operand::Move { place , .. } if place == b)
+                    matches!(&elems[0], Operand::Move { place, off, deref, .. } if *off == 0 && !*deref && place == b)
                 }
-                Rvalue::RawPtr { place, .. } => place == b,
+                Rvalue::RawPtr { place, off, deref, .. } if *off == 0 && !*deref => place == b,
                 _ => false,
             },
             _ => false,
@@ -1226,18 +1229,27 @@ fn plan_join_ends(
     };
     for (bi, b) in blocks.iter().enumerate() {
         for st in &b.statements {
-            let ops: Vec<&str> = match st {
+            // Field-precision: a projected read loads from a field
+            // cell and never consumes the base, so it is not a
+            // consuming event for the base (terminator reads are
+            // handled separately by term_uses and stay ungated: an end
+            // must not be emitted before a terminator reads the field).
+            let ops: Vec<&Operand> = match st {
                 Stmt::Assign { rvalue, .. } => match rvalue {
-                    Rvalue::Use { op } => operand_place(op).into_iter().collect(),
-                    Rvalue::Aggregate { elems, .. } if elems.len() == 1 => {
-                        elems.iter().filter_map(operand_place).collect()
-                    }
-                    Rvalue::Cast { op, .. } => operand_place(op.as_ref()).into_iter().collect(),
+                    Rvalue::Use { op } => vec![op],
+                    Rvalue::Aggregate { elems, .. } if elems.len() == 1 => elems.iter().collect(),
+                    Rvalue::Cast { op, .. } => vec![op.as_ref()],
                     _ => vec![],
                 },
                 _ => vec![],
             };
-            for p in ops {
+            for op in ops {
+                if crate::render_util::operand_is_projected(op) {
+                    continue;
+                }
+                let Some(p) = operand_place(op) else {
+                    continue;
+                };
                 // Spill-covered sources never consume on a plain
                 // assign: their Copy uses reload from a slot (03: the
                 // old code counted reloads as consumes and freed the

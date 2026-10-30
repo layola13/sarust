@@ -44,6 +44,14 @@ pub fn asm_mov_copy(
     if !matches!(ins[0], Operand::Copy { .. } | Operand::Move { .. } | Operand::Const { .. }) {
         return None;
     }
+    // Field-precision: a projected input renders as a field load, not
+    // a reg copy, so it fails the gate and stays loud instead of
+    // copying the root local.
+    if crate::render_util::operand_is_projected(&ins[0])
+        || crate::render_util::operand_proj_loud(&ins[0])
+    {
+        return None;
+    }
     Some((dest.to_string(), render_operand(&ins[0])))
 }
 
@@ -330,9 +338,16 @@ pub fn asm_inout_passthrough(
     if !is_plain_local(dest) {
         return None;
     }
-    if matches!(&ins[0], Operand::Copy { place , .. } | Operand::Move { place , .. } if place == dest) {
+    if matches!(&ins[0], Operand::Copy { place, off, deref, proj_loud, .. } | Operand::Move { place, off, deref, proj_loud, .. } if place == dest && *off == 0 && !*deref && !*proj_loud) {
         // Same local in and out: value already home, comment only.
         return Some((None, None));
+    }
+    // Field-precision: a projected input cannot passthrough as a
+    // root copy (same reason as asm_mov_copy); it stays loud.
+    if crate::render_util::operand_is_projected(&ins[0])
+        || crate::render_util::operand_proj_loud(&ins[0])
+    {
+        return None;
     }
     // Split places (or an immediate): materialize the passthrough copy.
     Some((Some(dest.to_string()), Some(render_operand(&ins[0]))))

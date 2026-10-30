@@ -1,6 +1,7 @@
 //! mir2sa::layout.
 use crate::const_util::{array_elem_size, const_array_elem, const_elem_ty, sa_scalar_ty, scalar_hex_value};
 use crate::mir::{AdtLayout, Operand, STR_INLINE_MAX};
+use crate::render_util::field_value_named;
 
 /// `(((*_46).1: ...).0: [i32; 3])` lowers to sla-style `alloc` + `store`
 /// (cf. `sci/sa_std/alloc/vec.sa`: `buf = alloc bytes`,
@@ -65,15 +66,24 @@ pub fn lower_adt_init(
         return None;
     }
     let mut plans: Vec<FieldPlan> = Vec::with_capacity(elems.len());
+    // Field-precision preamble: projected elems load their field value
+    // into a fresh temp before the alloc; Copy temps are freed right
+    // after their store (stores veto mv_frees, so the free is explicit).
+    // Nested buffers stay shared, exactly like today's plain pointer-slot
+    // elems; deep-copying nested aggregates is out of scope.
+    let mut pre: Vec<String> = vec![];
+    let mut free_after: Vec<Option<String>> = vec![];
     for e in elems {
         match e {
             Operand::Conflict { .. } => return None, // join-ambiguous: loud.
             Operand::Const { value, .. } if value.trim_start().starts_with("Val(ZeroSized") => {
                 plans.push(FieldPlan::Store { text: None, sa_ty: "u8", size: 0 });
+                free_after.push(None);
             }
             Operand::Const { value, str_bytes, str_len } => {
                 if str_bytes.is_some() {
                     plans.push(plan_str_field(value, str_bytes.as_ref(), *str_len)?);
+                    free_after.push(None);
                     continue;
                 }
                 let (ty, size) = const_elem_ty(value)?;
@@ -91,12 +101,35 @@ pub fn lower_adt_init(
                     _ => const_array_elem(value, ty, size)?,
                 };
                 plans.push(FieldPlan::Store { text: Some(rendered), sa_ty: sa_scalar_ty(ty), size });
+                free_after.push(None);
             }
-            Operand::Move { place , .. } => {
-                plans.push(FieldPlan::Store { text: Some(format!("^{}", place)), sa_ty: "u64", size: 8 });
+            Operand::Move { place, off, off2, deref, deref_first, pty, proj_loud, .. } => {
+                if *proj_loud || ((*off != 0 || *deref) && pty.is_none()) {
+                    return None;
+                }
+                if *off != 0 || *deref {
+                    let tmp = format!("_fld_{}_{}_{}", bid, dest, plans.len());
+                    pre.extend(field_value_named(e, &tmp));
+                    plans.push(FieldPlan::Store { text: Some(format!("^{}", tmp)), sa_ty: "u64", size: 8 });
+                    free_after.push(None);
+                } else {
+                    plans.push(FieldPlan::Store { text: Some(format!("^{}", place)), sa_ty: "u64", size: 8 });
+                    free_after.push(None);
+                }
             }
-            Operand::Copy { place , .. } => {
-                plans.push(FieldPlan::Store { text: Some(place.clone()), sa_ty: "u64", size: 8 });
+            Operand::Copy { place, off, off2, deref, deref_first, pty, proj_loud, .. } => {
+                if *proj_loud || ((*off != 0 || *deref) && pty.is_none()) {
+                    return None;
+                }
+                if *off != 0 || *deref {
+                    let tmp = format!("_fld_{}_{}_{}", bid, dest, plans.len());
+                    pre.extend(field_value_named(e, &tmp));
+                    plans.push(FieldPlan::Store { text: Some(tmp.clone()), sa_ty: "u64", size: 8 });
+                    free_after.push(Some(tmp));
+                } else {
+                    plans.push(FieldPlan::Store { text: Some(place.clone()), sa_ty: "u64", size: 8 });
+                    free_after.push(None);
+                }
             }
         }
     }
@@ -137,14 +170,16 @@ pub fn lower_adt_init(
     // while the true field is smaller); over-allocation is harmless slack.
     let total = v1_total.max(total);
     let base = format!("_agg_{}", bid);
-    let mut lines = vec![
-        format!("// aggregate Adt init @ {} ({})", dest_place.trim(), origin),
-        format!("{} = alloc {}", base, total),
-    ];
+    let mut lines = pre;
+    lines.push(format!("// aggregate Adt init @ {} ({})", dest_place.trim(), origin));
+    lines.push(format!("{} = alloc {}", base, total));
     for (i, p) in plans.iter().enumerate() {
         match p {
             FieldPlan::Store { text: Some(v), sa_ty, .. } => {
                 lines.push(format!("store {}+{}, {} as {}", base, offsets[i], v, sa_ty));
+                if let Some(tmp) = free_after.get(i).and_then(|x| x.as_ref()) {
+                    lines.push(format!("!{}", tmp));
+                }
             }
             FieldPlan::Store { text: None, .. } => {}
             FieldPlan::StrLit { bytes } => {

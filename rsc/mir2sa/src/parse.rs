@@ -50,16 +50,16 @@ pub fn base_local(place: &str) -> Option<String> {
 pub fn parse_operand(s: &str) -> Operand {
     let s = s.trim();
     if let Some(rest) = s.strip_prefix("move ") {
-        return Operand::Move { place: base_local(rest).unwrap_or_else(|| rest.to_string()) };
+        return Operand::Move { place: base_local(rest).unwrap_or_else(|| rest.to_string()) , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false };
     }
     if let Some(rest) = s.strip_prefix("copy ") {
-        return Operand::Copy { place: base_local(rest).unwrap_or_else(|| rest.to_string()) };
+        return Operand::Copy { place: base_local(rest).unwrap_or_else(|| rest.to_string()) , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false };
     }
     if let Some(rest) = s.strip_prefix("const ") {
         return Operand::Const { value: rest.chars().take(60).collect(), str_bytes: None, str_len: None };
     }
     if s.starts_with('_') && base_local(s).as_deref() == Some(s) {
-        return Operand::Copy { place: s.to_string() };
+        return Operand::Copy { place: s.to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false };
     }
     let v: String = s.chars().take(60).collect();
     Operand::Const { value: v, str_bytes: None, str_len: None }
@@ -146,11 +146,11 @@ pub fn parse_rvalue(rhs: &str) -> Rvalue {
     let rhs = rhs.trim();
     if let Some(rest) = rhs.strip_prefix("&mut ") {
         let p = rest.trim();
-        return Rvalue::Ref { place: base_local(p).unwrap_or_else(|| p.to_string()), mut_: true, via: None, zst: false };
+        return Rvalue::Ref { place: base_local(p).unwrap_or_else(|| p.to_string()), mut_: true, via: None, zst: false , off: 0, off2: 0, deref: false, deref_first: false, proj_loud: false , pty: None };
     }
     if let Some(rest) = rhs.strip_prefix('&') {
         let p = rest.trim();
-        return Rvalue::Ref { place: base_local(p).unwrap_or_else(|| p.to_string()), mut_: false, via: None, zst: false };
+        return Rvalue::Ref { place: base_local(p).unwrap_or_else(|| p.to_string()), mut_: false, via: None, zst: false , off: 0, off2: 0, deref: false, deref_first: false, proj_loud: false , pty: None };
     }
     // Cast before plain Use so `copy X as T (Kind)` is not swallowed.
     if let Some(as_pos) = rhs.find(" as ") {
@@ -176,7 +176,7 @@ pub fn parse_rvalue(rhs: &str) -> Rvalue {
     }
     if let Some(inner) = rhs.strip_prefix("no_retag copy ") {
         let inner = inner.trim();
-        return Rvalue::Use { op: Operand::Copy { place: base_local(inner).unwrap_or_else(|| inner.chars().take(40).collect()) } };
+        return Rvalue::Use { op: Operand::Copy { place: base_local(inner).unwrap_or_else(|| inner.chars().take(40).collect()) , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false } };
     }
     if rhs.ends_with(')') {
         if let Some(pi) = rhs.find('(') {

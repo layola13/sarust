@@ -142,12 +142,12 @@ mod order_tests {
                 .map(|d| Stmt::Assign {
                     dest: d.to_string(),
                     dest_place: Some(d.to_string()),
-                    rvalue: Rvalue::Use { op: Operand::Copy { place: "_9".to_string() } },
+                    rvalue: Rvalue::Use { op: Operand::Copy { place: "_9".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false } },
                 })
                 .into_iter()
                 .collect(),
             terminator: Term::SwitchInt {
-                discr: Box::new(Operand::Copy { place: "_9".to_string() }),
+                discr: Box::new(Operand::Copy { place: "_9".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false }),
                 targets: targets.into_iter().map(|t| ("0".to_string(), t)).collect(),
                 otherwise: otherwise.to_string(),
             },

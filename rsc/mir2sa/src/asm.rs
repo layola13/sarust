@@ -330,7 +330,7 @@ pub fn asm_inout_passthrough(
     if !is_plain_local(dest) {
         return None;
     }
-    if matches!(&ins[0], Operand::Copy { place } | Operand::Move { place } if place == dest) {
+    if matches!(&ins[0], Operand::Copy { place , .. } | Operand::Move { place , .. } if place == dest) {
         // Same local in and out: value already home, comment only.
         return Some((None, None));
     }

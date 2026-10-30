@@ -100,6 +100,24 @@ pub enum Rvalue {
         #[serde(rename = "mut", default, skip_serializing_if = "is_false")] mut_: bool,
         #[serde(default, skip_serializing_if = "Option::is_none")] via: Option<String>,
         #[serde(default, skip_serializing_if = "is_false")] zst: bool,
+        /// Field-precision projection (driver place_proj): byte offset
+        /// from the root buffer to the place (or to the deref cell when
+        /// `deref` is set), trailing offset after the deref, deref
+        /// shape, and the loud flag for unresolvable projections. All
+        /// default to the old projectionless behaviour, so old mir.json
+        /// (without these keys) parses exactly as before.
+        #[serde(default)]
+        off: u64,
+        #[serde(default)]
+        off2: u64,
+        #[serde(default)]
+        deref: bool,
+        #[serde(default)]
+        deref_first: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pty: Option<String>,
+        #[serde(default)]
+        proj_loud: bool,
     },
     Call {
         func: String,
@@ -122,7 +140,22 @@ pub enum Rvalue {
         layout: Option<AdtLayout>,
     },
     Discriminant { place: String },
-    RawPtr { place: String, #[serde(rename = "mut", default, skip_serializing_if = "is_false")] mut_: bool },
+    RawPtr {
+        place: String,
+        #[serde(rename = "mut", default, skip_serializing_if = "is_false")] mut_: bool,
+        #[serde(default)]
+        off: u64,
+        #[serde(default)]
+        off2: u64,
+        #[serde(default)]
+        deref: bool,
+        #[serde(default)]
+        deref_first: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pty: Option<String>,
+        #[serde(default)]
+        proj_loud: bool,
+    },
     Repeat { op: Box<Operand>, len: String },
     ThreadLocal { def: String },
     Unsupported { text: String },
@@ -131,8 +164,41 @@ pub enum Rvalue {
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(tag = "kind")]
 pub enum Operand {
-    Move { place: String },
-    Copy { place: String },
+    Move {
+        place: String,
+        #[serde(default)]
+        off: u64,
+        #[serde(default)]
+        off2: u64,
+        #[serde(default)]
+        deref: bool,
+        #[serde(default)]
+        deref_first: bool,
+        /// SA kind of the projected place: scalar name, "ptr" for a
+        /// reference/raw-pointer/fn-pointer value, "buf" for an
+        /// aggregate/array/tuple value (a pointer slot in mir2sa
+        /// buffers), "zst" for a zero-sized value. None for old mir.json
+        /// and for projectionless places.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pty: Option<String>,
+        #[serde(default)]
+        proj_loud: bool,
+    },
+    Copy {
+        place: String,
+        #[serde(default)]
+        off: u64,
+        #[serde(default)]
+        off2: u64,
+        #[serde(default)]
+        deref: bool,
+        #[serde(default)]
+        deref_first: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pty: Option<String>,
+        #[serde(default)]
+        proj_loud: bool,
+    },
     Const {
         value: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]

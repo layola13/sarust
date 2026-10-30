@@ -92,10 +92,10 @@ pub fn lower_adt_init(
                 };
                 plans.push(FieldPlan::Store { text: Some(rendered), sa_ty: sa_scalar_ty(ty), size });
             }
-            Operand::Move { place } => {
+            Operand::Move { place , .. } => {
                 plans.push(FieldPlan::Store { text: Some(format!("^{}", place)), sa_ty: "u64", size: 8 });
             }
-            Operand::Copy { place } => {
+            Operand::Copy { place , .. } => {
                 plans.push(FieldPlan::Store { text: Some(place.clone()), sa_ty: "u64", size: 8 });
             }
         }

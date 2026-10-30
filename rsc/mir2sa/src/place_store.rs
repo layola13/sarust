@@ -384,7 +384,7 @@ pub fn plan_place_store(
             }
             (Some(text), None, false)
         }
-        Operand::Move { place } | Operand::Copy { place } => {
+        Operand::Move { place , .. } | Operand::Copy { place , .. } => {
             if !is_plain_local(place) {
                 return None;
             }
@@ -675,7 +675,7 @@ mod place_store_tests {
             "_1",
             &use_rv(Operand::Move {
                 place: "_2".to_string(),
-            }),
+            off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false }),
             &f,
             &idx,
             &BTreeMap::new(),
@@ -703,7 +703,7 @@ mod place_store_tests {
             "_1",
             &use_rv(Operand::Copy {
                 place: "_2".to_string(),
-            }),
+            off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false }),
             &f,
             &idx,
             &BTreeMap::new(),
@@ -731,7 +731,7 @@ mod place_store_tests {
             "_1",
             &use_rv(Operand::Move {
                 place: "_3".to_string(),
-            }),
+            off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false }),
             &f,
             &idx,
             &BTreeMap::new(),
@@ -810,7 +810,7 @@ mod place_store_tests {
             "_24",
             &use_rv(Operand::Copy {
                 place: "_2".to_string(),
-            }),
+            off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false }),
             &f,
             &idx,
             &BTreeMap::new(),
@@ -822,7 +822,7 @@ mod place_store_tests {
             "_1",
             &use_rv(Operand::Copy {
                 place: "_2".to_string(),
-            }),
+            off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false }),
             &f,
             &idx,
             &BTreeMap::new(),
@@ -846,7 +846,7 @@ mod place_store_tests {
             "_1",
             &use_rv(Operand::Move {
                 place: "_2".to_string(),
-            }),
+            off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false }),
             &f,
             &AdtLayoutIndex::default(),
             &phi_b,
@@ -871,14 +871,14 @@ mod place_store_tests {
                         dest_place: Some("(_1.0: &str)".to_string()),
                         rvalue: use_rv(Operand::Copy {
                             place: "_2".to_string(),
-                        }),
+                        off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false }),
                     },
                     Stmt::Assign {
                         dest: "_0".to_string(),
                         dest_place: Some("_0".to_string()),
                         rvalue: use_rv(Operand::Move {
                             place: "_1".to_string(),
-                        }),
+                        off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false }),
                     },
                 ],
                 terminator: Term::Return {

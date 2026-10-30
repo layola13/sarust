@@ -297,7 +297,7 @@ pub fn rewrite_operand(
             let temp = format!("_phi_{}_{}", bid, *idx);
             *idx += 1;
             let load = format!("{} = load {}+0 as {}", temp, spill_slot(place), ty);
-            Some((Operand::Copy { place: temp.clone() }, Some(load), Some(temp)))
+            Some((Operand::Copy { place: temp.clone() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false }, Some(load), Some(temp)))
         }
         _ => Some((op.clone(), None, None)),
     }
@@ -382,7 +382,7 @@ pub fn rewrite_rvalue(
             }
             Rvalue::Call { func: func.clone(), args: new_args, sig: sig.clone() }
         }
-        Rvalue::Ref { place, mut_, via, zst } => {
+        Rvalue::Ref { place, mut_, via, zst , off: 0, off2: 0, deref: false, deref_first: false, proj_loud: false , pty: None } => {
             if let Some(base) = phi_place(place) {
                 if *mut_ || !ref_ok {
                     return None;
@@ -396,7 +396,7 @@ pub fn rewrite_rvalue(
                 if *zst {
                     frees.push(temp.clone());
                 }
-                Rvalue::Ref { place: temp, mut_: *mut_, via: via.clone(), zst: *zst }
+                Rvalue::Ref { place: temp, mut_: *mut_, via: via.clone(), zst: *zst , off: 0, off2: 0, deref: false, deref_first: false, proj_loud: false , pty: None }
             } else {
                 rv.clone()
             }
@@ -413,14 +413,14 @@ pub fn rewrite_rvalue(
                 rv.clone()
             }
         }
-        Rvalue::RawPtr { place, mut_ } => {
+        Rvalue::RawPtr { place, mut_ , off: 0, off2: 0, deref: false, deref_first: false, proj_loud: false , pty: None } => {
             if let Some(base) = phi_place(place) {
                 let ty = phi.get(base)?;
                 let temp = format!("_phi_{}_{}", bid, *idx);
                 *idx += 1;
                 loads.push(format!("{} = load {}+0 as {}", temp, spill_slot(base), ty));
                 // Plain copy: the use moves the temp.
-                Rvalue::RawPtr { place: temp, mut_: *mut_ }
+                Rvalue::RawPtr { place: temp, mut_: *mut_ , off: 0, off2: 0, deref: false, deref_first: false, proj_loud: false , pty: None }
             } else {
                 rv.clone()
             }
@@ -485,7 +485,7 @@ mod phi_tests {
         let (out, loads, frees) = rewrite_rvalue(&rv, &phi_map(), "bb1", &mut idx, true).unwrap();
         assert_eq!(loads, vec!["_phi_bb1_0 = load _1_spill+0 as i32"]);
         assert!(frees.is_empty(), "plain-assign use moves the temp");
-        assert!(matches!(out, Rvalue::Use { op: Operand::Copy { place } } if place == "_phi_bb1_0"));
+        assert!(matches!(out, Rvalue::Use { op: Operand::Copy { place , .. } } if place == "_phi_bb1_0"));
     }
 
     #[test]
@@ -507,14 +507,14 @@ mod phi_tests {
 
     #[test]
     fn mut_ref_stays_loud() {
-        let rv = Rvalue::Ref { place: "__PHI__:_2".to_string(), mut_: true, via: None, zst: false };
+        let rv = Rvalue::Ref { place: "__PHI__:_2".to_string(), mut_: true, via: None, zst: false , off: 0, off2: 0, deref: false, deref_first: false, proj_loud: false , pty: None };
         let mut idx = 0;
         assert!(rewrite_rvalue(&rv, &phi_map(), "bb3", &mut idx, true).is_none());
     }
 
     #[test]
     fn shared_ref_needs_dominating_block() {
-        let rv = Rvalue::Ref { place: "__PHI__:_2".to_string(), mut_: false, via: None, zst: false };
+        let rv = Rvalue::Ref { place: "__PHI__:_2".to_string(), mut_: false, via: None, zst: false , off: 0, off2: 0, deref: false, deref_first: false, proj_loud: false , pty: None };
         let mut idx = 0;
         assert!(rewrite_rvalue(&rv, &phi_map(), "bb3", &mut idx, false).is_none());
         let mut idx = 0;

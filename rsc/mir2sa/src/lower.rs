@@ -596,7 +596,7 @@ pub fn lower_function_with_layouts(
                     continue;
                 }
                 let d = match discr.as_ref() {
-                    Operand::Move { place } => {
+                    Operand::Move { place , .. } => {
                         let tmp = format!("_sw_{}", b.id);
                         out.push(format!("    {} = {}", tmp, place));
                         tmp
@@ -678,7 +678,7 @@ pub fn lower_function_with_layouts(
                     continue;
                 }
                 let c = match cond.as_ref() {
-                    Operand::Move { place } => {
+                    Operand::Move { place , .. } => {
                         let tmp = format!("_as_{}", b.id);
                         out.push(format!("    {} = {}", tmp, place));
                         tmp

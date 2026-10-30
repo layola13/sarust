@@ -227,7 +227,7 @@ fn reachable_from(succ: &[Vec<usize>], from: usize) -> HashSet<usize> {
 
 fn operand_place(op: &Operand) -> Option<&str> {
     match op {
-        Operand::Move { place } | Operand::Copy { place } | Operand::Conflict { place } => {
+        Operand::Move { place , .. } | Operand::Copy { place , .. } | Operand::Conflict { place } => {
             Some(place.as_str())
         }
         _ => None,
@@ -1178,9 +1178,9 @@ fn plan_join_ends(
         // or multi-elem aggregate stores.
         let moved_in_def = blocks[*db].statements.iter().any(|st| match st {
             Stmt::Assign { rvalue, .. } => match rvalue {
-                Rvalue::Use { op: Operand::Move { place } } => place == b,
+                Rvalue::Use { op: Operand::Move { place , .. } } => place == b,
                 Rvalue::Aggregate { elems, .. } if elems.len() == 1 => {
-                    matches!(&elems[0], Operand::Move { place } if place == b)
+                    matches!(&elems[0], Operand::Move { place , .. } if place == b)
                 }
                 Rvalue::RawPtr { place, .. } => place == b,
                 _ => false,
@@ -1487,7 +1487,7 @@ mod borrow_end_tests {
         Stmt::Assign {
             dest: dest.to_string(),
             dest_place: None,
-            rvalue: Rvalue::Ref { place: place.to_string(), mut_: false, via: None, zst: false },
+            rvalue: Rvalue::Ref { place: place.to_string(), mut_: false, via: None, zst: false , off: 0, off2: 0, deref: false, deref_first: false, proj_loud: false , pty: None },
         }
     }
 
@@ -1500,7 +1500,7 @@ mod borrow_end_tests {
         vec![
             blk("bb0", vec![rf("_2", "_1")], Term::Call {
                 func: "f".to_string(), func_raw: None,
-                args: vec![Operand::Move { place: "_2".to_string() }],
+                args: vec![Operand::Move { place: "_2".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false }],
                 dest: Some("_3".to_string()), target: Some("bb1".to_string()),
                 sig: None,
             }),
@@ -1529,7 +1529,7 @@ mod borrow_end_tests {
         // Use _2 in bb3 via a call arg.
         blocks[3] = blk("bb3", vec![], Term::Call {
             func: "g".to_string(), func_raw: None,
-            args: vec![Operand::Copy { place: "_2".to_string() }],
+            args: vec![Operand::Copy { place: "_2".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false }],
             dest: None, target: None, sig: None,
         });
         let plan = plan_drops(&blocks, &doms(&blocks), &BTreeSet::new());
@@ -1592,7 +1592,7 @@ mod borrow_end_tests {
         let blocks = vec![
             blk("bb0", vec![Stmt::Assign {
                 dest: "_2".to_string(), dest_place: None,
-                rvalue: Rvalue::Ref { place: "_1".to_string(), mut_: false, via: None, zst: true },
+                rvalue: Rvalue::Ref { place: "_1".to_string(), mut_: false, via: None, zst: true , off: 0, off2: 0, deref: false, deref_first: false, proj_loud: false , pty: None },
             }], Term::Goto { target: "bb1".to_string() }),
             blk("bb1", vec![], Term::Drop { place: "_1".to_string(), target: "bb2".to_string() }),
             blk("bb2", vec![], Term::Return { ret: None }),
@@ -1605,14 +1605,14 @@ mod borrow_end_tests {
     fn use_copy(dest: &str, place: &str) -> Stmt {
         Stmt::Assign {
             dest: dest.to_string(), dest_place: None,
-            rvalue: Rvalue::Use { op: Operand::Copy { place: place.to_string() } },
+            rvalue: Rvalue::Use { op: Operand::Copy { place: place.to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false } },
         }
     }
 
     fn use_move(dest: &str, place: &str) -> Stmt {
         Stmt::Assign {
             dest: dest.to_string(), dest_place: None,
-            rvalue: Rvalue::Use { op: Operand::Move { place: place.to_string() } },
+            rvalue: Rvalue::Use { op: Operand::Move { place: place.to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false } },
         }
     }
 
@@ -1625,7 +1625,7 @@ mod borrow_end_tests {
 
     fn switch(discr: &str, target: &str, otherwise: &str) -> Term {
         Term::SwitchInt {
-            discr: Box::new(Operand::Move { place: discr.to_string() }),
+            discr: Box::new(Operand::Move { place: discr.to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false }),
             targets: vec![("0".to_string(), target.to_string())],
             otherwise: otherwise.to_string(),
         }
@@ -1651,7 +1651,7 @@ mod borrow_end_tests {
                     dest: "_5".to_string(), dest_place: None,
                     rvalue: Rvalue::BinOp {
                         op: "Gt".to_string(),
-                        left: Box::new(Operand::Move { place: "_6".to_string() }),
+                        left: Box::new(Operand::Move { place: "_6".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false }),
                         right: Box::new(Operand::Const { value: "Val(Scalar(0x00000000), i32)".to_string(), str_bytes: None, str_len: None }),
                     },
                 },
@@ -1741,7 +1741,7 @@ mod borrow_end_tests {
             dest_place: None,
             rvalue: Rvalue::Call {
                 func: func.to_string(),
-                args: args.into_iter().map(|a| Operand::Copy { place: a.to_string() }).collect(),
+                args: args.into_iter().map(|a| Operand::Copy { place: a.to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false }).collect(),
                 sig: None,
             },
         }
@@ -1751,7 +1751,7 @@ mod borrow_end_tests {
         Term::Call {
             func: func.to_string(),
             func_raw: None,
-            args: args.into_iter().map(|a| Operand::Copy { place: a.to_string() }).collect(),
+            args: args.into_iter().map(|a| Operand::Copy { place: a.to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false }).collect(),
             dest: dest.map(|d| d.to_string()),
             target: target.map(|t| t.to_string()),
             sig: None,
@@ -1772,7 +1772,7 @@ mod borrow_end_tests {
             blk("bb3", vec![rf("_12", "_6"), ca("_9", "poll", vec!["_10", "_12"])],
                 Term::Goto { target: "bb4".into() }),
             blk("bb4", vec![], Term::SwitchInt {
-                discr: Box::new(Operand::Copy { place: "_9".to_string() }),
+                discr: Box::new(Operand::Copy { place: "_9".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false }),
                 targets: vec![("0".to_string(), "bb5".to_string()), ("1".to_string(), "bb6".to_string())],
                 otherwise: "bb7".to_string(),
             }),
@@ -1878,7 +1878,7 @@ mod borrow_end_tests {
         let blocks = vec![
             blk("bb0", vec![rf("_5", "_1")], Term::Call {
                 func: "next".to_string(), func_raw: None,
-                args: vec![Operand::Copy { place: "_5".to_string() }],
+                args: vec![Operand::Copy { place: "_5".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false }],
                 dest: Some("_6".to_string()), target: Some("bb1".to_string()),
                 sig: None,
             }),
@@ -1956,7 +1956,7 @@ mod borrow_end_tests {
         let blocks = vec![
             blk("bb10", vec![rf("_13", "_11")], Term::Call {
                 func: "next".to_string(), func_raw: None,
-                args: vec![Operand::Copy { place: "_13".to_string() }],
+                args: vec![Operand::Copy { place: "_13".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false }],
                 dest: Some("_12".to_string()), target: Some("bb11".to_string()),
                 sig: None,
             }),
@@ -1990,12 +1990,12 @@ mod borrow_end_tests {
         // (UnknownRegister on the consumed register).
         let rawptr = Stmt::Assign {
             dest: "_2".to_string(), dest_place: None,
-            rvalue: Rvalue::RawPtr { place: "_3".to_string(), mut_: true },
+            rvalue: Rvalue::RawPtr { place: "_3".to_string(), mut_: true , off: 0, off2: 0, deref: false, deref_first: false, proj_loud: false , pty: None },
         };
         let blocks = vec![
             blk("bb0", vec![rf("_3", "_1"), rawptr, use_move("_5", "_2")], Term::Call {
                 func: "read".to_string(), func_raw: None,
-                args: vec![Operand::Move { place: "_5".to_string() }],
+                args: vec![Operand::Move { place: "_5".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false }],
                 dest: Some("_4".to_string()), target: Some("bb1".to_string()),
                 sig: None,
             }),
@@ -2014,14 +2014,14 @@ mod borrow_end_tests {
         // on the first iteration (UnknownRegister). No loop end.
         let blocks = vec![
             blk("bb0", vec![], Term::SwitchInt {
-                discr: Box::new(Operand::Copy { place: "_c".to_string() }),
+                discr: Box::new(Operand::Copy { place: "_c".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false }),
                 targets: vec![("0".to_string(), "bb2".to_string())],
                 otherwise: "bb4".to_string(),
             }),
             blk("bb2", vec![rf("_13", "_11"), ca("_12", "next", vec!["_13"])],
                 Term::Goto { target: "bb3".into() }),
             blk("bb3", vec![], Term::SwitchInt {
-                discr: Box::new(Operand::Copy { place: "_12".to_string() }),
+                discr: Box::new(Operand::Copy { place: "_12".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false }),
                 targets: vec![("0".to_string(), "bb4".to_string())],
                 otherwise: "bb5".to_string(),
             }),

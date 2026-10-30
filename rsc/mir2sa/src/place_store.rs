@@ -20,8 +20,14 @@
 //!   provably single-field type; conflicting layouts for one type name
 //!   void the index entry (stay loud, never guess);
 //! - the base is provably a buffer pointer in SA (reference-typed local,
-//!   ptr param, or multi-elem Aggregate def); phi-managed bases stay loud
-//!   (the slot, not the register, owns the current pointer value);
+//!   ptr param, multi-elem Aggregate def, or thin raw-pointer base);
+//!   phi-managed bases stay loud (the slot, not the register, owns the
+//!   current pointer value); raw-pointer bases defined by an
+//!   unresolvable const (a static address rendered as placeholder 0)
+//!   stay loud too (118, Jev scope_118 = wait_static, jev-1.14.0);
+//! - a raw-pointer-typed cell stores as `ptr` (182: `(_1.1: *const u8)`
+//!   field store); a const raw-pointer value stays loud (no trustworthy
+//!   address);
 //! - the value const (if any) is not a loud const, and a fat value never
 //!   comes from a const-propagated placeholder (loading from address 0
 //!   would be worse than loud).
@@ -224,6 +230,46 @@ fn scalar_sa_ty(ty: &str) -> Option<String> {
     }
 }
 
+/// `*const T` / `*mut T` -> `T`; None otherwise.
+fn strip_raw_ptr(ty: &str) -> Option<String> {
+    let t = ty.trim();
+    for p in ["*const ", "*mut "] {
+        if let Some(rest) = t.strip_prefix(p) {
+            let inner = rest.trim();
+            if !inner.is_empty() {
+                return Some(inner.to_string());
+            }
+        }
+    }
+    None
+}
+
+/// True when `ty` is a thin raw pointer. Raw pointers are one word in
+/// SA, so a raw-pointer-typed cell stores as `ptr`.
+fn is_raw_ptr(ty: &str) -> bool {
+    strip_raw_ptr(ty).is_some()
+}
+
+/// True when the defining Assign of `base` in this function (dest_place
+/// equals dest, so place stores do not count) carries an unresolvable
+/// const. Such a base renders as a 0 placeholder, not a real address.
+fn base_is_loud_const(f: &Function, base: &str) -> bool {
+    let stripped = strip_version_suffix(base);
+    f.blocks.iter().flat_map(|b| &b.statements).any(|st| match st {
+        Stmt::Assign {
+            dest,
+            dest_place,
+            rvalue,
+            ..
+        } => {
+            dest_place.as_deref() == Some(dest.as_str())
+                && strip_version_suffix(dest) == stripped
+                && assign_loud_const(rvalue).is_some()
+        }
+        _ => false,
+    })
+}
+
 /// True when `ty` (a field suffix) is a `&str` fat pointer.
 fn is_fat_str(ty: &str) -> bool {
     let t = ty.trim();
@@ -417,8 +463,9 @@ pub fn plan_place_store(
     let base_ty = type_of_local(&f.local_types, &base)?;
     // Base must be a buffer pointer in SA.
     let base_is_ptr = if deref {
-        // Deref forms need a reference-typed base (or a ptr param).
-        strip_ref(&base_ty).is_some() || is_param_ptr(f, &base)
+        // Deref forms need a reference-typed base, a ptr param, or a
+        // thin raw-pointer base (W3: the 118 (*_1) shape).
+        strip_ref(&base_ty).is_some() || is_param_ptr(f, &base) || is_raw_ptr(&base_ty)
     } else {
         is_param_ptr(f, &base)
             || base_ty.trim().starts_with('&')
@@ -427,17 +474,35 @@ pub fn plan_place_store(
     if !base_is_ptr {
         return None;
     }
+    // Placeholder guard (Jev scope_118 = wait_static, jev-1.14.0): a
+    // raw-pointer base defined by an unresolvable const (e.g. a static
+    // address rendered as placeholder 0) is not a real address; storing
+    // through it would write address 0. Stay loud. Reference/param
+    // bases are untouched by this guard.
+    if deref && is_raw_ptr(&base_ty) && base_is_loud_const(f, &base) {
+        return None;
+    }
     match shape {
         PlaceShape::Deref { .. } => {
             // Value type = pointee type (suffix wins when present).
             let pointee = match &suffix_ty {
                 Some(t) => t.clone(),
-                None => strip_ref(&base_ty)?,
+                None => strip_ref(&base_ty).or_else(|| strip_raw_ptr(&base_ty))?,
             };
             if is_fat_str(&pointee) {
                 return None;
             }
-            let sa_ty = scalar_sa_ty(&pointee)?;
+            // A raw-pointer pointee stores as `ptr`; a const
+            // raw-pointer value has no trustworthy address, so it
+            // stays loud.
+            let sa_ty = if is_raw_ptr(&pointee) {
+                if value_place.is_none() {
+                    return None;
+                }
+                "ptr".to_string()
+            } else {
+                scalar_sa_ty(&pointee)?
+            };
             Some(PlaceStorePlan {
                 base,
                 offset: Some(0),
@@ -470,6 +535,13 @@ pub fn plan_place_store(
                 }
             }
             let sa_ty = if fat {
+                "ptr".to_string()
+            } else if is_raw_ptr(&suffix) {
+                // W3 (182): a raw-pointer struct field stores as `ptr`.
+                // A const raw-pointer value has no trustworthy address.
+                if value_place.is_none() {
+                    return None;
+                }
                 "ptr".to_string()
             } else {
                 scalar_sa_ty(&suffix)?
@@ -875,6 +947,158 @@ mod place_store_tests {
             &f,
             &AdtLayoutIndex::default(),
             &phi_b,
+            &HashMap::new(),
+        )
+        .is_none());
+    }
+
+    fn rawptr_agg_fn() -> Function {
+        // M { fd: i32, ptr: *const u8, len: i32 } with rustc layout
+        // [8, 0, 12] (field order in MIR source order, offsets reordered).
+        fn_with_types(
+            "new",
+            vec![],
+            vec![("_1", "M"), ("_2", "*const u8")],
+            vec![Block {
+                id: "bb0".to_string(),
+                statements: vec![Stmt::Assign {
+                    dest: "_1".to_string(),
+                    dest_place: Some("_1".to_string()),
+                    rvalue: Rvalue::Aggregate {
+                        elems: vec![
+                            Operand::Const {
+                                value: "Val(Scalar(0x00000000), i32)".to_string(),
+                                str_bytes: None,
+                                str_len: None,
+                            },
+                            Operand::Const {
+                                value: "Val(Scalar(0x00000000), *const u8)".to_string(),
+                                str_bytes: None,
+                                str_len: None,
+                            },
+                            Operand::Const {
+                                value: "Val(Scalar(0x00000004), i32)".to_string(),
+                                str_bytes: None,
+                                str_len: None,
+                            },
+                        ],
+                        layout: Some(AdtLayout {
+                            size: 16,
+                            offsets: vec![8, 0, 12],
+                        }),
+                    },
+                }],
+                terminator: Term::Return { ret: None },
+            }],
+        )
+    }
+
+    #[test]
+    fn field_raw_ptr_store_plans() {
+        // W3 (182): (_1.1: *const u8) = Copy _2 stores as ptr at the
+        // rustc field offset (0 for this layout).
+        let idx = build_adt_layout_index(&[rawptr_agg_fn()]);
+        let f = rawptr_agg_fn();
+        let plan = plan_place_store(
+            Some("(_1.1: *const u8)"),
+            "_1",
+            &use_rv(Operand::Copy {
+                place: "_2".to_string(),
+                off: 0,
+                off2: 0,
+                deref: false,
+                deref_first: false,
+                pty: None,
+                proj_loud: false,
+                deref_last: false,
+            }),
+            &f,
+            &idx,
+            &BTreeMap::new(),
+            &HashMap::new(),
+        )
+        .expect("raw-ptr field store must plan");
+        assert_eq!(plan.base, "_1");
+        assert_eq!(plan.offset, Some(0));
+        assert_eq!(plan.sa_ty, "ptr");
+        assert!(!plan.fat);
+    }
+
+    #[test]
+    fn deref_raw_ptr_base_plans() {
+        // A deref store through a genuine thin raw-pointer base plans
+        // with the pointee type; the suffix is absent, so the pointee
+        // comes from stripping the base type.
+        let f = fn_with_types(
+            "bump",
+            vec![],
+            vec![("_1", "*mut i32"), ("_2", "i32")],
+            vec![],
+        );
+        let plan = plan_place_store(
+            Some("(*_1)"),
+            "_1",
+            &use_rv(Operand::Move {
+                place: "_2".to_string(),
+                off: 0,
+                off2: 0,
+                deref: false,
+                deref_first: false,
+                pty: None,
+                proj_loud: false,
+                deref_last: false,
+            }),
+            &f,
+            &AdtLayoutIndex::default(),
+            &BTreeMap::new(),
+            &HashMap::new(),
+        )
+        .expect("raw-ptr deref store must plan");
+        assert_eq!(plan.base, "_1");
+        assert_eq!(plan.offset, Some(0));
+        assert_eq!(plan.sa_ty, "i32");
+    }
+
+    #[test]
+    fn deref_placeholder_base_stays_loud() {
+        // 118: _1 is defined by an unresolvable static-address const
+        // (rendered as placeholder 0). A store through it stays loud
+        // (Jev scope_118 = wait_static, jev-1.14.0), even though a
+        // genuine raw-pointer base would plan.
+        let f = fn_with_types(
+            "main",
+            vec![],
+            vec![("_1", "*mut i32"), ("_2", "i32")],
+            vec![Block {
+                id: "bb0".to_string(),
+                statements: vec![Stmt::Assign {
+                    dest: "_1".to_string(),
+                    dest_place: Some("_1".to_string()),
+                    rvalue: use_rv(Operand::Const {
+                        value: "Val(Scalar(alloc1), *mut i32)".to_string(),
+                        str_bytes: None,
+                        str_len: None,
+                    }),
+                }],
+                terminator: Term::Return { ret: None },
+            }],
+        );
+        assert!(plan_place_store(
+            Some("(*_1)"),
+            "_1",
+            &use_rv(Operand::Move {
+                place: "_2".to_string(),
+                off: 0,
+                off2: 0,
+                deref: false,
+                deref_first: false,
+                pty: None,
+                proj_loud: false,
+                deref_last: false,
+            }),
+            &f,
+            &AdtLayoutIndex::default(),
+            &BTreeMap::new(),
             &HashMap::new(),
         )
         .is_none());

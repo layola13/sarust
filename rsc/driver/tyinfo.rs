@@ -326,7 +326,20 @@ pub fn place_proj<'tcx>(
     let mut cur_ty = body.local_decls[place.local].ty;
     let mut variant: Option<rustc_middle::ty::layout::TyAndLayout<'tcx>> = None;
     let mut seen_deref = false;
-    for (i, (_base, elem)) in place.iter_projections().enumerate() {
+    // mir2sa stores an aggregate-typed field as a POINTER SLOT in the
+    // outer buffer (lower_adt_init stores `^inner`, not inline bytes),
+    // so a path that crosses such a field cannot use one total rustc
+    // offset: the next step lives in a different buffer. Those paths
+    // go loud instead of silently reading the wrong cell.
+    let is_buf = |ty: Ty<'tcx>| {
+        matches!(
+            ty.kind(),
+            TyKind::Adt(..) | TyKind::Tuple(..) | TyKind::Array(..)
+        )
+    };
+    let elems: Vec<_> = place.iter_projections().map(|(_, e)| e).collect();
+    let n = elems.len();
+    for (i, elem) in elems.into_iter().enumerate() {
         match elem {
             ProjectionElem::Field(idx, field_ty) => {
                 let lay = match &variant {
@@ -356,6 +369,10 @@ pub fn place_proj<'tcx>(
                     out.off += o;
                 }
                 variant = None;
+                if is_buf(field_ty) && i + 1 < n {
+                    out.loud = true;
+                    return out;
+                }
                 cur_ty = field_ty;
             }
             ProjectionElem::Deref => {
@@ -388,30 +405,9 @@ pub fn place_proj<'tcx>(
                 let cx = LayoutCx::new(tcx, typing_env);
                 variant = Some(lay.for_variant(&cx, variant_idx));
             }
-            ProjectionElem::ConstantIndex { offset, from_end, .. } => {
-                if from_end {
-                    out.loud = true;
-                    return out;
-                }
-                let TyKind::Array(elem_ty, _) = cur_ty.kind() else {
-                    out.loud = true;
-                    return out;
-                };
-                let Some(lay) = proj_layout(tcx, cur_ty) else {
-                    out.loud = true;
-                    return out;
-                };
-                if !matches!(lay.fields, rustc_abi::FieldsShape::Array { .. }) {
-                    out.loud = true;
-                    return out;
-                }
-                let o = lay.fields.offset(offset as usize).bytes();
-                if seen_deref {
-                    out.off2 += o;
-                } else {
-                    out.off += o;
-                }
-                cur_ty = *elem_ty;
+            ProjectionElem::ConstantIndex { .. } => {
+                out.loud = true;
+                return out;
             }
             _ => {
                 out.loud = true;

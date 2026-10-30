@@ -265,3 +265,217 @@ pub fn aggregate_layout<'tcx>(
     }
     Some((layout.size.bytes(), offsets))
 }
+
+/// Structured projection info for one MIR place (field-precision).
+///
+/// The driver used to collapse every place to its root local
+/// (`place_name`), so a field read `_1.1` arrived in mir.json as plain
+/// `_1` and mir2sa rendered the whole buffer pointer as the field value.
+/// `place_proj` walks the projection chain under rustc layouts and
+/// reports what mir2sa needs to render the place exactly:
+///
+/// - `off`: with no deref, the total field byte offset from the root
+///   buffer; with a deref, the offset from the root buffer to the cell
+///   holding the dereferenced pointer (0 when the deref is first).
+/// - `off2`: trailing field offset after the deref (0 without one).
+/// - `deref` / `deref_first`: the chain holds exactly one `Deref`, and
+///   whether it is the first element.
+/// - `pty`: SA kind of the projected place: a scalar name (`u64`,
+///   `i32`, `u8`, `f64`, ...), `ptr` for a reference/raw-pointer/fn-ptr
+///   value (loaded, not added), `buf` for an aggregate/array/tuple
+///   value (address = base + offset), `zst` for a zero-sized value
+///   (renders as 0). `None` for old/unknown shapes.
+/// - `loud`: the chain cannot be resolved exactly (dynamic index,
+///   subslice, opaque cast, multiple derefs, unresolvable layout,
+///   unmappable final type). mir2sa must render such operands loud,
+///   never as a plain root local.
+///
+/// Projectionless places return the default (no offset, no type, not
+/// loud): they keep exactly today's rendering, including generic
+/// locals whose layout cannot be resolved.
+/// - `deref_last`: the projection's last step is a Deref (the value
+///   is the whole pointee buffer, not a field cell): buf values bind
+///   the deref resolution itself instead of loading a slot.
+#[derive(Clone, Debug, Default)]
+pub struct PlaceProj {
+    pub off: u64,
+    pub off2: u64,
+    pub deref: bool,
+    pub deref_first: bool,
+    pub deref_last: bool,
+    pub pty: Option<String>,
+    pub loud: bool,
+}
+
+fn proj_layout<'tcx>(
+    tcx: TyCtxt<'tcx>,
+    ty: Ty<'tcx>,
+) -> Option<rustc_middle::ty::layout::TyAndLayout<'tcx>> {
+    let typing_env = ty::TypingEnv::fully_monomorphized();
+    tcx.layout_of(ty::PseudoCanonicalInput { typing_env, value: ty })
+        .ok()
+}
+
+pub fn place_proj<'tcx>(
+    tcx: TyCtxt<'tcx>,
+    body: &Body<'tcx>,
+    place: &Place<'tcx>,
+) -> PlaceProj {
+    use rustc_middle::mir::ProjectionElem;
+    use rustc_middle::ty::layout::LayoutCx;
+    let mut out = PlaceProj::default();
+    if place.projection.is_empty() {
+        return out;
+    }
+    let mut cur_ty = body.local_decls[place.local].ty;
+    // True while every projection step so far is a field of a union:
+    // such a chain reads the union storage itself (all fields overlap
+    // at offset 0), so it renders as the root local, not as a field
+    // cell load. Any deref, downcast, index, or non-union field ends
+    // the chain (mixed chains keep the computed offset below).
+    let mut only_union_fields = true;
+    let mut variant: Option<rustc_middle::ty::layout::TyAndLayout<'tcx>> = None;
+    let mut seen_deref = false;
+    // mir2sa stores an aggregate-typed field as a POINTER SLOT in the
+    // outer buffer (lower_adt_init stores `^inner`, not inline bytes),
+    // so a path that crosses such a field cannot use one total rustc
+    // offset: the next step lives in a different buffer. Those paths
+    // go loud instead of silently reading the wrong cell.
+    let is_buf = |ty: Ty<'tcx>| {
+        matches!(
+            ty.kind(),
+            TyKind::Adt(..) | TyKind::Tuple(..) | TyKind::Array(..)
+        )
+    };
+    let elems: Vec<_> = place.iter_projections().map(|(_, e)| e).collect();
+    let n = elems.len();
+    let deref_last = elems
+        .last()
+        .is_some_and(|e| matches!(e, ProjectionElem::Deref));
+    for (i, elem) in elems.into_iter().enumerate() {
+        match elem {
+            ProjectionElem::Field(idx, field_ty) => {
+                let lay = match &variant {
+                    Some(v) => Some(*v),
+                    None => proj_layout(tcx, cur_ty),
+                };
+                let Some(lay) = lay else {
+                    out.loud = true;
+                    return out;
+                };
+                // Unions overlap every field at offset 0, so a union
+                // field read is the whole union value (scalar identity
+                // when the union local is scalar-stored, a base+0 load
+                // when it is buffered): exact, never loud. Other
+                // non-Arbitrary/Array shapes (primitives) have no
+                // fields and stay loud.
+                let is_union = matches!(lay.fields, rustc_abi::FieldsShape::Union(..));
+                if !is_union {
+                    only_union_fields = false;
+                }
+                if !is_union
+                    && !matches!(
+                        lay.fields,
+                        rustc_abi::FieldsShape::Arbitrary { .. }
+                            | rustc_abi::FieldsShape::Array { .. }
+                    )
+                {
+                    out.loud = true;
+                    return out;
+                }
+                if idx.index() >= lay.fields.count() {
+                    out.loud = true;
+                    return out;
+                }
+                let o = if is_union {
+                    0
+                } else {
+                    lay.fields.offset(idx.index()).bytes()
+                };
+                if seen_deref {
+                    out.off2 += o;
+                } else {
+                    out.off += o;
+                }
+                variant = None;
+                if is_buf(field_ty) && i + 1 < n {
+                    out.loud = true;
+                    return out;
+                }
+                cur_ty = field_ty;
+            }
+            ProjectionElem::Deref => {
+                only_union_fields = false;
+                if seen_deref {
+                    out.loud = true;
+                    return out;
+                }
+                seen_deref = true;
+                out.deref = true;
+                out.deref_first = i == 0;
+                cur_ty = match cur_ty.kind() {
+                    TyKind::Ref(_, inner, _) | TyKind::RawPtr(inner, _) => *inner,
+                    _ => {
+                        out.loud = true;
+                        return out;
+                    }
+                };
+                variant = None;
+            }
+            ProjectionElem::Downcast(_, variant_idx) => {
+                only_union_fields = false;
+                if !matches!(cur_ty.kind(), TyKind::Adt(..)) {
+                    out.loud = true;
+                    return out;
+                }
+                let Some(lay) = proj_layout(tcx, cur_ty) else {
+                    out.loud = true;
+                    return out;
+                };
+                let typing_env = ty::TypingEnv::fully_monomorphized();
+                let cx = LayoutCx::new(tcx, typing_env);
+                variant = Some(lay.for_variant(&cx, variant_idx));
+            }
+            ProjectionElem::ConstantIndex { .. } => {
+                out.loud = true;
+                return out;
+            }
+            _ => {
+                out.loud = true;
+                return out;
+            }
+        }
+    }
+    // A pure union-field chain is the root local itself: report no
+    // projection at all, so mir2sa renders the plain root local
+    // (the pre-field-precision rendering, which is exact here because
+    // a union field has no cell of its own). Reporting off=0/pty=buf
+    // instead would make mir2sa load a field cell that does not exist.
+    if only_union_fields {
+        return PlaceProj::default();
+    }
+    let Some(final_lay) = proj_layout(tcx, cur_ty) else {
+        out.loud = true;
+        return out;
+    };
+    if final_lay.size.bytes() == 0 {
+        out.pty = Some("zst".to_string());
+    } else {
+        out.pty = match cur_ty.kind() {
+            TyKind::Uint(_) | TyKind::Int(_) | TyKind::Float(_)
+            | TyKind::Bool | TyKind::Char => ty_sa_sig_opt(cur_ty),
+            TyKind::Ref(..) | TyKind::RawPtr(..) | TyKind::FnPtr(..) => {
+                Some("ptr".to_string())
+            }
+            TyKind::Adt(..) | TyKind::Tuple(..) | TyKind::Array(..) => {
+                Some("buf".to_string())
+            }
+            _ => None,
+        };
+        if out.pty.is_none() {
+            out.loud = true;
+        }
+    }
+    out.deref_last = deref_last;
+    out
+}

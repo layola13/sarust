@@ -12,7 +12,10 @@
 //!
 //! Conflict sentinels (`Operand::Conflict`) flow into the existing loud
 //! machinery via `const_needs_loud` (same predicate lower and coverage
-//! share), so joins stay honest without phi nodes. Place uses (Ref /
+//! share), so joins stay honest without phi nodes. A Conflict keeps the
+//! original operand's projection (off/deref/pty), so phi.rs can resolve
+//! a projected field read through a slot instead of dropping the field
+//! (join-05); unresolvable Conflicts still go loud. Place uses (Ref /
 //! Discriminant / RawPtr / SetDisc / Drop / Return) carry a `__PHI__`
 //! marker instead (see phi.rs): the kind, mutability and variant survive,
 //! and lower() resolves the provable ones through a per-local slot or
@@ -28,11 +31,20 @@ use crate::order::rpo_order;
 type DefSite = (usize, Option<usize>);
 
 /// Collect def sites per local (Assign dests + Call dests + asm outs).
+/// Place stores (dest_place names a field/deref place, not the dest
+/// itself) are NOT def sites: they mutate through the base pointer
+/// and leave the binding -- and its version -- unchanged.
 fn collect_defs(blocks: &[Block]) -> BTreeMap<String, Vec<DefSite>> {
     let mut defs: BTreeMap<String, Vec<DefSite>> = BTreeMap::new();
     for (bi, b) in blocks.iter().enumerate() {
         for (si, st) in b.statements.iter().enumerate() {
-            if let Stmt::Assign { dest, .. } = st {
+            if let Stmt::Assign { dest, dest_place, .. } = st {
+                if dest_place
+                    .as_deref()
+                    .is_some_and(|dp| dp.trim() != dest.trim())
+                {
+                    continue;
+                }
                 defs.entry(dest.clone()).or_default().push((bi, Some(si)));
             }
         }
@@ -181,19 +193,26 @@ fn rewrite_operand(
     inn: &[BTreeMap<String, BTreeSet<usize>>],
 ) {
     let local = match op {
-        Operand::Move { place } | Operand::Copy { place } => place.clone(),
+        Operand::Move { place , .. } | Operand::Copy { place , .. } => place.clone(),
         _ => return,
     };
     match resolve(&local, user_block, user_pos, numbered, inn) {
         Ok(Some(k)) => {
             let new = versioned_name(&local, k);
             match op {
-                Operand::Move { place } | Operand::Copy { place } => *place = new,
+                Operand::Move { place , .. } | Operand::Copy { place , .. } => *place = new,
                 _ => {}
             }
         }
         Err(()) => {
-            *op = Operand::Conflict { place: local };
+            let (off, off2, deref, deref_first, deref_last, pty, proj_loud) = match op {
+                Operand::Move { off, off2, deref, deref_first, deref_last, pty, proj_loud, .. }
+                | Operand::Copy { off, off2, deref, deref_first, deref_last, pty, proj_loud, .. } => {
+                    (*off, *off2, *deref, *deref_first, *deref_last, pty.clone(), *proj_loud)
+                }
+                _ => unreachable!("rewrite_operand only runs on Move/Copy"),
+            };
+            *op = Operand::Conflict { place: local, off, off2, deref, deref_first, deref_last, pty, proj_loud };
         }
         Ok(None) => {}
     }
@@ -221,6 +240,34 @@ fn rewrite_place(
         }
     }
     None
+}
+
+/// Replace the base local token inside a dest_place text
+/// (`(_1.1: u64)` -> `(_1_v0.1: u64)`, `(*_1)` -> `(*_1_v0)`). Only the
+/// first token in base position is replaced (preceded by `(`, `*`, or
+/// whitespace/start, followed by `.`, `)`, `[`, whitespace, or `:`);
+/// anything unrecognized is left unchanged (defensive: the caller
+/// then keeps the original name, which lower() handles as before).
+fn replace_place_base(place: &str, old: &str, new: &str) -> String {
+    let bytes = place.as_bytes();
+    let mut start = 0usize;
+    while let Some(pos) = place[start..].find(old) {
+        let abs = start + pos;
+        let prev_ok = abs == 0
+            || matches!(bytes[abs - 1], b'(' | b'*' | b' ' | b'\t');
+        let next = bytes.get(abs + old.len()).copied();
+        let next_ok = next.is_none()
+            || matches!(next.unwrap(), b'.' | b')' | b'[' | b' ' | b':' | b',');
+        if prev_ok && next_ok {
+            let mut out = String::with_capacity(place.len() + new.len());
+            out.push_str(&place[..abs]);
+            out.push_str(new);
+            out.push_str(&place[abs + old.len()..]);
+            return out;
+        }
+        start = abs + old.len();
+    }
+    place.to_string()
 }
 
 /// Version one function: rename multi-def dests, rewrite uses, mark join
@@ -298,7 +345,30 @@ pub fn version_function(f: &Function) -> Function {
     for (bi, b) in out.blocks.iter_mut().enumerate() {
         for (si, st) in b.statements.iter_mut().enumerate() {
             match st {
-                Stmt::Assign { dest, rvalue, .. } => {
+                Stmt::Assign { dest, dest_place, rvalue } => {
+                    // Place stores (C5) are not redefinitions: rewrite
+                    // the store's dest and its dest_place base to the
+                    // base's reaching version (pre-store), so lower()
+                    // sees a bound base and emits the real store
+                    // instead of a whole-local def holding the stored
+                    // value. Unresolvable bases (single-def chains,
+                    // params) keep their original name, which is
+                    // already the reaching version; conflict bases keep
+                    // theirs too (lower() then drops the store, and the
+                    // reads stay phi-honest -- same as before, minus
+                    // the crash).
+                    let is_place_store = dest_place
+                        .as_deref()
+                        .is_some_and(|dp| dp.trim() != dest.trim());
+                    if is_place_store {
+                        if let Ok(Some(k)) = resolve(dest, bi, Some(si), &numbered, &inn) {
+                            let new_name = versioned_name(dest, k);
+                            if let Some(dp) = dest_place {
+                                *dp = replace_place_base(dp, dest, &new_name);
+                            }
+                            *dest = new_name;
+                        }
+                    }
                     // Rewrite operand uses first (they read pre-assign versions).
                     let pos = Some(si);
                     match rvalue {
@@ -341,8 +411,9 @@ pub fn version_function(f: &Function) -> Function {
                         }
                         Rvalue::Unsupported { .. } => {}
                     }
-                    // Then rename the def itself (multi-def only).
-                    if multi.contains(dest) {
+                    // Then rename the def itself (multi-def only;
+                    // place stores never take a fresh version).
+                    if !is_place_store && multi.contains(dest) {
                         if let Some(k) = version_of(dest, bi, Some(si)) {
                             *dest = versioned_name(dest, k);
                         }
@@ -427,7 +498,7 @@ mod version_tests {
         Stmt::Assign {
             dest: dest.to_string(),
             dest_place: Some(dest.to_string()),
-            rvalue: Rvalue::Use { op: Operand::Copy { place: place.to_string() } },
+            rvalue: Rvalue::Use { op: Operand::Copy { place: place.to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false } },
         }
     }
 
@@ -479,7 +550,7 @@ mod version_tests {
         } else {
             panic!("shape");
         }
-        if let Stmt::Assign { rvalue: Rvalue::Use { op: Operand::Copy { place } }, .. } =
+        if let Stmt::Assign { rvalue: Rvalue::Use { op: Operand::Copy { place , .. } }, .. } =
             &out.blocks[1].statements[0]
         {
             assert_eq!(place, "_1_v1");
@@ -493,7 +564,7 @@ mod version_tests {
         // Diamond: _1 defined in both branches; join use conflicts.
         let f = mkfn(vec![
             blk("bb0", vec![], Term::SwitchInt {
-                discr: Box::new(Operand::Copy { place: "_9".to_string() }),
+                discr: Box::new(Operand::Copy { place: "_9".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false }),
                 targets: vec![("0".to_string(), "bb1".to_string())],
                 otherwise: "bb2".to_string(),
             }),
@@ -521,13 +592,13 @@ mod version_tests {
             modifiers: false,
             inout: true,
             outs: vec!["_1".to_string()],
-            ins: vec![Operand::Copy { place: "_1".to_string() }],
+            ins: vec![Operand::Copy { place: "_1".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false }],
             target: Some("bb1".to_string()),
         };
         let ref_stmt = Stmt::Assign {
             dest: "_5".to_string(),
             dest_place: Some("_5".to_string()),
-            rvalue: Rvalue::Ref { place: "_1".to_string(), mut_: false, via: None, zst: false },
+            rvalue: Rvalue::Ref { place: "_1".to_string(), mut_: false, via: None, zst: false , off: 0, off2: 0, deref: false, deref_first: false, proj_loud: false , pty: None , deref_last: false },
         };
         let f = mkfn(vec![
             blk("bb0", vec![use_stmt("_1", "_9")], asm_term),
@@ -549,11 +620,11 @@ mod version_tests {
         let mkref = || Stmt::Assign {
             dest: "_5".to_string(),
             dest_place: Some("_5".to_string()),
-            rvalue: Rvalue::Ref { place: "_2".to_string(), mut_: false, via: None, zst: false },
+            rvalue: Rvalue::Ref { place: "_2".to_string(), mut_: false, via: None, zst: false , off: 0, off2: 0, deref: false, deref_first: false, proj_loud: false , pty: None , deref_last: false },
         };
         let f = mkfn(vec![
             blk("bb0", vec![use_stmt("_2", "_9")], Term::SwitchInt {
-                discr: Box::new(Operand::Copy { place: "_9".to_string() }),
+                discr: Box::new(Operand::Copy { place: "_9".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false }),
                 targets: vec![("0".to_string(), "bb5".to_string())],
                 otherwise: "bb2".to_string(),
             }),

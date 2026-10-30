@@ -36,7 +36,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use crate::asm::{is_plain_local, strip_version_suffix};
 use crate::const_util::{array_elem_size, sa_scalar_ty};
 use crate::mir::{Function, Operand, Rvalue, Stmt};
-use crate::render_util::{assign_loud_const, const_scalar_text};
+use crate::render_util::{assign_loud_const, const_scalar_text, field_value_temp, operand_is_projected, operand_proj_loud};
 use crate::spill::{spill_slot, SpillMap};
 
 /// Crate-wide ADT layout facts harvested from Aggregate inits.
@@ -384,7 +384,13 @@ pub fn plan_place_store(
             }
             (Some(text), None, false)
         }
-        Operand::Move { place } | Operand::Copy { place } => {
+        Operand::Move { place , .. } | Operand::Copy { place , .. } => {
+            // Field-precision: unrenderable projections stay loud
+            // (coverage calls this same plan function, so the count
+            // matches lower's rebind-loud path exactly).
+            if operand_proj_loud(op) {
+                return None;
+            }
             if !is_plain_local(place) {
                 return None;
             }
@@ -447,6 +453,11 @@ pub fn plan_place_store(
         PlaceShape::Field { field, .. } => {
             let suffix = suffix_ty?;
             let fat = is_fat_str(&suffix);
+            // A fat value from a field cell has no single pair address
+            // to load from (field temps hold one word); stay loud.
+            if fat && operand_is_projected(op) {
+                return None;
+            }
             if fat {
                 // A fat value must be a real pair address, never a
                 // const-propagated placeholder literal.
@@ -537,8 +548,18 @@ pub fn emit_place_store(
     // (never moves the register); a const-propagated literal
     // re-materializes; anything else reads the register directly
     // (stores never consume, so drop glue still frees it at exits).
-    let src = match (&plan.value_text, &plan.value_place) {
-        (Some(t), _) => t.clone(),
+    // Field-precision: a projected value loads its field cell into
+    // a temp first (plan already rejected proj_loud and fat-projected
+    // values, so this temp always holds the exact field value; loads
+    // never consume the base, so no spill/cmap logic applies here).
+    let src = if let Rvalue::Use { op } = rvalue {
+        if operand_is_projected(op) {
+            let (mut plines, tmp) = field_value_temp(op, bid, mv_idx);
+            lines.append(&mut plines);
+            tmp
+        } else {
+            match (&plan.value_text, &plan.value_place) {
+                (Some(t), _) => t.clone(),
         (None, Some(p)) => {
             if plan.value_is_copy {
                 if let Some(ty) = spill.get(p) {
@@ -558,7 +579,11 @@ pub fn emit_place_store(
                 p.clone()
             }
         }
-        _ => return None,
+                _ => return None,
+            }
+        }
+    } else {
+        return None; // unreachable: plan only accepts Use.
     };
     if plan.fat {
         let off = plan.offset?;
@@ -675,7 +700,7 @@ mod place_store_tests {
             "_1",
             &use_rv(Operand::Move {
                 place: "_2".to_string(),
-            }),
+            off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false }),
             &f,
             &idx,
             &BTreeMap::new(),
@@ -703,7 +728,7 @@ mod place_store_tests {
             "_1",
             &use_rv(Operand::Copy {
                 place: "_2".to_string(),
-            }),
+            off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false }),
             &f,
             &idx,
             &BTreeMap::new(),
@@ -731,7 +756,7 @@ mod place_store_tests {
             "_1",
             &use_rv(Operand::Move {
                 place: "_3".to_string(),
-            }),
+            off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false }),
             &f,
             &idx,
             &BTreeMap::new(),
@@ -810,7 +835,7 @@ mod place_store_tests {
             "_24",
             &use_rv(Operand::Copy {
                 place: "_2".to_string(),
-            }),
+            off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false }),
             &f,
             &idx,
             &BTreeMap::new(),
@@ -822,7 +847,7 @@ mod place_store_tests {
             "_1",
             &use_rv(Operand::Copy {
                 place: "_2".to_string(),
-            }),
+            off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false }),
             &f,
             &idx,
             &BTreeMap::new(),
@@ -846,7 +871,7 @@ mod place_store_tests {
             "_1",
             &use_rv(Operand::Move {
                 place: "_2".to_string(),
-            }),
+            off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false }),
             &f,
             &AdtLayoutIndex::default(),
             &phi_b,
@@ -871,14 +896,14 @@ mod place_store_tests {
                         dest_place: Some("(_1.0: &str)".to_string()),
                         rvalue: use_rv(Operand::Copy {
                             place: "_2".to_string(),
-                        }),
+                        off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false }),
                     },
                     Stmt::Assign {
                         dest: "_0".to_string(),
                         dest_place: Some("_0".to_string()),
                         rvalue: use_rv(Operand::Move {
                             place: "_1".to_string(),
-                        }),
+                        off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false }),
                     },
                 ],
                 terminator: Term::Return {

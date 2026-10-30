@@ -71,7 +71,7 @@ pub fn loud_const_kind(op: &Operand) -> Option<&'static str> {
 /// Loud reason text for one operand, `None` when it is fine.
 pub fn loud_operand_reason(op: &Operand) -> Option<String> {
     match op {
-        Operand::Conflict { place } => {
+        Operand::Conflict { place, .. } => {
             Some(format!("version conflict at join (multiple reaching defs of {})", place))
         }
         Operand::Const { value, .. } if const_needs_loud(op) => Some(format!(
@@ -160,6 +160,12 @@ pub fn render_call_arg_preamble(
     bid: &str,
     idx: &mut usize,
 ) -> (Vec<String>, String, Vec<String>) {
+    // Field/deref args load first; the temp is freed right after the
+    // call (same post-call free list as the str-pair byte buffers).
+    if operand_is_projected(op) {
+        let (lines, tmp) = field_value_temp(op, bid, idx);
+        return (lines, tmp.clone(), vec![tmp]);
+    }
     match op {
         Operand::Const { value, str_bytes, str_len } => {
             let tmp = format!("_carg_{}_{}", bid, *idx);
@@ -203,7 +209,7 @@ pub fn assign_loud_const(rv: &Rvalue) -> Option<String> {
         _ => None,
     };
     hit.map(|op| match op {
-        Operand::Conflict { place } => {
+        Operand::Conflict { place, .. } => {
             format!("version conflict at join (multiple reaching defs of {})", place)
         }
         Operand::Const { value, .. } => format!("unresolvable const {}", value.chars().take(60).collect::<String>()),
@@ -256,11 +262,11 @@ pub fn render_operand(op: &Operand) -> String {
     // (`_x = ^_y` is UnknownRegister); `^` is legal only in call args
     // (render_call_arg) and store values. See sala 03_sa_asm/02_sa_syntax.
     match op {
-        Operand::Move { place } => place.clone(),
-        Operand::Copy { place } => place.clone(),
+        Operand::Move { place , .. } => place.clone(),
+        Operand::Copy { place , .. } => place.clone(),
         // Conflict sentinels never reach here (intercepted loud upstream);
         // the fallback keeps rendering total.
-        Operand::Conflict { place } => place.clone(),
+        Operand::Conflict { place, .. } => place.clone(),
         Operand::Const { value, .. } => {
             // Zero-sized values carry no data: bind a null marker (exact).
             if value.trim_start().starts_with("Val(ZeroSized") {
@@ -278,9 +284,290 @@ pub fn render_operand(op: &Operand) -> String {
 /// Uses render_operand directly; this alias documents the rule.
 pub fn render_call_arg(op: &Operand) -> String {
     match op {
-        Operand::Move { place } => place.clone(),
+        Operand::Move { place , .. } => place.clone(),
         _ => render_operand(op),
     }
+}
+
+/// Projection view of a Move/Copy operand: the driver's structured
+/// place info (mir.rs), or None for Const/Conflict operands.
+pub struct OperandProj<'a> {
+    pub place: &'a str,
+    pub off: u64,
+    pub off2: u64,
+    pub deref: bool,
+    pub deref_first: bool,
+    pub deref_last: bool,
+    pub pty: Option<&'a str>,
+    pub proj_loud: bool,
+}
+
+pub fn operand_proj(op: &Operand) -> Option<OperandProj<'_>> {
+    match op {
+        Operand::Move { place, off, off2, deref, deref_first, deref_last, pty, proj_loud, .. }
+        | Operand::Copy { place, off, off2, deref, deref_first, deref_last, pty, proj_loud, .. } => {
+            Some(OperandProj {
+                place,
+                off: *off,
+                off2: *off2,
+                deref: *deref,
+                deref_first: *deref_first,
+                deref_last: *deref_last,
+                pty: pty.as_deref(),
+                proj_loud: *proj_loud,
+            })
+        }
+        _ => None,
+    }
+}
+
+/// True when the operand reads through a projection (a field offset,
+/// a deref, or an aggregate-typed field even at offset 0): it must
+/// render as a load/add, never as its root local. Scalar field-0
+/// (pty scalar, off 0) is deliberately NOT projected: collapsed-pair
+/// .0 reads (AddWithOverflow results) hold values, not buffers.
+/// Field-only projection: true when the operand reads a field cell
+/// (non-zero offset) or an aggregate-typed field (pointer slot). Pure
+/// deref reads (`*p`, off 0, scalar/ptr type) are NOT field projections:
+/// they behave like whole-value copies for use-counting (spill slots,
+/// borrow ends, asm gates), and excluding them lost baseline slots
+/// (313: `_7` lost its slot and its dereferenced value conflicted at
+/// the join). Rendering still uses operand_is_projected (which includes
+/// deref) for field loads.
+pub fn operand_is_field_projected(op: &Operand) -> bool {
+    match op {
+        Operand::Move { off, pty, .. } | Operand::Copy { off, pty, .. } => {
+            *off != 0 || pty.as_deref() == Some("buf")
+        }
+        _ => false,
+    }
+}
+
+pub fn operand_is_projected(op: &Operand) -> bool {
+    operand_proj(op).is_some_and(|p| p.off != 0 || p.deref || p.pty == Some("buf"))
+}
+
+/// True when the operand's projection cannot be rendered exactly: the
+/// driver flagged it, or it is projected without a field type (old or
+/// hand-written mir.json cannot type the load). Such operands go loud.
+pub fn operand_proj_loud(op: &Operand) -> bool {
+    match operand_proj(op) {
+        Some(pr) => pr.proj_loud || (operand_is_projected(op) && pr.pty.is_none()),
+        None => false,
+    }
+}
+
+/// True when any operand inside an rvalue carries an unrenderable
+/// projection (checked by lower() before rendering, and mirrored by
+/// coverage, so a loud count can never drift from the emitted code).
+pub fn rvalue_proj_loud(rv: &Rvalue) -> bool {
+    match rv {
+        Rvalue::Use { op } => operand_proj_loud(op),
+        Rvalue::BinOp { left, right, .. } => {
+            operand_proj_loud(left) || operand_proj_loud(right)
+        }
+        Rvalue::UnOp { operand, .. } => operand_proj_loud(operand),
+        Rvalue::Cast { op, .. } => operand_proj_loud(op.as_ref()),
+        Rvalue::Call { args, .. } => args.iter().any(operand_proj_loud),
+        Rvalue::Aggregate { elems, .. } => elems.iter().any(operand_proj_loud),
+        Rvalue::Repeat { op, .. } => operand_proj_loud(op.as_ref()),
+        Rvalue::Ref { proj_loud, off, deref, pty, .. } => {
+            *proj_loud || ((*off != 0 || *deref) && pty.is_none())
+        }
+        Rvalue::RawPtr { proj_loud, off, deref, pty, .. } => {
+            *proj_loud || ((*off != 0 || *deref) && pty.is_none())
+        }
+        _ => false,
+    }
+}
+
+/// True for a long-lived aggregate-field Copy: a Use (or single-elem
+/// aggregate) whose Copy operand reads an aggregate-typed field
+/// (`pty == "buf"`) through a projection. Sharing the buffer would
+/// alias source and dest under later place stores, and duplicating it
+/// needs the inner layout, so it goes loud (Jev: aggcopy_loud).
+/// A pure trailing deref is NOT a field copy: it copies the whole
+/// pointee buffer (Clone's *self), shared like any whole-aggregate
+/// Copy. Transient positions (BinOp/Call args) share like
+/// whole-aggregate values already do, and are not covered here.
+pub fn rvalue_agg_field_copy_loud(rv: &Rvalue) -> bool {
+    let is_buf_copy = |op: &Operand| -> bool {
+        match operand_proj(op) {
+            // pty == "buf" already implies a projection (projectionless
+            // places carry no pty), so a buf Copy is a field copy
+            // unless it is a pure trailing deref (whole pointee value).
+            Some(pr) => {
+                matches!(op, Operand::Copy { .. })
+                    && pr.pty == Some("buf")
+                    && !(pr.deref && pr.deref_last)
+            }
+            None => false,
+        }
+    };
+    match rv {
+        Rvalue::Use { op } => is_buf_copy(op),
+        Rvalue::Aggregate { elems, .. } if elems.len() == 1 => {
+            is_buf_copy(&elems[0])
+        }
+        _ => false,
+    }
+}
+
+/// (preamble, buffer pointer, offset) for a projected operand: the
+/// pointer whose buffer the field offset applies to. No deref: the
+/// root reg itself (an aggregate buffer pointer). Deref-first: the
+/// root reg itself (it already holds the pointee buffer address).
+/// Deref after leading fields: the pointer cell is loaded first.
+/// Loads read the root reg without consuming it, so spilled and
+/// unspilled bases behave identically here.
+fn field_base(
+    pr: &OperandProj<'_>,
+    bid: &str,
+    idx: &mut usize,
+) -> (Vec<String>, String, u64) {
+    if !pr.deref {
+        (vec![], pr.place.to_string(), pr.off)
+    } else if pr.deref_first {
+        (vec![], pr.place.to_string(), pr.off2)
+    } else {
+        let tmp = format!("_mv_{}_{}", bid, *idx);
+        *idx += 1;
+        (
+            vec![format!("{} = load {}+{} as ptr", tmp, pr.place, pr.off)],
+            tmp,
+            pr.off2,
+        )
+    }
+}
+
+/// Lines binding `dest` to a projected operand's VALUE. mir2sa stores
+/// aggregate-typed fields as pointer slots (lower_adt_init stores the
+/// inner buffer pointer, not inline bytes), so every field value is a
+/// load: scalars by their driver type, reference/aggregate fields as
+/// `ptr`, zero-sized values as 0.
+pub fn field_value_into(
+    op: &Operand,
+    dest: &str,
+    bid: &str,
+    idx: &mut usize,
+) -> Vec<String> {
+    let pr = match operand_proj(op) {
+        Some(pr) => pr,
+        None => return vec![format!("{} = {}", dest, render_operand(op))],
+    };
+    let (mut lines, bp, off) = field_base(&pr, bid, idx);
+    match pr.pty {
+        Some("zst") => lines.push(format!("{} = 0", dest)),
+        Some("buf") => {
+            // A buf value reached through a trailing deref IS the
+            // pointee buffer itself (the deref resolution), not a slot
+            // load: Clone's whole-struct deref copy shares the buffer.
+            if pr.deref && pr.deref_last {
+                lines.push(format!("{} = {}", dest, bp))
+            } else {
+                lines.push(format!("{} = load {}+{} as ptr", dest, bp, off))
+            }
+        }
+        Some("ptr") => {
+            lines.push(format!("{} = load {}+{} as ptr", dest, bp, off))
+        }
+        Some(ty) => lines.push(format!("{} = load {}+{} as {}", dest, bp, off, ty)),
+        None => lines.push(format!("{} = {}", dest, bp)),
+    }
+    lines
+}
+
+/// (preamble, temp) binding a fresh temp to a projected operand's
+/// value; the temp is a plain read result (loads/adds never consume
+/// the base), so Move and Copy share this path.
+pub fn field_value_temp(
+    op: &Operand,
+    bid: &str,
+    idx: &mut usize,
+) -> (Vec<String>, String) {
+    let tmp = format!("_mv_{}_{}", bid, *idx);
+    *idx += 1;
+    let lines = field_value_into(op, &tmp, bid, idx);
+    (lines, tmp)
+}
+
+/// Same value rule as field_value_into but with a caller-chosen temp
+/// name and no shared counter: the deref-after-fields pointer temp
+/// derives from `tmp` itself, so names stay unique per caller context.
+/// Used by lower_adt_init, which has no mv_idx to thread.
+pub fn field_value_named(op: &Operand, tmp: &str) -> Vec<String> {
+    let pr = match operand_proj(op) {
+        Some(pr) => pr,
+        None => return vec![format!("{} = {}", tmp, render_operand(op))],
+    };
+    let mut lines = vec![];
+    let (bp, off) = if !pr.deref {
+        (pr.place.to_string(), pr.off)
+    } else if pr.deref_first {
+        (pr.place.to_string(), pr.off2)
+    } else {
+        let dt = format!("{}_deref", tmp);
+        lines.push(format!("{} = load {}+{} as ptr", dt, pr.place, pr.off));
+        (dt, pr.off2)
+    };
+    match pr.pty {
+        Some("zst") => lines.push(format!("{} = 0", tmp)),
+        Some("buf") => {
+            if pr.deref && pr.deref_last {
+                lines.push(format!("{} = {}", tmp, bp))
+            } else {
+                lines.push(format!("{} = load {}+{} as ptr", tmp, bp, off))
+            }
+        }
+        Some("ptr") => {
+            lines.push(format!("{} = load {}+{} as ptr", tmp, bp, off))
+        }
+        Some(ty) => lines.push(format!("{} = load {}+{} as {}", tmp, bp, off, ty)),
+        None => lines.push(format!("{} = {}", tmp, bp)),
+    }
+    lines
+}
+
+/// Lines binding `dest` to a projected Ref/RawPtr's ADDRESS. Scalar
+/// and reference fields live in their cell, so the address is
+/// `base + off` (always an `add`, even at offset 0: a plain assign
+/// would move the base pointer, but a borrow must not consume it).
+/// Aggregate fields live in a separate buffer whose address is the
+/// pointer stored in the slot, so the address is loaded.
+pub fn field_addr_into(
+    op_place: &str,
+    off: u64,
+    off2: u64,
+    deref: bool,
+    deref_first: bool,
+    deref_last: bool,
+    pty: Option<&str>,
+    dest: &str,
+    bid: &str,
+    idx: &mut usize,
+) -> Vec<String> {
+    let pr = OperandProj {
+        place: op_place,
+        off,
+        off2,
+        deref,
+        deref_first,
+        deref_last,
+        pty,
+        proj_loud: false,
+    };
+    let (mut lines, bp, o) = field_base(&pr, bid, idx);
+    if pty == Some("buf") {
+        // Trailing deref: the address IS the deref resolution itself.
+        if deref && deref_last {
+            lines.push(format!("{} = {}", dest, bp));
+        } else {
+            lines.push(format!("{} = load {}+{} as ptr", dest, bp, o));
+        }
+    } else {
+        lines.push(format!("{} = add {}, {}", dest, bp, o));
+    }
+    lines
 }
 
 /// MIR BinOp name -> SA mnemonic for the sign-agnostic subset.
@@ -342,7 +629,7 @@ pub fn binop_operand_signedness(
     local_types: &std::collections::BTreeMap<String, String>,
 ) -> Option<bool> {
     match op {
-        Operand::Move { place } | Operand::Copy { place } => {
+        Operand::Move { place , .. } | Operand::Copy { place , .. } => {
             let base = base_local(place)?;
             int_type_signedness(local_types.get(base)?)
         }
@@ -457,8 +744,14 @@ pub fn unop_needs_loud(op: &str) -> bool {
 /// legal only in call args / store values); everything else renders inline.
 /// Returns (preamble lines, operand text).
 pub fn bind_move_operand(op: &Operand, bid: &str, idx: &mut usize) -> (Vec<String>, String) {
+    // A projected operand never binds its root: loads/adds read the
+    // base without consuming it (partial moves keep other fields live),
+    // and the temp holds the field value itself.
+    if operand_is_projected(op) {
+        return field_value_temp(op, bid, idx);
+    }
     match op {
-        Operand::Move { place } => {
+        Operand::Move { place , .. } => {
             let tmp = format!("_mv_{}_{}", bid, idx);
             *idx += 1;
             (vec![format!("{} = {}", tmp, place)], tmp)
@@ -503,7 +796,7 @@ pub fn build_constmap<'a>(
                             map.remove(dest);
                         }
                     }
-                    Operand::Move { place } | Operand::Copy { place } => {
+                    Operand::Move { place , .. } | Operand::Copy { place , .. } => {
                         if let Some(v) = map.get(place).cloned() {
                             map.insert(dest.clone(), v);
                         } else {

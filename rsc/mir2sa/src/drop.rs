@@ -445,10 +445,20 @@ pub fn move_frees(body_lines: &[Vec<String>]) -> BTreeMap<usize, Vec<String>> {
             .flat_map(|l| regs_in(l.as_str()))
             .collect();
         let mut keep: Vec<String> = vec![];
-        for u in cls[bi].iter() {
+        for (l, u) in ls.iter().zip(cls[bi].iter()) {
             let Some(d) = &u.def else { continue };
             // Plain move only: exactly one move source, not a borrow.
-            if u.move_srcs.len() != 1 || u.borrow.is_some() {
+            // Load defs join plain moves (30: a field-load def
+            // `_4 = load _1+4` is a dead block-local value exactly
+            // like a plain move; excluding it leaked `_4_spill`
+            // through the missing owner free). Other zero-source
+            // defs (calls, consts, binops) stay excluded: calls have
+            // their own frees and must never double-free here.
+            let is_load_def = l.trim_start().contains("= load ");
+            if u.borrow.is_some()
+                || !(u.move_srcs.len() == 1
+                    || (u.move_srcs.is_empty() && is_load_def))
+            {
                 continue;
             }
             if is_compare_temp(d) {

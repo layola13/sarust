@@ -145,6 +145,12 @@ pub struct DropPlan {
     /// its jmp (lower.rs injects them at the drop-glue point so drop.rs
     /// still sees them as ordinary frees).
     pub call_ends: BTreeMap<usize, Vec<JoinEnd>>,
+    /// Statement-level place-store conflict ends (02): (block, stmt)
+    /// -> (before, after). `before` ends borrows that would conflict
+    /// with a direct mut-borrow store; `after` ends the store's own
+    /// borrow when it dies at the store. Lower applies them only when
+    /// the store actually renders as a store.
+    pub store_ends: BTreeMap<(usize, usize), (Vec<String>, Vec<String>)>,
 }
 
 /// One phase-5 end line-group at a block end. `Free` is a 5a borrower
@@ -227,7 +233,7 @@ fn reachable_from(succ: &[Vec<usize>], from: usize) -> HashSet<usize> {
 
 fn operand_place(op: &Operand) -> Option<&str> {
     match op {
-        Operand::Move { place } | Operand::Copy { place } | Operand::Conflict { place } => {
+        Operand::Move { place , .. } | Operand::Copy { place , .. } | Operand::Conflict { place, .. } => {
             Some(place.as_str())
         }
         _ => None,
@@ -690,6 +696,197 @@ fn plan_loop_ends(
 }
 
 /// Plan borrow-ends for every MIR Drop site. Pure MIR-level (no SA text).
+/// Statement-level place-store conflict ends (02).
+///
+/// A direct mut-borrow store `(*B) = v` writes through borrower `B`
+/// of source `S`. Any OTHER borrow of `S` still live at the store
+/// traps ReadWriteConflict in SA (its NLL lifetime should have ended
+/// at its last use, but borrow_end otherwise only ends at block
+/// ends). And `B` itself must end right after the store, or a later
+/// shared borrow of `S` conflicts with the still-live mut borrow.
+///
+/// Conservative gates (anything else keeps today's behavior):
+/// - the store place is exactly `(*B)` (no field/index steps);
+/// - `B` is a non-ZST mut borrow of a plain local `S`;
+/// - each ended borrow is defined before the store (same block
+///   earlier, or a dominating block) and has no use outside the
+///   store's block before the store (before-ends) or no use after
+///   the store anywhere (after-end for `B`).
+/// Uses cover statement operands, Ref/RawPtr places, terminator
+/// operands, Drop places, and dest_place bases of other stores.
+fn plan_store_ends(
+    blocks: &[Block],
+    doms: &[HashSet<usize>],
+) -> BTreeMap<(usize, usize), (Vec<String>, Vec<String>)> {
+    fn is_plain_local(s: &str) -> bool {
+        s.len() > 1 && s.starts_with('_') && s[1..].chars().all(|c| c.is_ascii_digit())
+    }
+    fn base_of_place(dp: &str) -> Option<String> {
+        // First `_N` token in a dest_place text (`(*_4)`, `(_1.1)`).
+        let bytes = dp.as_bytes();
+        let mut i = 0;
+        while i < bytes.len() {
+            if bytes[i] == b'_' {
+                let mut j = i + 1;
+                while j < bytes.len() && bytes[j].is_ascii_digit() {
+                    j += 1;
+                }
+                if j > i + 1 {
+                    return Some(dp[i..j].to_string());
+                }
+            }
+            i += 1;
+        }
+        None
+    }
+    fn op_uses(op: &Operand, bi: usize, si: usize, uses: &mut BTreeMap<String, Vec<(usize, usize)>>) {
+        if let Some(p) = operand_place(op) {
+            uses.entry(p.to_string()).or_default().push((bi, si));
+        }
+    }
+    // Ref defs: borrower -> (source, mut, def block, def stmt).
+    let mut ref_defs: BTreeMap<String, (String, bool, usize, usize)> = BTreeMap::new();
+    // Fine uses: local -> positions (terminators use usize::MAX).
+    let mut uses: BTreeMap<String, Vec<(usize, usize)>> = BTreeMap::new();
+    // Store statements: (block, stmt, base borrow).
+    let mut stores: Vec<(usize, usize, String)> = vec![];
+    for (bi, b) in blocks.iter().enumerate() {
+        for (si, st) in b.statements.iter().enumerate() {
+            match st {
+                Stmt::Assign { dest, dest_place, rvalue } => {
+                    match rvalue {
+                        Rvalue::Use { op } => op_uses(op, bi, si, &mut uses),
+                        Rvalue::BinOp { left, right, .. } => {
+                            op_uses(left, bi, si, &mut uses);
+                            op_uses(right, bi, si, &mut uses);
+                        }
+                        Rvalue::Cast { op, .. } => op_uses(op, bi, si, &mut uses),
+                        Rvalue::Aggregate { elems, .. } => {
+                            for e in elems {
+                                op_uses(e, bi, si, &mut uses);
+                            }
+                        }
+                        Rvalue::Repeat { op, .. } => op_uses(op, bi, si, &mut uses),
+                        Rvalue::Ref { place, mut_, zst, .. } => {
+                            uses.entry(place.clone()).or_default().push((bi, si));
+                            if !*zst {
+                                ref_defs
+                                    .entry(dest.clone())
+                                    .or_insert((place.clone(), *mut_, bi, si));
+                            }
+                        }
+                        Rvalue::RawPtr { place, .. } => {
+                            uses.entry(place.clone()).or_default().push((bi, si));
+                        }
+                        _ => {}
+                    }
+                    if let Some(dp) = dest_place {
+                        // Same versioned-block rule as def counting:
+                        // a stale plain-local dest_place is a normal
+                        // def, not a store.
+                        let t = dp.trim();
+                        let is_store = !(t.len() > 1
+                            && t.starts_with('_')
+                            && t[1..]
+                                .chars()
+                                .all(|c| c.is_ascii_alphanumeric() || c == '_'))
+                            && base_of_place(dp).is_some();
+                        if is_store {
+                            let base = base_of_place(dp).unwrap();
+                            uses.entry(base.clone()).or_default().push((bi, si));
+                            stores.push((bi, si, base));
+                        }
+                    }
+                }
+                Stmt::SetDisc { place, .. } => {
+                    uses.entry(place.clone()).or_default().push((bi, si));
+                }
+                _ => {}
+            }
+        }
+        match &b.terminator {
+            Term::Call { args, .. } => {
+                for a in args {
+                    op_uses(a, bi, usize::MAX, &mut uses);
+                }
+            }
+            Term::SwitchInt { discr, .. } => {
+                op_uses(discr, bi, usize::MAX, &mut uses);
+            }
+            Term::Assert { cond, .. } => {
+                op_uses(cond, bi, usize::MAX, &mut uses);
+            }
+            Term::Drop { place, .. } => {
+                uses.entry(place.clone()).or_default().push((bi, usize::MAX));
+            }
+            Term::Return { ret } => {
+                if let Some(r) = ret {
+                    uses.entry(r.clone()).or_default().push((bi, usize::MAX));
+                }
+            }
+            Term::InlineAsm { ins, .. } => {
+                for a in ins {
+                    op_uses(a, bi, usize::MAX, &mut uses);
+                }
+            }
+            _ => {}
+        }
+    }
+    let def_ok = |dbi: usize, dsi: usize, bi: usize, si: usize, doms: &[HashSet<usize>]| {
+        (dbi == bi && dsi < si) || (dbi != bi && doms.get(bi).is_some_and(|d| d.contains(&dbi)))
+    };
+    let mut out: BTreeMap<(usize, usize), (Vec<String>, Vec<String>)> = BTreeMap::new();
+    for (bi, si, _base) in &stores {
+        let b = &blocks[*bi];
+        let Some(Stmt::Assign { dest_place: Some(dp), .. }) = b.statements.get(*si) else {
+            continue;
+        };
+        // Direct borrow only: exactly `(*B)`.
+        let Some(inner) = dp.trim().strip_prefix("(*").and_then(|s| s.strip_suffix(')')) else {
+            continue;
+        };
+        if !is_plain_local(inner) {
+            continue;
+        }
+        let store_base = inner.to_string();
+        let Some((src, is_mut, dbi, dsi)) = ref_defs.get(&store_base) else {
+            continue;
+        };
+        if !*is_mut || !is_plain_local(src) {
+            continue;
+        }
+        if !def_ok(*dbi, *dsi, *bi, *si, doms) {
+            continue;
+        }
+        let mut before: Vec<String> = vec![];
+        for (other, (osrc, _, odbi, odsi)) in &ref_defs {
+            if other == &store_base || osrc != src {
+                continue;
+            }
+            if !def_ok(*odbi, *odsi, *bi, *si, doms) {
+                continue;
+            }
+            let dead_before = uses
+                .get(other)
+                .is_none_or(|v| v.iter().all(|&(bj, sj)| bj == *bi && sj < *si));
+            if dead_before {
+                before.push(other.clone());
+            }
+        }
+        let mut after: Vec<String> = vec![];
+        let base_dead_after = uses.get(&store_base).is_none_or(|v| {
+            v.iter().all(|&(bj, sj)| bj == *bi && sj <= *si)
+        });
+        if base_dead_after {
+            after.push(store_base.clone());
+        }
+        if !before.is_empty() || !after.is_empty() {
+            out.insert((*bi, *si), (before, after));
+        }
+    }
+    out
+}
+
 pub fn plan_drops(blocks: &[Block], doms: &[HashSet<usize>], spilled: &BTreeSet<String>) -> DropPlan {
     let n = blocks.len();
     let succ = successors(blocks);
@@ -716,8 +913,22 @@ pub fn plan_drops(blocks: &[Block], doms: &[HashSet<usize>], spilled: &BTreeSet<
     let mut drop_at: BTreeMap<String, Vec<usize>> = BTreeMap::new();
     for (bi, b) in blocks.iter().enumerate() {
         for st in &b.statements {
-            if let Stmt::Assign { dest, rvalue, .. } = st {
-                defs.entry(dest.clone()).or_default().push(bi);
+            if let Stmt::Assign { dest, dest_place, rvalue, .. } = st {
+                // Mirror version.rs, adapted to VERSIONED blocks: a
+                // normal def's dest_place is stale (dest=_1_v1,
+                // dest_place=_1), so only a structured place counts
+                // as a store (see spill.rs def_count for why).
+                let is_store = dest_place.as_deref().is_some_and(|dp| {
+                    let t = dp.trim();
+                    !(t.len() > 1
+                        && t.starts_with('_')
+                        && t[1..]
+                            .chars()
+                            .all(|c| c.is_ascii_alphanumeric() || c == '_'))
+                });
+                if !is_store {
+                    defs.entry(dest.clone()).or_default().push(bi);
+                }
                 match rvalue {
                     Rvalue::Use { op } => {
                         if let Some(p) = operand_place(op) {
@@ -845,7 +1056,7 @@ pub fn plan_drops(blocks: &[Block], doms: &[HashSet<usize>], spilled: &BTreeSet<
     // they release needs no second end at a downstream Drop (see below).
     let merge_ends = plan_merge_ends(blocks, &succ, &edges, &defs, &uses, &drop_at, &conflicted, &entry_reach);
     let merged: BTreeSet<String> = merge_ends.values().flatten().cloned().collect();
-    let mut plan = DropPlan { ends: BTreeMap::new(), loud: BTreeSet::new(), cleanup: BTreeSet::new(), merge_ends, loop_ends: BTreeMap::new(), block_ends: BTreeMap::new(), call_ends: BTreeMap::new() };
+    let mut plan = DropPlan { ends: BTreeMap::new(), loud: BTreeSet::new(), cleanup: BTreeSet::new(), merge_ends, loop_ends: BTreeMap::new(), block_ends: BTreeMap::new(), call_ends: BTreeMap::new(), store_ends: BTreeMap::new() };
     // Borrowers already ended (per borrower, at most one end per CFG path:
     // a second end downstream would double-free).
     let mut ended_at: BTreeMap<String, Vec<usize>> = BTreeMap::new();
@@ -973,6 +1184,10 @@ pub fn plan_drops(blocks: &[Block], doms: &[HashSet<usize>], spilled: &BTreeSet<
         }
         plan.loop_ends.retain(|_, v| !v.is_empty());
     }
+    // Statement-level store conflict ends (computed last: independent
+    // of the other phases; lower suppresses a later block-end end for
+    // a reg already ended here, so no double free).
+    plan.store_ends = plan_store_ends(blocks, doms);
     plan
 }
 
@@ -1178,11 +1393,14 @@ fn plan_join_ends(
         // or multi-elem aggregate stores.
         let moved_in_def = blocks[*db].statements.iter().any(|st| match st {
             Stmt::Assign { rvalue, .. } => match rvalue {
-                Rvalue::Use { op: Operand::Move { place } } => place == b,
+                // Field-precision: projected moves/borrows render
+                // as field loads/adds and never consume the base, so
+                // they do not veto the 5a end (plain forms still do).
+                Rvalue::Use { op: Operand::Move { place, off, pty, .. } } if *off == 0 && pty.as_deref() != Some("buf") => place == b,
                 Rvalue::Aggregate { elems, .. } if elems.len() == 1 => {
-                    matches!(&elems[0], Operand::Move { place } if place == b)
+                    matches!(&elems[0], Operand::Move { place, off, pty, .. } if *off == 0 && pty.as_deref() != Some("buf") && place == b)
                 }
-                Rvalue::RawPtr { place, .. } => place == b,
+                Rvalue::RawPtr { place, off, pty, .. } if *off == 0 && pty.as_deref() != Some("buf") => place == b,
                 _ => false,
             },
             _ => false,
@@ -1226,18 +1444,29 @@ fn plan_join_ends(
     };
     for (bi, b) in blocks.iter().enumerate() {
         for st in &b.statements {
-            let ops: Vec<&str> = match st {
+            // Field-precision: a FIELD read loads from a field
+            // cell and never consumes the base, so it is not a
+            // consuming event for the base (terminator reads are
+            // handled separately by term_uses and stay ungated: an end
+            // must not be emitted before a terminator reads the field).
+            // Pure deref reads still count (313: excluding them lost
+            // the deref base's slot and the join conflicted).
+            let ops: Vec<&Operand> = match st {
                 Stmt::Assign { rvalue, .. } => match rvalue {
-                    Rvalue::Use { op } => operand_place(op).into_iter().collect(),
-                    Rvalue::Aggregate { elems, .. } if elems.len() == 1 => {
-                        elems.iter().filter_map(operand_place).collect()
-                    }
-                    Rvalue::Cast { op, .. } => operand_place(op.as_ref()).into_iter().collect(),
+                    Rvalue::Use { op } => vec![op],
+                    Rvalue::Aggregate { elems, .. } if elems.len() == 1 => elems.iter().collect(),
+                    Rvalue::Cast { op, .. } => vec![op.as_ref()],
                     _ => vec![],
                 },
                 _ => vec![],
             };
-            for p in ops {
+            for op in ops {
+                if crate::render_util::operand_is_field_projected(op) {
+                    continue;
+                }
+                let Some(p) = operand_place(op) else {
+                    continue;
+                };
                 // Spill-covered sources never consume on a plain
                 // assign: their Copy uses reload from a slot (03: the
                 // old code counted reloads as consumes and freed the
@@ -1483,11 +1712,19 @@ mod borrow_end_tests {
         Block { id: id.to_string(), statements: stmts, terminator: term }
     }
 
+    fn rfm(dest: &str, place: &str) -> Stmt {
+        Stmt::Assign {
+            dest: dest.to_string(),
+            dest_place: None,
+            rvalue: Rvalue::Ref { place: place.to_string(), mut_: true, via: None, zst: false , off: 0, off2: 0, deref: false, deref_first: false, proj_loud: false , pty: None , deref_last: false },
+        }
+    }
+
     fn rf(dest: &str, place: &str) -> Stmt {
         Stmt::Assign {
             dest: dest.to_string(),
             dest_place: None,
-            rvalue: Rvalue::Ref { place: place.to_string(), mut_: false, via: None, zst: false },
+            rvalue: Rvalue::Ref { place: place.to_string(), mut_: false, via: None, zst: false , off: 0, off2: 0, deref: false, deref_first: false, proj_loud: false , pty: None , deref_last: false },
         }
     }
 
@@ -1500,13 +1737,65 @@ mod borrow_end_tests {
         vec![
             blk("bb0", vec![rf("_2", "_1")], Term::Call {
                 func: "f".to_string(), func_raw: None,
-                args: vec![Operand::Move { place: "_2".to_string() }],
+                args: vec![Operand::Move { place: "_2".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false }],
                 dest: Some("_3".to_string()), target: Some("bb1".to_string()),
                 sig: None,
             }),
             blk("bb1", vec![], Term::Drop { place: "_1".to_string(), target: "bb2".to_string() }),
             blk("bb2", vec![], Term::Return { ret: None }),
         ]
+    }
+
+    fn store_blocks(use_after: bool) -> Vec<Block> {
+        // bb0 (02 shape): _2 = &_1 (shared), _3 = copy _2 (last use),
+        // _4 = &mut _1, store (*_4) = const; bb1 returns.
+        let mut stmts = vec![
+            rf("_2", "_1"),
+            Stmt::Assign {
+                dest: "_3".to_string(),
+                dest_place: None,
+                rvalue: Rvalue::Use { op: Operand::Copy { place: "_2".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false } },
+            },
+            rfm("_4", "_1"),
+            Stmt::Assign {
+                dest: "_4".to_string(),
+                dest_place: Some("(*_4)".to_string()),
+                rvalue: Rvalue::Use { op: Operand::Move { place: "_9".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false } },
+            },
+        ];
+        if use_after {
+            stmts.push(Stmt::Assign {
+                dest: "_5".to_string(),
+                dest_place: None,
+                rvalue: Rvalue::Use { op: Operand::Copy { place: "_2".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false } },
+            });
+        }
+        vec![
+            blk("bb0", stmts, Term::Goto { target: "bb1".to_string() }),
+            blk("bb1", vec![], Term::Return { ret: None }),
+        ]
+    }
+
+    #[test]
+    fn store_conflict_ends() {
+        let blocks = store_blocks(false);
+        let plan = plan_drops(&blocks, &doms(&blocks), &BTreeSet::new());
+        assert_eq!(
+            plan.store_ends.get(&(0, 3)),
+            Some(&(vec!["_2".to_string()], vec!["_4".to_string()]))
+        );
+    }
+
+    #[test]
+    fn store_conflict_ends_used_after_veto() {
+        // _2 reused after the store: no before-end (the store's own
+        // borrow still ends after it).
+        let blocks = store_blocks(true);
+        let plan = plan_drops(&blocks, &doms(&blocks), &BTreeSet::new());
+        assert_eq!(
+            plan.store_ends.get(&(0, 3)),
+            Some(&(vec![], vec!["_4".to_string()]))
+        );
     }
 
     #[test]
@@ -1529,7 +1818,7 @@ mod borrow_end_tests {
         // Use _2 in bb3 via a call arg.
         blocks[3] = blk("bb3", vec![], Term::Call {
             func: "g".to_string(), func_raw: None,
-            args: vec![Operand::Copy { place: "_2".to_string() }],
+            args: vec![Operand::Copy { place: "_2".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false }],
             dest: None, target: None, sig: None,
         });
         let plan = plan_drops(&blocks, &doms(&blocks), &BTreeSet::new());
@@ -1592,7 +1881,7 @@ mod borrow_end_tests {
         let blocks = vec![
             blk("bb0", vec![Stmt::Assign {
                 dest: "_2".to_string(), dest_place: None,
-                rvalue: Rvalue::Ref { place: "_1".to_string(), mut_: false, via: None, zst: true },
+                rvalue: Rvalue::Ref { place: "_1".to_string(), mut_: false, via: None, zst: true , off: 0, off2: 0, deref: false, deref_first: false, proj_loud: false , pty: None , deref_last: false },
             }], Term::Goto { target: "bb1".to_string() }),
             blk("bb1", vec![], Term::Drop { place: "_1".to_string(), target: "bb2".to_string() }),
             blk("bb2", vec![], Term::Return { ret: None }),
@@ -1605,14 +1894,14 @@ mod borrow_end_tests {
     fn use_copy(dest: &str, place: &str) -> Stmt {
         Stmt::Assign {
             dest: dest.to_string(), dest_place: None,
-            rvalue: Rvalue::Use { op: Operand::Copy { place: place.to_string() } },
+            rvalue: Rvalue::Use { op: Operand::Copy { place: place.to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false } },
         }
     }
 
     fn use_move(dest: &str, place: &str) -> Stmt {
         Stmt::Assign {
             dest: dest.to_string(), dest_place: None,
-            rvalue: Rvalue::Use { op: Operand::Move { place: place.to_string() } },
+            rvalue: Rvalue::Use { op: Operand::Move { place: place.to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false } },
         }
     }
 
@@ -1625,7 +1914,7 @@ mod borrow_end_tests {
 
     fn switch(discr: &str, target: &str, otherwise: &str) -> Term {
         Term::SwitchInt {
-            discr: Box::new(Operand::Move { place: discr.to_string() }),
+            discr: Box::new(Operand::Move { place: discr.to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false }),
             targets: vec![("0".to_string(), target.to_string())],
             otherwise: otherwise.to_string(),
         }
@@ -1651,7 +1940,7 @@ mod borrow_end_tests {
                     dest: "_5".to_string(), dest_place: None,
                     rvalue: Rvalue::BinOp {
                         op: "Gt".to_string(),
-                        left: Box::new(Operand::Move { place: "_6".to_string() }),
+                        left: Box::new(Operand::Move { place: "_6".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false }),
                         right: Box::new(Operand::Const { value: "Val(Scalar(0x00000000), i32)".to_string(), str_bytes: None, str_len: None }),
                     },
                 },
@@ -1741,7 +2030,7 @@ mod borrow_end_tests {
             dest_place: None,
             rvalue: Rvalue::Call {
                 func: func.to_string(),
-                args: args.into_iter().map(|a| Operand::Copy { place: a.to_string() }).collect(),
+                args: args.into_iter().map(|a| Operand::Copy { place: a.to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false }).collect(),
                 sig: None,
             },
         }
@@ -1751,7 +2040,7 @@ mod borrow_end_tests {
         Term::Call {
             func: func.to_string(),
             func_raw: None,
-            args: args.into_iter().map(|a| Operand::Copy { place: a.to_string() }).collect(),
+            args: args.into_iter().map(|a| Operand::Copy { place: a.to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false }).collect(),
             dest: dest.map(|d| d.to_string()),
             target: target.map(|t| t.to_string()),
             sig: None,
@@ -1772,7 +2061,7 @@ mod borrow_end_tests {
             blk("bb3", vec![rf("_12", "_6"), ca("_9", "poll", vec!["_10", "_12"])],
                 Term::Goto { target: "bb4".into() }),
             blk("bb4", vec![], Term::SwitchInt {
-                discr: Box::new(Operand::Copy { place: "_9".to_string() }),
+                discr: Box::new(Operand::Copy { place: "_9".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false }),
                 targets: vec![("0".to_string(), "bb5".to_string()), ("1".to_string(), "bb6".to_string())],
                 otherwise: "bb7".to_string(),
             }),
@@ -1878,7 +2167,7 @@ mod borrow_end_tests {
         let blocks = vec![
             blk("bb0", vec![rf("_5", "_1")], Term::Call {
                 func: "next".to_string(), func_raw: None,
-                args: vec![Operand::Copy { place: "_5".to_string() }],
+                args: vec![Operand::Copy { place: "_5".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false }],
                 dest: Some("_6".to_string()), target: Some("bb1".to_string()),
                 sig: None,
             }),
@@ -1956,7 +2245,7 @@ mod borrow_end_tests {
         let blocks = vec![
             blk("bb10", vec![rf("_13", "_11")], Term::Call {
                 func: "next".to_string(), func_raw: None,
-                args: vec![Operand::Copy { place: "_13".to_string() }],
+                args: vec![Operand::Copy { place: "_13".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false }],
                 dest: Some("_12".to_string()), target: Some("bb11".to_string()),
                 sig: None,
             }),
@@ -1990,12 +2279,12 @@ mod borrow_end_tests {
         // (UnknownRegister on the consumed register).
         let rawptr = Stmt::Assign {
             dest: "_2".to_string(), dest_place: None,
-            rvalue: Rvalue::RawPtr { place: "_3".to_string(), mut_: true },
+            rvalue: Rvalue::RawPtr { place: "_3".to_string(), mut_: true , off: 0, off2: 0, deref: false, deref_first: false, proj_loud: false , pty: None , deref_last: false },
         };
         let blocks = vec![
             blk("bb0", vec![rf("_3", "_1"), rawptr, use_move("_5", "_2")], Term::Call {
                 func: "read".to_string(), func_raw: None,
-                args: vec![Operand::Move { place: "_5".to_string() }],
+                args: vec![Operand::Move { place: "_5".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false }],
                 dest: Some("_4".to_string()), target: Some("bb1".to_string()),
                 sig: None,
             }),
@@ -2014,14 +2303,14 @@ mod borrow_end_tests {
         // on the first iteration (UnknownRegister). No loop end.
         let blocks = vec![
             blk("bb0", vec![], Term::SwitchInt {
-                discr: Box::new(Operand::Copy { place: "_c".to_string() }),
+                discr: Box::new(Operand::Copy { place: "_c".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false }),
                 targets: vec![("0".to_string(), "bb2".to_string())],
                 otherwise: "bb4".to_string(),
             }),
             blk("bb2", vec![rf("_13", "_11"), ca("_12", "next", vec!["_13"])],
                 Term::Goto { target: "bb3".into() }),
             blk("bb3", vec![], Term::SwitchInt {
-                discr: Box::new(Operand::Copy { place: "_12".to_string() }),
+                discr: Box::new(Operand::Copy { place: "_12".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false }),
                 targets: vec![("0".to_string(), "bb4".to_string())],
                 otherwise: "bb5".to_string(),
             }),

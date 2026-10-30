@@ -9,7 +9,7 @@ use crate::render_util::*;
 /// operand is not a spilled register (constants, spills absent).
 pub fn spill_reg(op: &Operand, spill: &crate::spill::SpillMap) -> Option<String> {
     let place = match op {
-        Operand::Move { place } | Operand::Copy { place } => place,
+        Operand::Move { place , .. } | Operand::Copy { place , .. } => place,
         _ => return None,
     };
     let t = spill.get(place)?;
@@ -69,10 +69,36 @@ pub fn render_rvalue(
     agg_copy: &AggCopyMap,
     local_types: &std::collections::BTreeMap<String, String>,
 ) -> String {
+    // Field-precision loud guard (lower() pre-checks the same predicate
+    // and skips rendering, so in the real pipeline this never fires;
+    // direct callers still get a loud marker, never a root-local value).
+    if crate::render_util::rvalue_proj_loud(rv)
+        || crate::render_util::rvalue_agg_field_copy_loud(rv)
+    {
+        unsup.push(format!("{}:{} FieldProjection", bid, dest));
+        return format!(
+            "// UNSUPPORTED field-projection -> {}: unrenderable projection",
+            dest
+        );
+    }
     match rv {
         Rvalue::Use { op } => {
+            // Field-precision: a projected read loads from the field
+            // cell (scalar/pointer slot) instead of binding the root
+            // local, and never consumes the base (a partial move keeps
+            // the other fields live). Spilled dests keep their slot.
+            if crate::render_util::operand_is_projected(op) {
+                let mut lines =
+                    crate::render_util::field_value_into(op, dest, bid, mv_idx);
+                if let Some(t) = spill.get(dest) {
+                    let slot = crate::spill::spill_slot(dest);
+                    lines.push(format!("{} = alloc 8", slot));
+                    lines.push(format!("store {}+0, {} as {}", slot, dest, t));
+                }
+                return lines.join("\n");
+            }
             // Spilled shared values reload (never move the slot source).
-            if let Operand::Copy { place } = op {
+            if let Operand::Copy { place , .. } = op {
                 if let Some(ty) = spill.get(place) {
                     let mut s = format!(
                         "{} = load {}+0 as {}",
@@ -108,7 +134,7 @@ pub fn render_rvalue(
             // build_agg_copy): moving the base would consume the source
             // and a second Copy would trap UseAfterMove (308: _9 copied
             // into _17 and _18).
-            if let Operand::Copy { place } = op {
+            if let Operand::Copy { place , .. } = op {
                 if let Some((total, offsets)) = agg_copy.get(place) {
                     let base = format!("_aggcp_{}_{}", bid, dest);
                     let mut lines = vec![format!("{} = alloc {}", base, total)];
@@ -130,7 +156,7 @@ pub fn render_rvalue(
             // shared temp (a second move of the temp would trap UseAfterMove).
             // Sound: literals carry no control or ownership dependence.
             match op {
-                Operand::Move { place } | Operand::Copy { place } => {
+                Operand::Move { place , .. } | Operand::Copy { place , .. } => {
                     let mut s = if let Some(lit) = cmap.get(place) {
                         format!("{} = {}", dest, lit)
                     } else {
@@ -200,12 +226,42 @@ pub fn render_rvalue(
                 _ => format!("{} = {}", dest, render_operand(op)),
             }
         }
-        Rvalue::Ref { place, mut_, via, zst } => {
+        Rvalue::Ref { place, mut_, via, zst, off, off2, deref, deref_first, deref_last, pty, .. } => {
             // Zero-sized borrows carry no data: null marker (exact).
             // Trailing `//` is ForbiddenSyntax: provenance goes full-line
             // (the Assign arm indents each line of multi-line returns).
             if *zst {
                 return format!("// zero-sized borrow (no storage)\n{} = 0", dest);
+            }
+            // Field-precision: a field borrow points at the field cell
+            // (scalar/reference fields) or at the buffer whose address
+            // the slot stores (aggregate fields), never at the root.
+            if *off != 0 || *deref || pty.as_deref() == Some("buf") {
+                let mut lines = vec![];
+                if *mut_ {
+                    lines.push("// mut-borrow (Phase1: & + Referee)".to_string());
+                }
+                if let Some(v) = via {
+                    lines.push(format!("// via {}", flat_comment(v)));
+                }
+                lines.append(&mut crate::render_util::field_addr_into(
+                    place,
+                    *off,
+                    *off2,
+                    *deref,
+                    *deref_first,
+                    *deref_last,
+                    pty.as_deref(),
+                    dest,
+                    bid,
+                    mv_idx,
+                ));
+                if let Some(t) = spill.get(dest) {
+                    let slot = crate::spill::spill_slot(dest);
+                    lines.push(format!("{} = alloc 8", slot));
+                    lines.push(format!("store {}+0, {} as {}", slot, dest, t));
+                }
+                return lines.join("\n");
             }
             let mut lines = vec![];
             if *mut_ {
@@ -341,7 +397,11 @@ pub fn render_rvalue(
             // reuse one value 2-3 times, and a borrow temp must stay bound
             // for its own later `!b`; `sa check` traps the plain assign as
             // UseAfterMove / UnknownRegister).
-            let reload = spill_reg(op, spill);
+            let reload = if crate::render_util::operand_is_projected(op) {
+                None
+            } else {
+                spill_reg(op, spill)
+            };
             let (mut pre, ot) = match &reload {
                 Some(t) => (vec![], t.clone()),
                 None => bind_move_operand(op, bid, mv_idx),
@@ -370,7 +430,8 @@ pub fn render_rvalue(
             // as the Convert arm). Dyn targets, fn-pointer coercions and
             // anything else fall through to lower_cast / loud unchanged.
             let fat_len = match (castkind.as_deref(), op.as_ref()) {
-                (Some(k), Operand::Move { place } | Operand::Copy { place }) => {
+                (Some(k), Operand::Move { place, .. } | Operand::Copy { place, .. })
+                    if !crate::render_util::operand_is_projected(op.as_ref()) => {
                     local_types
                         .get(place)
                         .or_else(|| local_types.get(crate::asm::strip_version_suffix(place)))
@@ -436,7 +497,24 @@ pub fn render_rvalue(
             // Tag lives at offset 0 (mirrors SetDisc `store +0`).
             format!("{} = load {}+0 as i64", dest, place)
         }
-        Rvalue::RawPtr { place, .. } => {
+        Rvalue::RawPtr { place, off, off2, deref, deref_first, deref_last, pty, .. } => {
+            // Field-precision: a raw pointer to a field uses the field
+            // address, not the root local (same rule as Ref).
+            if *off != 0 || *deref || pty.as_deref() == Some("buf") {
+                return crate::render_util::field_addr_into(
+                    place,
+                    *off,
+                    *off2,
+                    *deref,
+                    *deref_first,
+                    *deref_last,
+                    pty.as_deref(),
+                    dest,
+                    bid,
+                    mv_idx,
+                )
+                .join("\n");
+            }
             // Thin-pointer reborrow is a plain copy (exact); fat cases stay
             // approximate under the base-local collapse (documented).
             format!("{} = {}", dest, place)
@@ -478,8 +556,17 @@ pub fn render_rvalue(
             if elems.is_empty() {
                 format!("// zero-elem aggregate (unit/niche; tag via SetDisc when present)\n{} = 0", dest)
             } else if elems.len() == 1 {
-                // Spilled shared buffers reload like plain Uses.
-                let mut s = if let Some(t) = spill_reg(&elems[0], spill) {
+                // Field-precision: a projected elem loads its field
+                // value (a spill reload would bind the base pointer).
+                let mut s = if crate::render_util::operand_is_projected(&elems[0]) {
+                    let lines = crate::render_util::field_value_into(
+                        &elems[0], dest, bid, mv_idx,
+                    );
+                    format!(
+                        "// single-elem aggregate (field)\n{}",
+                        lines.join("\n")
+                    )
+                } else if let Some(t) = spill_reg(&elems[0], spill) {
                     format!(
                         "// single-elem aggregate (spill reload)\n{} = {}",
                         dest, t
@@ -556,8 +643,8 @@ mod render_tests {
                 dest_place: Some("_9".to_string()),
                 rvalue: Rvalue::Aggregate {
                     elems: vec![
-                        Operand::Move { place: "_10".to_string() },
-                        Operand::Move { place: "_11".to_string() },
+                        Operand::Move { place: "_10".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false },
+                        Operand::Move { place: "_11".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false },
                     ],
                     layout: Some(crate::mir::AdtLayout { size: 16, offsets: vec![0, 8] }),
                 },
@@ -569,7 +656,7 @@ mod render_tests {
         let mut unsup = vec![];
         let mut idx = 0usize;
         let line = render_rvalue(
-            &Rvalue::Use { op: Operand::Copy { place: "_9".to_string() } },
+            &Rvalue::Use { op: Operand::Copy { place: "_9".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false } },
             "_17", Some("_17"), &mut unsup, "bb2", &mut idx,
             &std::collections::HashMap::new(), &std::collections::BTreeMap::new(), &map,
             &std::collections::BTreeMap::new(),
@@ -596,7 +683,7 @@ mod render_tests {
                 dest_place: Some("_9".to_string()),
                 rvalue: Rvalue::Aggregate {
                     elems: vec![
-                        Operand::Move { place: "_10".to_string() },
+                        Operand::Move { place: "_10".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false },
                         Operand::Const { value: "Val(1)".to_string(), str_bytes: None, str_len: None },
                     ],
                     layout: Some(crate::mir::AdtLayout { size: 16, offsets: vec![0, 8] }),
@@ -605,6 +692,77 @@ mod render_tests {
             terminator: Term::Return { ret: None },
         }];
         assert!(build_agg_copy(&blocks).is_empty());
+    }
+
+    #[test]
+    fn field_projection_renders() {
+        let render = |rv: &Rvalue, dest: &str| {
+            let mut unsup = vec![];
+            let mut idx = 0usize;
+            let line = render_rvalue(
+                rv, dest, Some(dest), &mut unsup, "bb0", &mut idx,
+                &std::collections::HashMap::new(), &std::collections::BTreeMap::new(),
+                &std::collections::BTreeMap::new(), &std::collections::BTreeMap::new(),
+            );
+            (line, unsup)
+        };
+        // Scalar field read loads the field cell, never the root.
+        let (line, unsup) = render(
+            &Rvalue::Use { op: Operand::Copy { place: "_1".to_string(), off: 8, off2: 0, deref: false, deref_first: false, pty: Some("u64".to_string()), proj_loud: false , deref_last: false } },
+            "_2",
+        );
+        assert!(unsup.is_empty(), "{:?}", unsup);
+        assert_eq!(line, "_2 = load _1+8 as u64");
+        // Scalar field borrow adds the offset (never moves the base).
+        let (line, unsup) = render(
+            &Rvalue::Ref { place: "_1".to_string(), mut_: false, via: None, zst: false, off: 8, off2: 0, deref: false, deref_first: false, pty: Some("u64".to_string()), proj_loud: false , deref_last: false },
+            "_3",
+        );
+        assert!(unsup.is_empty(), "{:?}", unsup);
+        assert_eq!(line, "_3 = add _1, 8");
+        // Aggregate field borrow loads the slot's buffer address.
+        let (line, unsup) = render(
+            &Rvalue::Ref { place: "_1".to_string(), mut_: false, via: None, zst: false, off: 16, off2: 0, deref: false, deref_first: false, pty: Some("buf".to_string()), proj_loud: false , deref_last: false },
+            "_4",
+        );
+        assert!(unsup.is_empty(), "{:?}", unsup);
+        assert_eq!(line, "_4 = load _1+16 as ptr");
+        // Deref-first scalar read loads the pointee buffer at off2.
+        let (line, unsup) = render(
+            &Rvalue::Use { op: Operand::Copy { place: "_2".to_string(), off: 0, off2: 0, deref: true, deref_first: true, pty: Some("u64".to_string()), proj_loud: false , deref_last: false } },
+            "_5",
+        );
+        assert!(unsup.is_empty(), "{:?}", unsup);
+        assert_eq!(line, "_5 = load _2+0 as u64");
+        // Aggregate-typed field Copy stays loud (no shared buffer).
+        let (line, unsup) = render(
+            &Rvalue::Use { op: Operand::Copy { place: "_1".to_string(), off: 8, off2: 0, deref: false, deref_first: false, pty: Some("buf".to_string()), proj_loud: false , deref_last: false } },
+            "_6",
+        );
+        assert_eq!(unsup.len(), 1, "{:?}", unsup);
+        assert!(line.contains("UNSUPPORTED"), "loud line:\n{}", line);
+        // proj_loud stays loud.
+        let (line, unsup) = render(
+            &Rvalue::Use { op: Operand::Copy { place: "_1".to_string(), off: 8, off2: 0, deref: false, deref_first: false, pty: Some("u64".to_string()), proj_loud: true , deref_last: false } },
+            "_7",
+        );
+        assert_eq!(unsup.len(), 1, "{:?}", unsup);
+        assert!(line.contains("UNSUPPORTED"), "loud line:\n{}", line);
+        // Aggregate field at offset 0 loads its slot (never the base).
+        let (line, unsup) = render(
+            &Rvalue::Use { op: Operand::Move { place: "_1".to_string(), off: 0, off2: 0, deref: false, deref_first: false, deref_last: false, pty: Some("buf".to_string()), proj_loud: false } },
+            "_8",
+        );
+        assert!(unsup.is_empty(), "{:?}", unsup);
+        assert_eq!(line, "_8 = load _1+0 as ptr");
+        // Pure trailing deref of an aggregate shares the pointee buffer
+        // (Clone star-self): never loads its first word, never loud.
+        let (line, unsup) = render(
+            &Rvalue::Use { op: Operand::Copy { place: "_1".to_string(), off: 0, off2: 0, deref: true, deref_first: true, deref_last: true, pty: Some("buf".to_string()), proj_loud: false } },
+            "_9",
+        );
+        assert!(unsup.is_empty(), "{:?}", unsup);
+        assert_eq!(line, "_9 = _1");
     }
 
 
@@ -620,7 +778,7 @@ mod render_tests {
         let line = render_rvalue(
             &Rvalue::BinOp {
                 op: "BitAnd".to_string(),
-                left: Box::new(Operand::Move { place: "_3".to_string() }),
+                left: Box::new(Operand::Move { place: "_3".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false }),
                 right: Box::new(Operand::Const { value: "Val(Scalar(0x80), u8)".to_string(), str_bytes: None, str_len: None }),
             },
             "_2",
@@ -708,10 +866,10 @@ mod render_tests {
         };
         let cp = |p: &str| Operand::Copy {
             place: p.to_string(),
-        };
+        off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false };
         let mv = |p: &str| Operand::Move {
             place: p.to_string(),
-        };
+        off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false };
         // Signed comparison (24-factorial shape): Le(i32, 1_i32).
         let (line, unsup) = bin("Le", cp("_1"), c("Val(Scalar(0x00000001), i32)"));
         assert!(unsup.is_empty(), "{:?}", unsup);
@@ -774,7 +932,7 @@ mod render_tests {
             "&'{erased} [i32; 4_usize]".to_string(),
         )]);
         let cast = Rvalue::Cast {
-            op: Box::new(Operand::Move { place: "_5".to_string() }),
+            op: Box::new(Operand::Move { place: "_5".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false }),
             ty: "&'{erased} [i32]".to_string(),
             castkind: Some("PointerCoercion(Unsize, Implicit)".to_string()),
             src_ty: Some("&".to_string()),
@@ -793,7 +951,7 @@ mod render_tests {
         // Non-spill Copy source: the store reads the place directly
         // (non-consuming), no temp needed.
         let cast_copy = Rvalue::Cast {
-            op: Box::new(Operand::Copy { place: "_5".to_string() }),
+            op: Box::new(Operand::Copy { place: "_5".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false }),
             ty: "&'{erased} [i32]".to_string(),
             castkind: Some("PointerCoercion(Unsize, Implicit)".to_string()),
             src_ty: Some("&".to_string()),
@@ -810,7 +968,7 @@ mod render_tests {
         assert!(line.contains("store _fat_bb0__4+8, 4 as u64"), "{}", line);
         // A dyn target keeps its loud placeholder (vtable, not a length).
         let dyn_cast = Rvalue::Cast {
-            op: Box::new(Operand::Move { place: "_5".to_string() }),
+            op: Box::new(Operand::Move { place: "_5".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false }),
             ty: "&'{erased} dyn [Binder { value: Trait(Draw), bound_vars: [] }]".to_string(),
             castkind: Some("PointerCoercion(Unsize, Implicit)".to_string()),
             src_ty: Some("&".to_string()),

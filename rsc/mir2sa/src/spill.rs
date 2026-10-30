@@ -988,6 +988,7 @@ mod spill_tests {
             },
             "_24", Some("_24"), &mut unsup, "bb0", &mut idx,
             &std::collections::HashMap::new(), &m, &std::collections::BTreeMap::new(),
+            &std::collections::BTreeMap::new(),
         );
         assert!(unsup.is_empty());
         assert!(line.contains("_24_spill = alloc 8"), "slot setup:
@@ -1079,6 +1080,7 @@ mod spill_tests {
             &Rvalue::Use { op: konst },
             "_1", Some("_1"), &mut unsup, "bb0", &mut idx,
             &std::collections::HashMap::new(), &m, &std::collections::BTreeMap::new(),
+            &std::collections::BTreeMap::new(),
         );
         assert!(unsup.is_empty());
         assert_eq!(
@@ -1312,6 +1314,7 @@ mod spill_tests {
             &Rvalue::Use { op: Operand::Copy { place: "_1".to_string() } },
             "_21", Some("_21"), &mut unsup, "bb0", &mut idx,
             &std::collections::HashMap::new(), &m, &std::collections::BTreeMap::new(),
+            &std::collections::BTreeMap::new(),
         );
         assert!(unsup.is_empty());
         assert_eq!(line, "_21 = _1\n_21_spill = alloc 8\nstore _21_spill+0, _21 as ptr");

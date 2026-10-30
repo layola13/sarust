@@ -96,8 +96,8 @@ fn cmd_coverage(args: &[String]) -> ExitCode {
                                 Rvalue::Unsupported { .. } => true,
                                 // ThreadLocal lowers to sa_thread_local_slot (sci registry).
                                 // `*WithOverflow` lowers to the sa_std checked helper.
-                                Rvalue::BinOp { op, .. } => {
-                                    binop_mnemonic(op).is_none() && checked_arith_helper(op).is_none()
+                                Rvalue::BinOp { op, left, right } => {
+                                    !binop_emittable(op, left, right, &f.local_types)
                                 }
                                 Rvalue::UnOp { op, .. } => unop_needs_loud(op),
                                 Rvalue::Cast { castkind, src_ty, ty, .. } => {
@@ -430,7 +430,7 @@ mod tests {
         assert_ne!(tls_key(def), tls_key("TLS_N::{constant#0}::{closure#1}::__RUST_STD_INTERNAL_VAL"));
         let mut unsup = vec![];
         let rv = Rvalue::ThreadLocal { def: def.to_string() };
-        let line = render_rvalue(&rv, "_3", Some("_3"), &mut unsup, "bb0", &mut 0usize, &std::collections::HashMap::new(), &std::collections::BTreeMap::new(), &std::collections::BTreeMap::new());
+        let line = render_rvalue(&rv, "_3", Some("_3"), &mut unsup, "bb0", &mut 0usize, &std::collections::HashMap::new(), &std::collections::BTreeMap::new(), &std::collections::BTreeMap::new(), &std::collections::BTreeMap::new());
         assert!(unsup.is_empty());
         assert_eq!(line, format!("// thread-local registry slot\n_3 = call @sa_thread_local_slot({})", tls_key(def)));
     }
@@ -780,6 +780,7 @@ mod tests {
             },
             "_2", Some("_2"), &mut unsup, "bb0", &mut idx,
             &std::collections::HashMap::new(), &std::collections::BTreeMap::new(), &std::collections::BTreeMap::new(),
+            &std::collections::BTreeMap::new(),
         );
         assert!(unsup.is_empty(), "{:?}", unsup);
         assert_eq!(line, "_2 = load _3+8 as u64");
@@ -793,6 +794,7 @@ mod tests {
             },
             "_2", Some("_2"), &mut unsup, "bb0", &mut idx,
             &std::collections::HashMap::new(), &std::collections::BTreeMap::new(), &std::collections::BTreeMap::new(),
+            &std::collections::BTreeMap::new(),
         );
         assert_eq!(line, "_mv_bb0_0 = _3\n_2 = load _mv_bb0_0+8 as u64");
     }
@@ -848,6 +850,7 @@ mod tests {
         let line = render_rvalue(
             &cast("IntToInt", "u8", "i32"), "_7", Some("_7"), &mut unsup, "bb0",
             &mut idx, &std::collections::HashMap::new(), &spilled, &std::collections::BTreeMap::new(),
+            &std::collections::BTreeMap::new(),
         );
         assert!(unsup.is_empty());
         assert_eq!(line, "_mv_bb0_0 = load _2_spill+0 as u8\n_7 = zext _mv_bb0_0 as i32");
@@ -856,6 +859,7 @@ mod tests {
         let line = render_rvalue(
             &cast("IntToInt", "u32", "u32"), "_7", Some("_7"), &mut unsup, "bb0",
             &mut idx, &std::collections::HashMap::new(), &spilled, &std::collections::BTreeMap::new(),
+            &std::collections::BTreeMap::new(),
         );
         assert_eq!(line, "_7 = load _2_spill+0 as u8");
     }
@@ -880,6 +884,7 @@ mod tests {
                 },
                 "_3", Some("_3"), &mut unsup, "bb0", &mut idx,
                 &std::collections::HashMap::new(), &std::collections::BTreeMap::new(), &std::collections::BTreeMap::new(),
+                &std::collections::BTreeMap::new(),
             );
             assert!(unsup.is_empty(), "{}: {:?}", op, unsup);
             assert_eq!(line, format!("_3 = call @{}(_1, _2)", want));

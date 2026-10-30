@@ -216,9 +216,28 @@ pub enum Operand {
     },
     /// Join-ambiguous use inserted by `version.rs`: two or more reaching
     /// definitions with no dominance order (needs phi nodes, which SA lacks).
-    /// Never renders to a real read: `const_needs_loud` maps it loud, and
-    /// both lower and coverage count it through the shared predicate.
-    Conflict { place: String },
+    /// The original operand's projection rides along (off/deref/pty):
+    /// phi.rs resolves a projected field read through a slot instead of
+    /// dropping the field, and unresolvable Conflicts still go loud via
+    /// `const_needs_loud`, counted identically by lower and coverage.
+    /// New fields default so old mir.json (projectionless) parses as before.
+    Conflict {
+        place: String,
+        #[serde(default)]
+        off: u64,
+        #[serde(default)]
+        off2: u64,
+        #[serde(default)]
+        deref: bool,
+        #[serde(default)]
+        deref_first: bool,
+        #[serde(default)]
+        deref_last: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pty: Option<String>,
+        #[serde(default)]
+        proj_loud: bool,
+    },
 }
 
 /// Max string-literal bytes materialized inline per `&str` field (byte-wise

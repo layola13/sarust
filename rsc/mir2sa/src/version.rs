@@ -12,7 +12,10 @@
 //!
 //! Conflict sentinels (`Operand::Conflict`) flow into the existing loud
 //! machinery via `const_needs_loud` (same predicate lower and coverage
-//! share), so joins stay honest without phi nodes. Place uses (Ref /
+//! share), so joins stay honest without phi nodes. A Conflict keeps the
+//! original operand's projection (off/deref/pty), so phi.rs can resolve
+//! a projected field read through a slot instead of dropping the field
+//! (join-05); unresolvable Conflicts still go loud. Place uses (Ref /
 //! Discriminant / RawPtr / SetDisc / Drop / Return) carry a `__PHI__`
 //! marker instead (see phi.rs): the kind, mutability and variant survive,
 //! and lower() resolves the provable ones through a per-local slot or
@@ -202,7 +205,14 @@ fn rewrite_operand(
             }
         }
         Err(()) => {
-            *op = Operand::Conflict { place: local };
+            let (off, off2, deref, deref_first, deref_last, pty, proj_loud) = match op {
+                Operand::Move { off, off2, deref, deref_first, deref_last, pty, proj_loud, .. }
+                | Operand::Copy { off, off2, deref, deref_first, deref_last, pty, proj_loud, .. } => {
+                    (*off, *off2, *deref, *deref_first, *deref_last, pty.clone(), *proj_loud)
+                }
+                _ => unreachable!("rewrite_operand only runs on Move/Copy"),
+            };
+            *op = Operand::Conflict { place: local, off, off2, deref, deref_first, deref_last, pty, proj_loud };
         }
         Ok(None) => {}
     }

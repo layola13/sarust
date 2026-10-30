@@ -24,6 +24,7 @@ mod render;
 mod render_util;
 mod spill;
 mod phi;
+mod place_store;
 mod version;
 
 use std::process::ExitCode;
@@ -58,6 +59,9 @@ fn cmd_coverage(args: &[String]) -> ExitCode {
         crate_name: mir.crate_name.clone(),
         functions: mir.functions.iter().map(version_function).collect(),
     };
+    // Crate-wide ADT layouts for the C5 place-store mirror (see
+    // place_store.rs: coverage passes an empty constmap).
+    let cov_layouts = crate::place_store::build_adt_layout_index(&mir.functions);
     for f in &mir.functions {
         let mut kinds = std::collections::BTreeMap::<String, usize>::new();
         let mut unsup = vec![];
@@ -90,6 +94,22 @@ fn cmd_coverage(args: &[String]) -> ExitCode {
                 *kinds.entry(stmt_kind(s)).or_insert(0) += 1;
                 match s {
                     Stmt::Assign { dest, dest_place, rvalue } => {
+                        // Place stores (C5) mirror lower(): an exactly
+                        // lowerable store is not a Rebind failure.
+                        if bound.contains(dest)
+                            && crate::place_store::plan_place_store(
+                                dest_place.as_deref(),
+                                dest,
+                                rvalue,
+                                f,
+                                &cov_layouts,
+                                phi_b,
+                                &std::collections::HashMap::new(),
+                            )
+                            .is_some()
+                        {
+                            continue;
+                        }
                         if bound.contains(dest) {
                             tot_unsup += 1;
                             unsup.push(format!("{}:{} Rebind", b.id, dest));
@@ -758,7 +778,7 @@ mod tests {
             blank_block("bb3", Term::Return { ret: None }),
         ]);
         let mut unsup = vec![];
-        let sa = lower_function(&f, &mut unsup);
+        let sa = lower_function_with_layouts(&f, &mut unsup, &crate::place_store::AdtLayoutIndex::default());
         assert!(unsup.is_empty());
         assert!(sa.contains("L_bb0:"), "label shape:\n{}", sa);
         assert!(!sa.contains("=="), "no inline ==:\n{}", sa);
@@ -805,7 +825,7 @@ mod tests {
         let mut f = f;
         f.params = vec!["i32".to_string()];
         let mut unsup = vec![];
-        let sa = lower_function(&f, &mut unsup);
+        let sa = lower_function_with_layouts(&f, &mut unsup, &crate::place_store::AdtLayoutIndex::default());
         assert!(unsup.is_empty(), "{:?}", unsup);
         assert!(sa.contains("return _0"), "return value:\n{}", sa);
     }
@@ -831,12 +851,12 @@ mod tests {
         ];
         for (f, want) in &cases {
             let mut unsup = vec![];
-            let sa = lower_function(f, &mut unsup);
+            let sa = lower_function_with_layouts(f, &mut unsup, &crate::place_store::AdtLayoutIndex::default());
             assert!(sa.contains(want), "fallback {} missing:\n{}", want, sa);
             assert!(!sa.contains("__VERSION_CONFLICT__"), "no raw sentinel:\n{}", sa);
         }
         let mut unsup = vec![];
-        let _ = lower_function(&cases[2].0, &mut unsup);
+        let _ = lower_function_with_layouts(&cases[2].0, &mut unsup, &crate::place_store::AdtLayoutIndex::default());
         assert_eq!(unsup, vec!["bb0: ReturnConflict".to_string()]);
     }
 
@@ -901,7 +921,7 @@ mod tests {
         let mut f = f;
         f.params = vec!["ptr".to_string()];
         let mut unsup = vec![];
-        let sa = lower_function(&f, &mut unsup);
+        let sa = lower_function_with_layouts(&f, &mut unsup, &crate::place_store::AdtLayoutIndex::default());
         assert!(unsup.iter().any(|u| u.contains("CallConstValue")), "{:?}", unsup);
         assert!(sa.contains("!_2"), "reg defined in a loud block must be exit-freed:\n{}", sa);
     }
@@ -980,7 +1000,7 @@ mod tests {
             },
         }]);
         let mut unsup = vec![];
-        let sa = lower_function(&f, &mut unsup);
+        let sa = lower_function_with_layouts(&f, &mut unsup, &crate::place_store::AdtLayoutIndex::default());
         assert_eq!(unsup, vec!["bb0: OverflowAssertFolded".to_string()]);
         assert!(sa.contains("overflow assert folded"), "{}", sa);
         assert!(sa.contains("jmp L_bb1"), "control preserved: {}", sa);
@@ -1000,7 +1020,7 @@ mod tests {
             blank_block("bb1", Term::Return { ret: None }),
         ]);
         let mut unsup = vec![];
-        let sa = lower_function(&f, &mut unsup);
+        let sa = lower_function_with_layouts(&f, &mut unsup, &crate::place_store::AdtLayoutIndex::default());
         assert!(unsup.is_empty());
         assert!(!sa.contains("assert _1"), "no bare assert:\n{}", sa);
         assert!(sa.contains("_as_bb0_eq = eq _1, 1"), "eq:\n{}", sa);
@@ -1017,7 +1037,7 @@ mod tests {
             blank_block("bb1", Term::Return { ret: None }),
         ]);
         let mut unsup = vec![];
-        let sa = lower_function(&f, &mut unsup);
+        let sa = lower_function_with_layouts(&f, &mut unsup, &crate::place_store::AdtLayoutIndex::default());
         assert!(unsup.is_empty());
         assert!(!sa.contains("\n    unreachable\n"), "no bare unreachable:\n{}", sa);
         assert!(sa.contains("panic(1600)"), "panic:\n{}", sa);
@@ -1041,7 +1061,7 @@ mod tests {
         f.params = vec!["ptr".to_string()];
         f.ret = Some("i32".to_string());
         let mut unsup = vec![];
-        let sa = lower_function(&f, &mut unsup);
+        let sa = lower_function_with_layouts(&f, &mut unsup, &crate::place_store::AdtLayoutIndex::default());
         assert!(unsup.is_empty());
         assert!(sa.contains("@f_typed(_1: ptr) -> i32:"), "header:\n{}", sa);
         let mir = MirFile { source: None, crate_name: None, functions: vec![f] };

@@ -215,6 +215,20 @@ field-0 出现在 call 实参与 aggregate 元素位置时，优化后 MIR 都�
   render 层仍会 plain-move；优化后 MIR 未观察到此形状（见第 5 节
   探针），故只记此处，不另修、不进语料。
 
+- 核查结案（W4，2026-10-30，分支 gap/off6-risk，证据见
+  `tools/off6-probes/VERIFICATION.md` 与 `run_off6.sh`）：驱动取的
+  是 `tcx.optimized_mir`（非常量体）/ `mir_for_ctfe`（常量体），
+  “非优化 MIR”只能指未来驱动改查询或 MIR 不再物化字段读的假设。
+  实证 13 探针（Call 局部/参数/返回/分支、Aggregate 局部/参数/
+  返回/元组/返回构造、BinOp 原始指针 repr(C) 局部/参数/返回与函数
+  指针）全部物化为 Assign-Use（`Copy holder pty=ptr`），BinOp /
+  Call / Aggregate 位直接形状数为 0；真实管线值 call/agg 33=33。
+  反事实手写直连 mir.json 证实渲染洞真实存在（Call 直传 holder
+  得 0、Aggregate 直存 holder 得 0、BinOp 直比 holder 得 0，均为
+  UNSUPPORTED=0 的静默错值），但当前管线不产生该输入，故仍不修、
+  不进 fieldprec 语料；回归以 `tools/off6-probes/run_off6.sh` 的
+  形状断言为准（若未来直接形状出现，check.py exit 1 失败闭环）。
+
 ## 7. 门禁数字（fp-off0，修复后）
 
 - 值测试：17/18 PASS，唯一 FAIL 是 05（第 6 节原因，基线起即 FAIL）。

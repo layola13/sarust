@@ -45,6 +45,32 @@ fn dfs(
     post.push(i);
 }
 
+/// Blocks reachable from the entry block (blocks[0]) via normal
+/// terminator edges. Cleanup/unwind blocks have no normal predecessor
+/// chain from the entry and land here as unreachable: phi resolution
+/// must not touch them (see phi.rs: a slot load there traps in `sa
+/// check` once the slot was freed on a normal return path).
+pub fn reachable_blocks(blocks: &[Block]) -> HashSet<usize> {
+    let mut visited: HashSet<usize> = HashSet::new();
+    if blocks.is_empty() {
+        return visited;
+    }
+    let index: HashMap<&str, usize> =
+        blocks.iter().enumerate().map(|(i, b)| (b.id.as_str(), i)).collect();
+    let mut stack = vec![0usize];
+    while let Some(i) = stack.pop() {
+        if !visited.insert(i) {
+            continue;
+        }
+        for s in successors(&blocks[i].terminator) {
+            if let Some(&j) = index.get(s) {
+                stack.push(j);
+            }
+        }
+    }
+    visited
+}
+
 pub fn rpo_order(blocks: &[Block]) -> Vec<usize> {
     if blocks.is_empty() {
         return vec![];

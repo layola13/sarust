@@ -12,7 +12,11 @@
 //!
 //! Conflict sentinels (`Operand::Conflict`) flow into the existing loud
 //! machinery via `const_needs_loud` (same predicate lower and coverage
-//! share), so joins stay honest without phi nodes. Single-def locals are
+//! share), so joins stay honest without phi nodes. Place uses (Ref /
+//! Discriminant / RawPtr / SetDisc / Drop / Return) carry a `__PHI__`
+//! marker instead (see phi.rs): the kind, mutability and variant survive,
+//! and lower() resolves the provable ones through a per-local slot or
+//! goes loud from the marker. Single-def locals are
 //! never touched (lock-file stability for the common case).
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -196,27 +200,27 @@ fn rewrite_operand(
 }
 
 /// Rewrite one place use site (Ref/RawPtr/Discriminant/SetDisc/Drop).
-/// Returns true on version conflict (caller replaces the enclosing
-/// rvalue/statement/terminator with Unsupported — places have no sentinel
-/// shape of their own).
+/// Returns the conflict base local on version conflict (caller writes a
+/// `__PHI__:` marker into the place — see phi.rs — so lower() can resolve
+/// it through a slot or go loud); None when the place resolves cleanly.
 fn rewrite_place(
     place: &mut String,
     user_block: usize,
     numbered: &BTreeMap<String, Vec<((usize, Option<usize>), usize)>>,
     inn: &[BTreeMap<String, BTreeSet<usize>>],
-) -> bool {
+) -> Option<String> {
     if numbered.contains_key(place) {
         match resolve(place, user_block, None, numbered, inn) {
             Ok(Some(k)) => {
                 *place = versioned_name(place, k);
             }
             Err(()) => {
-                return true;
+                return Some(place.clone());
             }
             Ok(None) => {}
         }
     }
-    false
+    None
 }
 
 /// Version one function: rename multi-def dests, rewrite uses, mark join
@@ -328,12 +332,11 @@ pub fn version_function(f: &Function) -> Function {
                         Rvalue::Ref { place, .. }
                         | Rvalue::Discriminant { place }
                         | Rvalue::RawPtr { place, .. } => {
-                            // Places have no sentinel shape: on conflict the
-                            // whole rvalue goes loud (counted downstream).
-                            if rewrite_place(place, bi, &numbered, &inn) {
-                                *rvalue = Rvalue::Unsupported {
-                                    text: "version conflict at join (multiple reaching defs)".to_string(),
-                                };
+                            // Conflict places keep their kind: the phi
+                            // marker lets lower() resolve (slot load) or
+                            // go loud, instead of losing the rvalue shape.
+                            if let Some(base) = rewrite_place(place, bi, &numbered, &inn) {
+                                *place = crate::phi::phi_marker(&base);
                             }
                         }
                         Rvalue::Unsupported { .. } => {}
@@ -346,10 +349,8 @@ pub fn version_function(f: &Function) -> Function {
                     }
                 }
                 Stmt::SetDisc { place, .. } => {
-                    if rewrite_place(place, bi, &numbered, &inn) {
-                        *st = Stmt::UnsupportedStmt {
-                            text: "version conflict at join (multiple reaching defs)".to_string(),
-                        };
+                    if let Some(base) = rewrite_place(place, bi, &numbered, &inn) {
+                        *place = crate::phi::phi_marker(&base);
                     }
                 }
                 _ => {}
@@ -371,20 +372,20 @@ pub fn version_function(f: &Function) -> Function {
             }
             Term::Drop { place, .. } => {
                 // Cannot assign through the match borrow: flag then replace.
-                if rewrite_place(place, bi, &numbered, &inn) {
+                if let Some(base) = rewrite_place(place, bi, &numbered, &inn) {
                     place.clear();
-                    place.push_str("__VERSION_CONFLICT__");
+                    place.push_str(&crate::phi::phi_marker(&base));
                 }
             }
             // Return reads local `_0` (rustc return place). Resolve the
             // reaching version so `return _0_vK` is exact; a join with two
-            // reaching versions has no single register (needs phi) and gets
-            // the same sentinel as Drop.
+            // reaching versions has no single register and gets a phi
+            // marker (lower() resolves scalar returns through the slot).
             Term::Return { ret } => {
                 let resolved = if multi.contains("_0") {
                     match resolve("_0", bi, None, &numbered, &inn) {
                         Ok(Some(k)) => Some(versioned_name("_0", k)),
-                        Err(()) => Some("__VERSION_CONFLICT__".to_string()),
+                        Err(()) => Some(crate::phi::phi_marker("_0")),
                         Ok(None) => Some("_0".to_string()),
                     }
                 } else {
@@ -543,9 +544,8 @@ mod version_tests {
     fn loop_carried_conflicts() {
         // bb0 defines _2; a side path redefines it in bb3 and rejoins at
         // bb5 where it is borrowed. Both versions reach bb5 with neither
-        // dominating -> the Ref keeps the base name (places have no
-        // sentinel shape; documented approximation), but both defs must
-        // be versioned.
+        // dominating -> the Ref place becomes a phi marker (lower() may
+        // resolve it through the slot), but both defs must be versioned.
         let mkref = || Stmt::Assign {
             dest: "_5".to_string(),
             dest_place: Some("_5".to_string()),

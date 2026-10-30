@@ -23,6 +23,7 @@ mod parse;
 mod render;
 mod render_util;
 mod spill;
+mod phi;
 mod version;
 
 use std::process::ExitCode;
@@ -69,10 +70,21 @@ fn cmd_coverage(args: &[String]) -> ExitCode {
         // Mirror lower()'s bound seeding (dominator defs + params).
         let seeds = crate::order::dom_seeds(&f.blocks, f.params.len());
         // Mirror lower()'s borrow-end plan (same versioned input).
-        let bend = crate::borrow_end::plan_drops(&f.blocks, &crate::order::dom_sets(&f.blocks), &std::collections::BTreeSet::new());
+        let doms = crate::order::dom_sets(&f.blocks);
+        let bend = crate::borrow_end::plan_drops(&f.blocks, &doms, &std::collections::BTreeSet::new());
+        // Mirror lower()'s phi slots (see phi.rs): resolved conflicts are
+        // not counted as failures.
+        let cov_spill = crate::spill::build_spill(&f.blocks, &f.local_types);
+        let reachable = crate::order::reachable_blocks(&f.blocks);
+        let phi = crate::phi::build_phi(&f.blocks, &f.local_types, f.ret.as_deref(), &cov_spill, &reachable);
+        let phi_empty: std::collections::BTreeMap<String, String> = std::collections::BTreeMap::new();
+        let phi_returns = crate::phi::return_blocks(&f.blocks);
         for (bi, b) in f.blocks.iter().enumerate() {
             // NOTE: seeding above runs once; keep it outside the loop.
             let mut bound = seeds[bi].clone();
+            let ref_ok = crate::phi::phi_ref_allowed(&doms, &phi_returns, bi);
+            let phi_b: &std::collections::BTreeMap<String, String> =
+                if reachable.contains(&bi) { &phi } else { &phi_empty };
             for s in &b.statements {
                 tot_stmts += 1;
                 *kinds.entry(stmt_kind(s)).or_insert(0) += 1;
@@ -84,10 +96,30 @@ fn cmd_coverage(args: &[String]) -> ExitCode {
                             continue;
                         }
                         bound.insert(dest.clone());
+                        // Phi rewrite mirrors lower(): resolved conflicts
+                        // are not failures; unresolvable ones keep the
+                        // original rvalue and its loud verdict.
+                        let mut cov_idx = 0usize;
+                        let rvalue_rw = crate::phi::rewrite_rvalue(rvalue, phi_b, &b.id, &mut cov_idx, ref_ok)
+                            .map(|(v, _, _)| v)
+                            .unwrap_or_else(|| rvalue.clone());
+                        let rvalue = &rvalue_rw;
                         // Mirror lower(): only count what lower() cannot emit.
+                        // Unresolvable phi places (mut/non-dominating borrows,
+                        // unmappable types) are loud in lower(), so they
+                        // fail here too.
+                        let phi_place_fails = matches!(
+                            rvalue,
+                            Rvalue::Ref { place, .. }
+                                | Rvalue::Discriminant { place }
+                                | Rvalue::RawPtr { place, .. }
+                            if crate::phi::phi_place(place).is_some()
+                        );
                         // Unresolvable const values go loud first (never raw).
                         // Calls without signatures mirror lower()'s CallNoSig.
-                        let fails = if assign_loud_const(rvalue).is_some() {
+                        let fails = if phi_place_fails {
+                            true
+                        } else if assign_loud_const(rvalue).is_some() {
                             true
                         } else if let Rvalue::Call { args, sig, .. } = rvalue {
                             call_sig_loud(sig, args)
@@ -129,7 +161,15 @@ fn cmd_coverage(args: &[String]) -> ExitCode {
                                 }));
                         }
                     }
-                    Stmt::SetDisc { .. } => {
+                    Stmt::SetDisc { place, .. } => {
+                        // Phi set-discs lower() resolves through a ptr slot
+                        // are not failures; unresolvable ones are loud.
+                        if let Some(base) = crate::phi::phi_place(place) {
+                            if !phi_b.get(base).is_some_and(|t| t == "ptr") {
+                                tot_unsup += 1;
+                                unsup.push(format!("{}: UnsupportedStmt(version conflict {})", b.id, base));
+                            }
+                        }
                         // Lowered as `store base+0, variant as i64` (sla enum tag).
                     }
                     Stmt::UnsupportedStmt { text } => {
@@ -145,12 +185,18 @@ fn cmd_coverage(args: &[String]) -> ExitCode {
                 tot_unsup += 1;
                 unsup.push(format!("{}: T/Unsupported({})", b.id, text.chars().take(60).collect::<String>()));
             }
-            // Version-conflicted returns lower() cannot express (join over
-            // two reaching versions): counted like lower()'s ReturnConflict.
+            // Version-conflicted returns: scalar ones resolve through
+            // the phi slot in lower(); pointer ones stay loud, counted
+            // like lower()'s ReturnConflict.
             if let Term::Return { ret: Some(r) } = &b.terminator {
                 if r == "__VERSION_CONFLICT__" {
-                    tot_unsup += 1;
-                    unsup.push(format!("{}: T/ReturnConflict", b.id));
+                        tot_unsup += 1;
+                        unsup.push(format!("{}: T/ReturnConflict", b.id));
+                    } else if let Some(base) = crate::phi::phi_place(r) {
+                    if !phi_b.get(base).is_some_and(|t| t != "ptr") {
+                        tot_unsup += 1;
+                        unsup.push(format!("{}: T/ReturnConflict", b.id));
+                    }
                 }
             }
             // Conflict-marked drops (see version.rs) go loud like lower().
@@ -158,7 +204,7 @@ fn cmd_coverage(args: &[String]) -> ExitCode {
             // Cleanup duplicates are deduped by lower() (borrow_end phase 2)
             // and are NOT a gap, so they are not counted.
             if let Term::Drop { place, .. } = &b.terminator {
-                if place == "__VERSION_CONFLICT__" {
+                if place == "__VERSION_CONFLICT__" || crate::phi::phi_place(place).is_some() {
                     tot_unsup += 1;
                     unsup.push(format!("{}: T/DropConflict", b.id));
                 } else if !bend.cleanup.contains(&bi) && bend.loud.contains(&bi) {
@@ -171,6 +217,21 @@ fn cmd_coverage(args: &[String]) -> ExitCode {
             // Terminator dests join the bound set exactly like lower().
             match &b.terminator {
                 Term::Call { args, sig, dest, .. } => {
+                    // Phi rewrite mirrors lower(): resolved args are not loud.
+                    let mut cov_idx = 0usize;
+                    let mut args_rw: Vec<crate::mir::Operand> = vec![];
+                    let mut args_ok = true;
+                    for a in args.iter() {
+                        match crate::phi::rewrite_operand(a, phi_b, &b.id, &mut cov_idx) {
+                            Some((n, _, _)) => args_rw.push(n),
+                            None => {
+                                args_ok = false;
+                                break;
+                            }
+                        }
+                    }
+                    let args_rw = if args_ok { args_rw } else { args.clone() };
+                    let args = &args_rw;
                     if args.iter().any(const_needs_loud_call) {
                         tot_unsup += 1;
                         let kind = args.iter().find_map(loud_const_kind_call).unwrap_or("ConstValue");
@@ -193,12 +254,24 @@ fn cmd_coverage(args: &[String]) -> ExitCode {
                     tot_unsup += 1;
                     unsup.push(format!("{}: T/OverflowAssertFolded", b.id));
                 }
-                Term::Assert { cond, .. } if const_needs_loud(cond) => {
+                Term::Assert { cond, .. } if const_needs_loud(cond) && {
+                    let mut cov_idx = 0usize;
+                    !matches!(
+                        crate::phi::rewrite_operand(cond, phi_b, &b.id, &mut cov_idx),
+                        Some((_, Some(_), _))
+                    )
+                } => {
                     tot_unsup += 1;
                     let kind = loud_const_kind(cond).unwrap_or("ConstValue");
                     unsup.push(format!("{}: T/Assert{}", b.id, kind));
                 }
-                Term::SwitchInt { discr, .. } if const_needs_loud(discr) => {
+                Term::SwitchInt { discr, .. } if const_needs_loud(discr) && {
+                    let mut cov_idx = 0usize;
+                    !matches!(
+                        crate::phi::rewrite_operand(discr, phi_b, &b.id, &mut cov_idx),
+                        Some((_, Some(_), _))
+                    )
+                } => {
                     tot_unsup += 1;
                     let kind = loud_const_kind(discr).unwrap_or("ConstValue");
                     unsup.push(format!("{}: T/Switch{}", b.id, kind));

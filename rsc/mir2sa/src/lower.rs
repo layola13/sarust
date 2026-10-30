@@ -78,6 +78,13 @@ pub fn lower_function(f: &Function, unsup: &mut Vec<String>) -> String {    // T
     let spill = build_spill(&f.blocks, &f.local_types);
     let spilled: std::collections::BTreeSet<String> = spill.keys().cloned().collect();
     let borrow_plan = crate::borrow_end::plan_drops(&f.blocks, &doms, &spilled);
+    // Phi slots (C2 version-conflict): per conflicted base local, one
+    // entry-allocated slot that every versioned def stores into; conflict
+    // uses load from it (see phi.rs for the soundness gates).
+    let reachable = crate::order::reachable_blocks(&f.blocks);
+    let phi = crate::phi::build_phi(&f.blocks, &f.local_types, f.ret.as_deref(), &spill, &reachable);
+    let phi_empty: std::collections::BTreeMap<String, String> = std::collections::BTreeMap::new();
+    let phi_returns = crate::phi::return_blocks(&f.blocks);
     // Aggregate-copy map (phi-11, 308): multi-elem Aggregate defs whose
     // elems are all Move/Copy (see render::build_agg_copy).
     let agg_copy = crate::render::build_agg_copy(&f.blocks);
@@ -112,6 +119,11 @@ pub fn lower_function(f: &Function, unsup: &mut Vec<String>) -> String {    // T
         block_start[bi] = start;
         out.push(format!("{}:", sa_label(&b.id)));
         open_block = Some(bi);
+        // Unreachable (cleanup) blocks never resolve phi items (phi.rs):
+        // they use the empty map, so their conflict uses keep the loud
+        // path and their defs never store to the slot.
+        let phi_b: &std::collections::BTreeMap<String, String> =
+            if reachable.contains(&bi) { &phi } else { &phi_empty };
         // Param spill slots (phi-11): header-bound params never pass
         // through a render arm, so their slot setup goes at the entry
         // block, before any Copy use can reload from it. Statement and
@@ -125,11 +137,32 @@ pub fn lower_function(f: &Function, unsup: &mut Vec<String>) -> String {    // T
                     out.push(format!("    store {}+0, {} as {}", slot, name, ty));
                 }
             }
+            // Phi slots: alloc once here (before any def store or
+            // conflict load can run), zero scalar slots so an
+            // unreached/UB load is deterministic, and seed param locals
+            // with the header-bound value so pre-def param uses (bb0
+            // conflicts) load the param. Phi locals never collide with
+            // the spill map (build_phi excludes spilled bases).
+            for (local, ty) in phi_b {
+                let slot = spill_slot(local);
+                out.push(format!("    {} = alloc 8", slot));
+                if ty != "ptr" {
+                    out.push(format!("    store {}+0, 0 as {}", slot, ty));
+                }
+            }
+            for i in 1..=f.params.len() {
+                let name = format!("_{}", i);
+                if let Some(ty) = phi_b.get(&name) {
+                    out.push(format!("    store {}+0, {} as {}", spill_slot(&name), name, ty));
+                }
+            }
         }
         // Per-block bound set: repeats go loud and keep the first value
         // (skip the line). Exclusive-branch joins stay legal (never seeded).
         let mut bound = seeds[bi].clone();
         let mut mv_idx = 0usize;
+        // Shared-borrow phi temps need a return-dominating block (phi.rs).
+        let ref_ok = crate::phi::phi_ref_allowed(&doms, &phi_returns, bi);
         for st in &b.statements {
             match st {
                 Stmt::Assign { dest, dest_place, rvalue } => {
@@ -140,6 +173,27 @@ pub fn lower_function(f: &Function, unsup: &mut Vec<String>) -> String {    // T
                         out.push(format!("    // UNSUPPORTED rebind -> {} (already bound; keeping first value)", dest));
                         continue;
                     }
+                    // Phi rewrite (C2): conflict uses become slot loads
+                    // into fresh temps; unresolvable phi items fall back
+                    // to the original rvalue and its loud path (never a
+                    // partial rewrite).
+                    let (rvalue_rw, phi_loads, phi_frees) =
+                        match crate::phi::rewrite_rvalue(rvalue, phi_b, &b.id, &mut mv_idx, ref_ok) {
+                            Some(v) => v,
+                            None => (rvalue.clone(), vec![], vec![]),
+                        };
+                    let rvalue = &rvalue_rw;
+                    // Unresolvable phi places (mut borrows, non-dominating
+                    // shared borrows, unmappable types) go loud here: the
+                    // marker must never reach render_rvalue, which would
+                    // emit it literally as a register name (UnknownRegister).
+                    let phi_place_loud = matches!(
+                        rvalue,
+                        Rvalue::Ref { place, .. }
+                            | Rvalue::Discriminant { place }
+                            | Rvalue::RawPtr { place, .. }
+                        if crate::phi::phi_place(place).is_some()
+                    );
                     // Unresolvable const values go loud (never raw Debug).
                     let before = unsup.len();
                     // A dead byte-literal store allocates a payload that
@@ -150,15 +204,34 @@ pub fn lower_function(f: &Function, unsup: &mut Vec<String>) -> String {    // T
                             rvalue,
                             Rvalue::Use { op: Operand::Const { str_bytes: Some(_), .. } }
                         );
-                    if dead_literal {
+                    if phi_place_loud {
+                        // Same shape as the old Unsupported rvalue arm:
+                        // one loud marker, then the placeholder path below.
+                        let base = match rvalue {
+                            Rvalue::Ref { place, .. }
+                            | Rvalue::Discriminant { place }
+                            | Rvalue::RawPtr { place, .. } => {
+                                crate::phi::phi_place(place).unwrap_or("?")
+                            }
+                            _ => "?",
+                        };
+                        unsup.push(format!("{}:{} Unsupported", b.id, dest));
+                        out.push(format!("    // UNSUPPORTED rvalue -> {}: version conflict at join (multiple reaching defs of {})", dest, base));
+                    } else if dead_literal {
                         out.push(format!("    // dead byte-literal store {} (no reads; not materialized)", dest));
                     } else if let Some(why) = assign_loud_const(rvalue) {
                         unsup.push(format!("{}:{} ConstValue", b.id, dest));
                         out.push(format!("    // UNSUPPORTED const-value -> {}: {}", dest, flat_comment(&why)));
                     } else {
+                        for l in &phi_loads {
+                            out.push(format!("    {}", l));
+                        }
                         let line = render_rvalue(rvalue, dest, dest_place.as_deref(), unsup, &b.id, &mut mv_idx, &cmap, &spill, &agg_copy, &f.local_types);
                         for l in line.split('\n') {
                             out.push(format!("    {}", l));
+                        }
+                        for t in &phi_frees {
+                            out.push(format!("    !{}", t));
                         }
                     }
                     if unsup.len() > before && !dead_literal {
@@ -173,11 +246,36 @@ pub fn lower_function(f: &Function, unsup: &mut Vec<String>) -> String {    // T
                         spill_placeholder(&mut out, &spill, &Some(dest.clone()));
                     }
                     bound.insert(dest.clone());
+                    // Phi def store: every versioned def of a phi local
+                    // refreshes the slot (skipped for dead literals, whose
+                    // dest binds nothing; rebinds `continue` above, and
+                    // their first value is already in the slot).
+                    if !dead_literal {
+                        let base = crate::asm::strip_version_suffix(dest).to_string();
+                        if let Some(ty) = phi_b.get(&base) {
+                            out.push(format!("    store {}+0, {} as {}", spill_slot(&base), dest, ty));
+                        }
+                    }
                 }
                 Stmt::StorageLive { local } => out.push(format!("    // StorageLive {}", local)),
                 Stmt::StorageDead { local } => out.push(format!("    // StorageDead {}", local)),
                 Stmt::Nop { text } => out.push(format!("    // nop: {}", text)),
                 Stmt::SetDisc { place, variant, .. } => {
+                    // Phi set-discriminant (C2): the place holds a pointer
+                    // to the enum buffer, so storing the tag through a
+                    // slot-loaded temp writes the real buffer.
+                    if let Some(base) = crate::phi::phi_place(place) {
+                        if phi.get(base).is_some_and(|t| t == "ptr") {
+                            let tmp = format!("_phi_{}_{}", b.id, mv_idx);
+                            mv_idx += 1;
+                            out.push(format!("    {} = load {}+0 as ptr", tmp, spill_slot(base)));
+                            out.push(format!("    store {}+0, {} as i64", tmp, variant));
+                            out.push(format!("    !{}", tmp));
+                        } else {
+                            unsup.push(format!("{}: UnsupportedStmt", b.id));
+                            out.push(format!("    // UNSUPPORTED stmt: version conflict at join (multiple reaching defs of {})", base));
+                        }
+                    } else {
                     // p_layout v1: enum tag lives at offset 0 (sla enum_tag_offset=0,
                     // payload at 8). Driver reports the base local already; the
                     // full place (`(*_9)`) is kept as a comment for provenance.
@@ -193,6 +291,7 @@ pub fn lower_function(f: &Function, unsup: &mut Vec<String>) -> String {    // T
                         out.push(format!("    store {}+0, {} as i64", tmp, variant));
                     } else {
                         out.push(format!("    store {}+0, {} as i64", place, variant));
+                    }
                     }
                 }
                 Stmt::UnsupportedStmt { text } => {
@@ -235,23 +334,42 @@ pub fn lower_function(f: &Function, unsup: &mut Vec<String>) -> String {    // T
         match &b.terminator {
             Term::Goto { target } => out.push(format!("    jmp {}", sa_label(target))),
             Term::Return { ret } => {
+                // Phi return (C2): scalar conflict returns load the slot
+                // and return the temp (consumed by the return); pointer
+                // returns stay loud (see phi.rs).
+                let phi_ret = match ret.as_deref().and_then(crate::phi::phi_place) {
+                    Some(base) => match phi.get(base) {
+                        Some(ty) if ty != "ptr" => Some(ty.clone()),
+                        _ => None,
+                    },
+                    None => None,
+                };
+                if let Some(ty) = phi_ret {
+                    let base = ret.as_deref().and_then(crate::phi::phi_place).unwrap();
+                    // No mv_idx increment: the return temp is the block's
+                    // last temp use, and its mv_idx value is still fresh.
+                    let tmp = format!("_phi_{}_{}", b.id, mv_idx);
+                    out.push(format!("    {} = load {}+0 as {}", tmp, spill_slot(base), ty));
+                    out.push(format!("    return {}", tmp));
+                } else {
                 // Return-value fidelity: `return <reg>` is legal and consumes
                 // the reg (probe r4; `return 0` leaks it, probe r5). Fall back
                 // to the `0` marker when unresolved, void, conflicting, or not
                 // definitely bound here — the marker is always parse-clean.
                 let is_void = f.ret.as_deref() == Some("void");
                 let live = ret.as_deref().filter(|_| !is_void).filter(|r| {
-                    *r != "__VERSION_CONFLICT__" && bound.contains(*r)
+                    crate::phi::phi_place(r).is_none() && bound.contains(*r)
                 });
                 match live {
                     Some(r) => out.push(format!("    return {}", r)),
                     None => {
-                        if ret.as_deref() == Some("__VERSION_CONFLICT__") {
+                        if ret.as_deref().is_some_and(|r| crate::phi::phi_place(r).is_some() || r == "__VERSION_CONFLICT__") {
                             unsup.push(format!("{}: ReturnConflict", b.id));
                             out.push("    // UNSUPPORTED return-value: version conflict at join (multiple reaching defs)".to_string());
                         }
                         out.push("    return 0".to_string());
                     }
+                }
                 }
             }
             Term::Resume => {
@@ -259,6 +377,38 @@ pub fn lower_function(f: &Function, unsup: &mut Vec<String>) -> String {    // T
                 out.push("    panic(\"unwind-resume\")".to_string());
             }
             Term::Call { func, func_raw, args, dest, target, sig } => {
+                // Phi rewrite (C2): conflict call args become slot loads.
+                // Unresolvable args fall back to the original args and
+                // their loud path (never a partial rewrite).
+                let (args_rw, phi_loads, phi_frees) = {
+                    let mut na: Vec<Operand> = vec![];
+                    let mut loads: Vec<String> = vec![];
+                    let mut frees: Vec<String> = vec![];
+                    let mut ok = true;
+                    for arg in args.iter() {
+                        match crate::phi::rewrite_operand(arg, phi_b, &b.id, &mut mv_idx) {
+                            Some((n, l, t)) => {
+                                if let Some(l) = l {
+                                    loads.push(l);
+                                }
+                                if let Some(t) = t {
+                                    frees.push(t);
+                                }
+                                na.push(n);
+                            }
+                            None => {
+                                ok = false;
+                                break;
+                            }
+                        }
+                    }
+                    if ok {
+                        (na, loads, frees)
+                    } else {
+                        (args.clone(), vec![], vec![])
+                    }
+                };
+                let args = &args_rw;
                 if let Some(raw) = func_raw {
                     out.push(format!("    // MIR: {}", flat_comment(raw)));
                 }
@@ -297,6 +447,11 @@ pub fn lower_function(f: &Function, unsup: &mut Vec<String>) -> String {    // T
                     }
                     continue;
                 }
+                // Phi loads go before the call (after the loud-arg and
+                // signature gates above, so loud paths never create temps).
+                for l in &phi_loads {
+                    out.push(format!("    {}", l));
+                }
                 // Slice-literal call args materialize via a preamble (byte
                 // buffer + pair) and pass the pair address; other args render
                 // inline as before. The preamble shares the block's `mv_idx`
@@ -334,6 +489,11 @@ pub fn lower_function(f: &Function, unsup: &mut Vec<String>) -> String {    // T
                             out.push(format!("    {} = alloc 8", slot));
                             out.push(format!("    store {}+0, {} as {}", slot, d, ty));
                         }
+                        // Phi def store (non-rebind call dests only).
+                        let base = crate::asm::strip_version_suffix(d).to_string();
+                        if let Some(ty) = phi_b.get(&base) {
+                            out.push(format!("    store {}+0, {} as {}", spill_slot(&base), d, ty));
+                        }
                     }
                 }
                 // Free pair byte buffers right after the call (see
@@ -341,6 +501,10 @@ pub fn lower_function(f: &Function, unsup: &mut Vec<String>) -> String {    // T
                 // later pass frees them on normal-return paths.
                 for b in pair_bufs {
                     out.push(format!("    !{}", b));
+                }
+                // Phi call-arg temps are plain-param reads: free after the call.
+                for t in &phi_frees {
+                    out.push(format!("    !{}", t));
                 }
                 match target {
                     Some(t) => out.push(format!("    jmp {}", sa_label(t))),
@@ -353,9 +517,10 @@ pub fn lower_function(f: &Function, unsup: &mut Vec<String>) -> String {    // T
                 }
             }
             Term::Drop { place, target } => {
-                // Conflicted drops carry a marker (see version.rs): loud here,
-                // control preserved via the original target.
-                if place == "__VERSION_CONFLICT__" {
+                // Conflicted drops carry a phi marker (see version.rs):
+                // loud here for now (phi-drop would double-free, see
+                // phi.rs), control preserved via the original target.
+                if crate::phi::phi_place(place).is_some() || place == "__VERSION_CONFLICT__" {
                     unsup.push(format!("{}: DropConflict", b.id));
                     out.push("    // UNSUPPORTED drop: version conflict at join (multiple reaching defs)".to_string());
                 } else if borrow_plan.cleanup.contains(&bi) {
@@ -381,6 +546,17 @@ pub fn lower_function(f: &Function, unsup: &mut Vec<String>) -> String {    // T
                 out.push(format!("    jmp {}", sa_label(target)));
             }
             Term::SwitchInt { discr, targets, otherwise } => {
+                // Phi rewrite (C2): a conflict discriminant becomes a slot
+                // load; unresolvable discriminants keep the loud path.
+                let (discr_rw, phi_load, phi_free) =
+                    match crate::phi::rewrite_operand(discr, phi_b, &b.id, &mut mv_idx) {
+                        Some((n, l, t)) => (Box::new(n), l, t),
+                        None => (discr.clone(), None, None),
+                    };
+                let discr = &discr_rw;
+                if let Some(l) = phi_load {
+                    out.push(format!("    {}", l));
+                }
                 // Single-move fan-out: a Move discriminant must be bound once,
                 // otherwise every `br ^p` arm would move `p` again. Each arm
                 // compares via `eq` + two-target `br` (inline `==` is
@@ -419,8 +595,31 @@ pub fn lower_function(f: &Function, unsup: &mut Vec<String>) -> String {    // T
                 if targets.is_empty() {
                     out.push(format!("    jmp {}", sa_label(otherwise)));
                 }
+                // Phi discriminant temp is read by every `eq`: free it
+                // before the last branch (a line may not follow a
+                // terminator, so it goes before, not after, the last br).
+                if let Some(t) = phi_free {
+                    if let Some(last) = out.last() {
+                        if last.trim_start().starts_with("br ")
+                            || last.trim_start().starts_with("jmp ")
+                        {
+                            let pos = out.len() - 1;
+                            out.insert(pos, format!("    !{}", t));
+                        }
+                    }
+                }
             }
             Term::Assert { cond, target, msg, expected } => {
+                // Phi rewrite (C2): a conflict condition becomes a slot load.
+                let (cond_rw, phi_load, phi_free) =
+                    match crate::phi::rewrite_operand(cond, phi_b, &b.id, &mut mv_idx) {
+                        Some((n, l, t)) => (Box::new(n), l, t),
+                        None => (cond.clone(), None, None),
+                    };
+                let cond = &cond_rw;
+                if let Some(l) = phi_load {
+                    out.push(format!("    {}", l));
+                }
                 // Overflow asserts are folded: the accompanying
                 // `*WithOverflow` already lowered to `sa_std/num.sai`'s
                 // checked helper, which traps on overflow. Comparing the flag
@@ -434,6 +633,10 @@ pub fn lower_function(f: &Function, unsup: &mut Vec<String>) -> String {    // T
                         sa_label(target),
                         flat_comment(msg_text)
                     ));
+                    // A folded phi temp is never used: release it before the jump.
+                    if let Some(t) = phi_free {
+                        out.push(format!("    !{}", t));
+                    }
                     out.push(format!("    jmp {}", sa_label(target)));
                     continue;
                 }
@@ -458,6 +661,11 @@ pub fn lower_function(f: &Function, unsup: &mut Vec<String>) -> String {    // T
                 };
                 let e = format!("_as_{}_eq", b.id);
                 out.push(format!("    {} = eq {}, {}", e, c, if expected.unwrap_or(true) { 1 } else { 0 }));
+                // Phi condition temp is read by the `eq`: release it before
+                // the branch (it must not follow the terminator).
+                if let Some(t) = phi_free {
+                    out.push(format!("    !{}", t));
+                }
                 out.push(format!("    br {} -> {}, {}", e, sa_label(target), sa_label(&format!("as_{}_fail", b.id))));
                 out.push(format!("{}:", sa_label(&format!("as_{}_fail", b.id))));
                 match msg {
@@ -486,6 +694,10 @@ pub fn lower_function(f: &Function, unsup: &mut Vec<String>) -> String {    // T
                         } else {
                             out.push("    // inline-asm mov (exact reg copy)".to_string());
                             out.push(format!("    {} = {}", dest, src));
+                            let base = crate::asm::strip_version_suffix(&dest).to_string();
+                            if let Some(ty) = phi_b.get(&base) {
+                                out.push(format!("    store {}+0, {} as {}", spill_slot(&base), dest, ty));
+                            }
                             bound.insert(dest);
                         }
                     }
@@ -500,6 +712,10 @@ pub fn lower_function(f: &Function, unsup: &mut Vec<String>) -> String {    // T
                             } else {
                                 out.push("    // inline-asm inout passthrough (value-stable escape)".to_string());
                                 out.push(format!("    {} = {}", dest, src));
+                                let base = crate::asm::strip_version_suffix(&dest).to_string();
+                                if let Some(ty) = phi_b.get(&base) {
+                                    out.push(format!("    store {}+0, {} as {}", spill_slot(&base), dest, ty));
+                                }
                                 bound.insert(dest);
                             }
                         }
@@ -511,6 +727,11 @@ pub fn lower_function(f: &Function, unsup: &mut Vec<String>) -> String {    // T
                             if outs.len() == 1 && is_plain_local(outs[0].trim()) && !bound.contains(&outs[0]) {
                                 out.push(format!("    {} = 0", outs[0].trim()));
                                 bound.insert(outs[0].trim().to_string());
+                                // Phi def store for the placeholder value.
+                                let base = crate::asm::strip_version_suffix(outs[0].trim()).to_string();
+                                if let Some(ty) = phi_b.get(&base) {
+                                    out.push(format!("    store {}+0, {} as {}", spill_slot(&base), outs[0].trim(), ty));
+                                }
                             }
                         }
                     },

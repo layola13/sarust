@@ -49,7 +49,11 @@ fn join_end_lines(e: &crate::borrow_end::JoinEnd, spill: &crate::spill::SpillMap
     v
 }
 
-pub fn lower_function(f: &Function, unsup: &mut Vec<String>) -> String {    // Typed header: MIR arg locals `_1..` bind here (bare `@f()` would leave
+pub fn lower_function_with_layouts(
+    f: &Function,
+    unsup: &mut Vec<String>,
+    layouts: &crate::place_store::AdtLayoutIndex,
+) -> String {    // Typed header: MIR arg locals `_1..` bind here (bare `@f()` would leave
     // them unbound: UnknownRegister). Ret defaults to i32 (old fixtures).
     let mut head = format!("@{}(", sa_ident(&f.name));
     for (i, t) in f.params.iter().enumerate() {
@@ -168,6 +172,28 @@ pub fn lower_function(f: &Function, unsup: &mut Vec<String>) -> String {    // T
                 Stmt::Assign { dest, dest_place, rvalue } => {
                     // Trailing `//` is ForbiddenSyntax: the Assign arm never
                     // appends provenance comments (they live in mir.json).
+                    // Place store (C5): a store through an already-bound
+                    // base is not a redefinition — lower the store, bind
+                    // nothing, and leave phi/spill slots untouched.
+                    if bound.contains(dest) {
+                        if let Some(lines) = crate::place_store::emit_place_store(
+                            dest_place.as_deref(),
+                            dest,
+                            rvalue,
+                            f,
+                            layouts,
+                            phi_b,
+                            &spill,
+                            &cmap,
+                            &b.id,
+                            &mut mv_idx,
+                        ) {
+                            for l in lines {
+                                out.push(format!("    {}", l));
+                            }
+                            continue;
+                        }
+                    }
                     if bound.contains(dest) {
                         unsup.push(format!("{}:{} Rebind", b.id, dest));
                         out.push(format!("    // UNSUPPORTED rebind -> {} (already bound; keeping first value)", dest));
@@ -1088,7 +1114,12 @@ pub fn render_sa(mir: &MirFile) -> (String, Vec<String>) {
     // sla convention: `@extern` decls for all called-but-undefined symbols.
     let mut sa_compat = String::from("@import \"sa_std/io/print.sai\"\n@import \"sa_std/num.sai\"\n\n");
     let mut exts = collect_externs(mir);
-    let bodies: Vec<String> = mir.functions.iter().map(|f| lower_function(f, &mut unsup)).collect();
+    let layouts = crate::place_store::build_adt_layout_index(&mir.functions);
+    let bodies: Vec<String> = mir
+        .functions
+        .iter()
+        .map(|f| lower_function_with_layouts(f, &mut unsup, &layouts))
+        .collect();
     if bodies.iter().any(|b| b.contains("sa_mem_set")) {
         // Repeat lowering emits `call @sa_mem_set` directly (not via Rvalue::Call).
         // Signature mirrors `sci/sa_std/core/mem.sa` (`&dst: ptr, val: u8, count: u64 -> void`).

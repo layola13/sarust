@@ -927,6 +927,7 @@ pub fn plan_agg_place_store(
     for e in elems {
         match e {
             Operand::Conflict { .. } => return None,
+            Operand::Index { .. } => return None,
             Operand::Const {
                 value,
                 str_bytes,

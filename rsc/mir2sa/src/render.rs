@@ -692,6 +692,62 @@ mod render_tests {
         assert!(build_agg_copy(&blocks).is_empty());
     }
 
+    #[test]
+    fn field_projection_renders() {
+        let render = |rv: &Rvalue, dest: &str| {
+            let mut unsup = vec![];
+            let mut idx = 0usize;
+            let line = render_rvalue(
+                rv, dest, Some(dest), &mut unsup, "bb0", &mut idx,
+                &std::collections::HashMap::new(), &std::collections::BTreeMap::new(),
+                &std::collections::BTreeMap::new(), &std::collections::BTreeMap::new(),
+            );
+            (line, unsup)
+        };
+        // Scalar field read loads the field cell, never the root.
+        let (line, unsup) = render(
+            &Rvalue::Use { op: Operand::Copy { place: "_1".to_string(), off: 8, off2: 0, deref: false, deref_first: false, pty: Some("u64".to_string()), proj_loud: false } },
+            "_2",
+        );
+        assert!(unsup.is_empty(), "{:?}", unsup);
+        assert_eq!(line, "_2 = load _1+8 as u64");
+        // Scalar field borrow adds the offset (never moves the base).
+        let (line, unsup) = render(
+            &Rvalue::Ref { place: "_1".to_string(), mut_: false, via: None, zst: false, off: 8, off2: 0, deref: false, deref_first: false, pty: Some("u64".to_string()), proj_loud: false },
+            "_3",
+        );
+        assert!(unsup.is_empty(), "{:?}", unsup);
+        assert_eq!(line, "_3 = add _1, 8");
+        // Aggregate field borrow loads the slot's buffer address.
+        let (line, unsup) = render(
+            &Rvalue::Ref { place: "_1".to_string(), mut_: false, via: None, zst: false, off: 16, off2: 0, deref: false, deref_first: false, pty: Some("buf".to_string()), proj_loud: false },
+            "_4",
+        );
+        assert!(unsup.is_empty(), "{:?}", unsup);
+        assert_eq!(line, "_4 = load _1+16 as ptr");
+        // Deref-first scalar read loads the pointee buffer at off2.
+        let (line, unsup) = render(
+            &Rvalue::Use { op: Operand::Copy { place: "_2".to_string(), off: 0, off2: 0, deref: true, deref_first: true, pty: Some("u64".to_string()), proj_loud: false } },
+            "_5",
+        );
+        assert!(unsup.is_empty(), "{:?}", unsup);
+        assert_eq!(line, "_5 = load _2+0 as u64");
+        // Aggregate-typed field Copy stays loud (no shared buffer).
+        let (line, unsup) = render(
+            &Rvalue::Use { op: Operand::Copy { place: "_1".to_string(), off: 8, off2: 0, deref: false, deref_first: false, pty: Some("buf".to_string()), proj_loud: false } },
+            "_6",
+        );
+        assert_eq!(unsup.len(), 1, "{:?}", unsup);
+        assert!(line.contains("UNSUPPORTED"), "loud line:\n{}", line);
+        // proj_loud stays loud.
+        let (line, unsup) = render(
+            &Rvalue::Use { op: Operand::Copy { place: "_1".to_string(), off: 8, off2: 0, deref: false, deref_first: false, pty: Some("u64".to_string()), proj_loud: true } },
+            "_7",
+        );
+        assert_eq!(unsup.len(), 1, "{:?}", unsup);
+        assert!(line.contains("UNSUPPORTED"), "loud line:\n{}", line);
+    }
+
 
     #[test]
     fn binop_dest_spill_slot_setup() {

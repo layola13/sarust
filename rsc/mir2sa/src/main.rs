@@ -891,6 +891,33 @@ mod tests {
     }
 
     #[test]
+    fn return_unset_ret_uses_bound_zero() {
+        // Single-def fast path leaves ret unset even though _0 is bound:
+        // the value must surface, not the `0` fallback.
+        let mut f = ret_fn("f_ret0", Some("u64"), vec![
+            blank_block("bb0", Term::Goto { target: "bb1".to_string() }),
+            Block {
+                id: "bb1".to_string(),
+                statements: vec![def_from("_0", "_1")],
+                terminator: Term::Return { ret: None },
+            },
+        ]);
+        f.params = vec!["u64".to_string()];
+        let mut unsup = vec![];
+        let sa = lower_function_with_layouts(&f, &mut unsup, &crate::place_store::AdtLayoutIndex::default());
+        assert!(unsup.is_empty(), "{:?}", unsup);
+        assert!(sa.contains("return _0"), "return _0 missing:\n{}", sa);
+        // Unbound _0 still falls back to `return 0`.
+        let f = ret_fn("f_ret0_unbound", Some("u64"), vec![
+            blank_block("bb0", Term::Return { ret: None }),
+        ]);
+        let mut unsup = vec![];
+        let sa = lower_function_with_layouts(&f, &mut unsup, &crate::place_store::AdtLayoutIndex::default());
+        assert!(sa.contains("return 0"), "fallback missing:\n{}", sa);
+        assert!(!sa.contains("return _0"), "must not return unbound _0:\n{}", sa);
+    }
+
+    #[test]
     fn ptr_metadata_reads_offset_8() {
         // Fat-pointer meta is the (ptr,len) tail: exact `load p+8` (no SA
         // mnemonic exists). Probe m1/m2 confirm the shape assembles.

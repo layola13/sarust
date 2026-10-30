@@ -918,6 +918,60 @@ mod tests {
     }
 
     #[test]
+    fn field_zero_of_buffer_loads() {
+        // 192 shape: _2 binds a buffer via a buf-typed deref share;
+        // its scalar field-0 read must load the cell, not move (and
+        // consume) the buffer pointer. A collapsed pair (BinOp def)
+        // keeps today's plain rendering for its field-0 read.
+        fn copy_op(place: &str, off: u64, pty: Option<&str>) -> Operand {
+            Operand::Copy { place: place.to_string(), off, off2: 0, deref: false, deref_first: false, deref_last: false, pty: pty.map(|s| s.to_string()), proj_loud: false }
+        }
+        fn use_stmt(dest: &str, op: Operand) -> Stmt {
+            Stmt::Assign { dest: dest.to_string(), dest_place: Some(dest.to_string()), rvalue: Rvalue::Use { op } }
+        }
+        let mut f = ret_fn("f_f0", Some("i32"), vec![
+            Block {
+                id: "bb0".to_string(),
+                statements: vec![
+                    // _2 = Copy _1 (whole-struct deref share, buf).
+                    Stmt::Assign {
+                        dest: "_2".to_string(),
+                        dest_place: Some("_2".to_string()),
+                        rvalue: Rvalue::Use { op: Operand::Copy { place: "_1".to_string(), off: 0, off2: 0, deref: true, deref_first: true, deref_last: true, pty: Some("buf".to_string()), proj_loud: false } },
+                    },
+                    use_stmt("_5", copy_op("_2", 0, Some("i32"))),
+                    use_stmt("_6", copy_op("_2", 4, Some("i32"))),
+                    // Collapsed pair: BinOp def, aggregate-like type.
+                    Stmt::Assign {
+                        dest: "_7".to_string(),
+                        dest_place: Some("_7".to_string()),
+                        rvalue: Rvalue::BinOp { op: "Add".to_string(), left: Box::new(copy_op("_5", 0, None)), right: Box::new(copy_op("_6", 0, None)) },
+                    },
+                    use_stmt("_8", copy_op("_7", 0, Some("i32"))),
+                ],
+                terminator: Term::Return { ret: None },
+            },
+        ]);
+        f.params = vec!["ptr".to_string()];
+        f.local_types = [
+            ("_1".to_string(), "&Triple".to_string()),
+            ("_2".to_string(), "Triple".to_string()),
+            ("_5".to_string(), "i32".to_string()),
+            ("_6".to_string(), "i32".to_string()),
+            ("_7".to_string(), "(i32, bool)".to_string()),
+            ("_8".to_string(), "i32".to_string()),
+        ].into_iter().collect();
+        let mut unsup = vec![];
+        let sa = lower_function_with_layouts(&f, &mut unsup, &crate::place_store::AdtLayoutIndex::default());
+        assert!(unsup.is_empty(), "{:?}\n{}", unsup, sa);
+        assert!(sa.contains("_5 = load _2+0 as i32"), "field-0 load missing:\n{}", sa);
+        assert!(sa.contains("_6 = load _2+4 as i32"), "field-4 load missing:\n{}", sa);
+        assert!(!sa.contains("_5 = _2"), "field-0 must not plain-move the buffer:\n{}", sa);
+        assert!(sa.contains("_8 = _7"), "collapsed pair keeps plain rendering:\n{}", sa);
+        assert!(!sa.contains("_8 = load _7+0"), "collapsed pair must not load:\n{}", sa);
+    }
+
+    #[test]
     fn ptr_metadata_reads_offset_8() {
         // Fat-pointer meta is the (ptr,len) tail: exact `load p+8` (no SA
         // mnemonic exists). Probe m1/m2 confirm the shape assembles.

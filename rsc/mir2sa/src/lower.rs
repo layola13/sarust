@@ -49,6 +49,96 @@ fn join_end_lines(e: &crate::borrow_end::JoinEnd, spill: &crate::spill::SpillMap
     v
 }
 
+/// Registers already ended mid-block by statement-level ends (place-
+/// store conflict ends) and not redefined afterwards: a block-end end
+/// for one of them would double-free (02: `!_2` before a store plus
+/// the call-end `!_2` after the call). A `!R` line with no later
+/// `R =` def line in the same block range means R is already ended.
+fn early_ended_regs(lines: &[String]) -> std::collections::BTreeSet<String> {
+    let mut last_end: std::collections::BTreeMap<String, usize> =
+        std::collections::BTreeMap::new();
+    let mut last_def: std::collections::BTreeMap<String, usize> =
+        std::collections::BTreeMap::new();
+    for (i, l) in lines.iter().enumerate() {
+        let t = l.trim_start();
+        if t.starts_with("//") {
+            continue;
+        }
+        if let Some(r) = t.strip_prefix('!') {
+            let r = r.trim();
+            if !r.is_empty() && r.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+                last_end.insert(r.to_string(), i);
+            }
+            continue;
+        }
+        if let Some(eq) = t.find(" = ") {
+            let lhs = t[..eq].trim();
+            if !lhs.is_empty()
+                && lhs.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+            {
+                last_def.insert(lhs.to_string(), i);
+            }
+        }
+    }
+    last_end
+        .into_iter()
+        .filter(|(r, ei)| last_def.get(r).is_none_or(|di| *di < *ei))
+        .map(|(r, _)| r)
+        .collect()
+}
+
+/// Scalar field-0 read of a buffer (192): a Copy/Move operand with
+/// offset 0, no deref flags, a scalar field type, and a source local
+/// that directly binds a buffer (multi-elem Aggregate, Repeat, or a
+/// buf-typed Use def) or an aggregate-typed param, renders as a
+/// field-cell load (`dest = load base+0 as <pty>`) instead of a plain
+/// move. A plain move would bind the buffer pointer itself (wrong
+/// value) and consume it, so later field reads trap UseAfterMove.
+/// Collapsed pairs (BinOp defs) and plain-Use chains are NOT buffers,
+/// so their field-0 reads keep today's plain rendering. Returns None
+/// (fall through to render_rvalue) for every non-matching shape.
+fn field_zero_load(
+    rvalue: &Rvalue,
+    dest: &str,
+    f: &Function,
+    buf_def: &std::collections::BTreeSet<String>,
+    spill: &std::collections::BTreeMap<String, String>,
+) -> Option<String> {
+    let (place, pty) = match rvalue {
+        Rvalue::Use { op: Operand::Copy { place, off, deref, deref_first, deref_last, pty, proj_loud, .. } }
+        | Rvalue::Use { op: Operand::Move { place, off, deref, deref_first, deref_last, pty, proj_loud, .. } }
+            if *off == 0 && !*deref && !*deref_first && !*deref_last && !*proj_loud =>
+        {
+            (place.as_str(), pty.as_deref()?)
+        }
+        _ => return None,
+    };
+    if pty == "ptr" || pty == "buf" || pty == "zst" || pty.contains('*') || pty.contains('&') {
+        return None;
+    }
+    if !matches!(crate::asm::scalar_width_bits(pty), Some(w) if w <= 64) {
+        return None;
+    }
+    let base = crate::asm::strip_version_suffix(place);
+    let src_ty = f.local_types.get(base)?;
+    if src_ty.trim() == "()" || crate::spill::cast_spill_ty(src_ty).is_some() {
+        return None;
+    }
+    let is_param = place.len() > 1
+        && place.starts_with('_')
+        && place[1..].chars().all(|c| c.is_ascii_digit())
+        && place[1..].parse::<usize>().is_ok_and(|n| (1..=f.params.len()).contains(&n));
+    if !buf_def.contains(place) && !is_param {
+        return None;
+    }
+    let mut s = format!("{} = load {}+0 as {}", dest, place, pty);
+    if let Some(t) = spill.get(dest) {
+        let slot = crate::spill::spill_slot(dest);
+        s.push_str(&format!("\n{} = alloc 8\nstore {}+0, {} as {}", slot, slot, dest, t));
+    }
+    Some(s)
+}
+
 pub fn lower_function_with_layouts(
     f: &Function,
     unsup: &mut Vec<String>,
@@ -82,6 +172,32 @@ pub fn lower_function_with_layouts(
     let spill = build_spill(&f.blocks, &f.local_types);
     let spilled: std::collections::BTreeSet<String> = spill.keys().cloned().collect();
     let borrow_plan = crate::borrow_end::plan_drops(&f.blocks, &doms, &spilled);
+    // Direct buffer defs (192 field-0 rule): locals whose def directly
+    // binds a buffer pointer — multi-elem Aggregate, Repeat, or a Use
+    // of a buf-typed operand (deref share / field slot load).
+    // Single-elem Aggregates are NOT buffers (the dest holds the elem
+    // value, e.g. a wrapper's pointer, so a field-0 load would deref
+    // it wrongly). BinOp (collapsed pairs), Cast, Call, Asm defs are
+    // NOT buffers either, so their field-0 reads keep today's plain
+    // rendering (a collapsed pair holds values, not a buffer).
+    let mut buf_def: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for b in &f.blocks {
+        for st in &b.statements {
+            if let Stmt::Assign { dest, rvalue, .. } = st {
+                let is_buf = match rvalue {
+                    Rvalue::Aggregate { elems, .. } => elems.len() >= 2,
+                    Rvalue::Repeat { .. } => true,
+                    Rvalue::Use { op } => matches!(op,
+                        Operand::Move { pty, .. } | Operand::Copy { pty, .. }
+                        if pty.as_deref() == Some("buf")),
+                    _ => false,
+                };
+                if is_buf {
+                    buf_def.insert(dest.clone());
+                }
+            }
+        }
+    }
     // Phi slots (C2 version-conflict): per conflicted base local, one
     // entry-allocated slot that every versioned def stores into; conflict
     // uses load from it (see phi.rs for the soundness gates).
@@ -167,7 +283,7 @@ pub fn lower_function_with_layouts(
         let mut mv_idx = 0usize;
         // Shared-borrow phi temps need a return-dominating block (phi.rs).
         let ref_ok = crate::phi::phi_ref_allowed(&doms, &phi_returns, bi);
-        for st in &b.statements {
+        for (si, st) in b.statements.iter().enumerate() {
             match st {
                 Stmt::Assign { dest, dest_place, rvalue } => {
                     // Trailing `//` is ForbiddenSyntax: the Assign arm never
@@ -188,8 +304,34 @@ pub fn lower_function_with_layouts(
                             &b.id,
                             &mut mv_idx,
                         ) {
+                            // Statement-level store conflict ends
+                            // (borrow_end plan_store_ends, 02): end
+                            // conflicting borrows before the store and
+                            // the store's own borrow after it, each
+                            // with its spill slot when spilled. Only
+                            // here, where the store actually renders.
+                            if let Some((before, after)) =
+                                borrow_plan.store_ends.get(&(bi, si))
+                            {
+                                for r in before {
+                                    out.push(format!("    !{}", r));
+                                    if spill.contains_key(r) {
+                                        out.push(format!("    !{}_spill", r));
+                                    }
+                                }
+                            }
                             for l in lines {
                                 out.push(format!("    {}", l));
+                            }
+                            if let Some((_, after)) =
+                                borrow_plan.store_ends.get(&(bi, si))
+                            {
+                                for r in after {
+                                    out.push(format!("    !{}", r));
+                                    if spill.contains_key(r) {
+                                        out.push(format!("    !{}_spill", r));
+                                    }
+                                }
                             }
                             continue;
                         }
@@ -257,6 +399,20 @@ pub fn lower_function_with_layouts(
                         // for these, so there is no double count.
                         unsup.push(format!("{}:{} FieldProjection", b.id, dest));
                         out.push(format!("    // UNSUPPORTED field-projection -> {}: unrenderable projection", dest));
+                    } else if let Some(line) = field_zero_load(rvalue, dest, f, &buf_def, &spill) {
+                        // Scalar field-0 read of a buffer (192): a load,
+                        // not a plain move (the move would bind the buffer
+                        // pointer and consume it, trapping later field
+                        // reads). Phi loads/frees mirror the render path.
+                        for l in &phi_loads {
+                            out.push(format!("    {}", l));
+                        }
+                        for l in line.split('\n') {
+                            out.push(format!("    {}", l));
+                        }
+                        for t in &phi_frees {
+                            out.push(format!("    !{}", t));
+                        }
                     } else {
                         for l in &phi_loads {
                             out.push(format!("    {}", l));
@@ -335,13 +491,19 @@ pub fn lower_function_with_layouts(
                 }
             }
         }
+        // Regs already ended mid-block by statement-level store
+        // ends (above) must not be ended again at the block end
+        // (02: double `!_2` trapped UnknownRegister).
+        let early = early_ended_regs(&out[block_start[bi]..]);
         // Merge ends (borrow_end phase 3): a double-borrow chain dead at
         // a join ends here, leaf first, so the join sees its source
         // unlocked. Drop-glue below sees these `!` lines as ordinary
         // frees and never re-frees the chain at an exit.
         if let Some(ends) = borrow_plan.merge_ends.get(&bi) {
             for r in ends {
-                out.push(format!("    !{}", r));
+                if !early.contains(r) {
+                    out.push(format!("    !{}", r));
+                }
             }
         }
         // Loop back-edge ends (borrow_end phase 4): borrows dead
@@ -351,7 +513,9 @@ pub fn lower_function_with_layouts(
         // keeps) its own phase-1/drop ends for the same registers.
         if let Some(ends) = borrow_plan.loop_ends.get(&bi) {
             for r in ends {
-                out.push(format!("    !{}", r));
+                if !early.contains(r) {
+                    out.push(format!("    !{}", r));
+                }
             }
         }
         // Join ends (borrow_end phase 5) for non-Call blocks: def-block
@@ -361,6 +525,9 @@ pub fn lower_function_with_layouts(
         // is borrower ends before source consumes by construction.
         if let Some(ends) = borrow_plan.block_ends.get(&bi) {
             for e in ends {
+                if early.contains(e.reg()) {
+                    continue;
+                }
                 for l in join_end_lines(e, &spill) {
                     out.push(l);
                 }
@@ -402,7 +569,17 @@ pub fn lower_function_with_layouts(
                             unsup.push(format!("{}: ReturnConflict", b.id));
                             out.push("    // UNSUPPORTED return-value: version conflict at join (multiple reaching defs)".to_string());
                             out.push("    return 0".to_string());
-                        } else if ret.is_none() && !is_void && bound.contains("_0") {
+                        } else if ret.is_none() && !is_void && bound.contains("_0")
+                            && out.iter().any(|l| {
+                                // `bound` alone lies for dead literals:
+                                // a dead byte-literal store inserts its
+                                // dest into `bound` without emitting a
+                                // def line (200/328/190: `return _0`
+                                // trapped UnknownRegister). Require an
+                                // actual emitted `_0 =` def line.
+                                l.trim_start().starts_with("_0 =")
+                            })
+                        {
                             // Single-def fast path (version.rs) leaves ret
                             // unset even though _0 is bound: returning it
                             // is exact (drop glue vetoes freeing registers
@@ -595,7 +772,9 @@ pub fn lower_function_with_layouts(
                     }
                     if let Some(ends) = borrow_plan.ends.get(&bi) {
                         for r in ends {
-                            out.push(format!("    !{}", r));
+                            if !early.contains(r) {
+                                out.push(format!("    !{}", r));
+                            }
                         }
                     }
                     out.push(format!("    !{}", place));
@@ -867,12 +1046,16 @@ pub fn lower_function_with_layouts(
         // final splice at the same position below. Blocks whose last
         // line is not a jmp (diverging calls) take no end.
         for (bi, ends) in &borrow_plan.call_ends {
+            let early = early_ended_regs(&lines_by_orig[*bi]);
             let lines = &mut lines_by_orig[*bi];
             let is_jmp = lines.last().is_some_and(|l| l.trim_start().starts_with("jmp "));
             if is_jmp {
                 let pos = lines.len() - 1;
                 let mut k = 0usize;
                 for e in ends {
+                    if early.contains(e.reg()) {
+                        continue;
+                    }
                     for l in join_end_lines(e, &spill) {
                         lines.insert(pos + k, l);
                         k += 1;
@@ -1077,10 +1260,14 @@ pub fn lower_function_with_layouts(
             // source free at a shared position.
             if let Some(v) = borrow_plan.call_ends.get(&bi) {
                 let (s, e) = range_by_orig[bi];
+                let early = early_ended_regs(&out[s..e]);
                 let last_is_jmp = e > s && out[e - 1].trim_start().starts_with("jmp ");
                 if last_is_jmp && !v.is_empty() {
                     let pos = e.saturating_sub(1).max(s);
                     for e2 in v {
+                        if early.contains(e2.reg()) {
+                            continue;
+                        }
                         for l in join_end_lines(e2, &spill) {
                             inserts.entry(pos).or_default().push(l);
                         }

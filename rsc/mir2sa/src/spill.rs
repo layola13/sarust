@@ -119,6 +119,34 @@ fn consuming_use_targets(st: &Stmt) -> Vec<String> {
 ///   its own slot setup = slot redefinition; uses can't pick a slot).
 ///   Multi-def falls back to rebind-loud/UAM paths (honest, counted).
 /// - Copy-uses only (moves stay direct single transfers).
+// True when a cast lowers to a real value: the existing lower_cast
+// verdict, or a slice-unsizing cast whose length comes from the source
+// local's driver type (see asm::unsize_slice_len). The truncated
+// `src_ty` field alone cannot decide the unsizing case.
+fn cast_lowers(
+    ty: &str,
+    castkind: &Option<String>,
+    src_ty: &Option<String>,
+    op: &Operand,
+    local_types: &BTreeMap<String, String>,
+) -> bool {
+    let dst = crate::asm::cast_dst_short(ty);
+    if let (Some(k), Some(s)) = (castkind.as_deref(), src_ty.as_deref()) {
+        if crate::asm::lower_cast(k, s, &dst).is_some() {
+            return true;
+        }
+        if let Operand::Move { place } | Operand::Copy { place } = op {
+            if let Some(t) = local_types
+                .get(place)
+                .or_else(|| local_types.get(&strip_version(place)))
+            {
+                return crate::asm::unsize_slice_len(k, t, ty).is_some();
+            }
+        }
+    }
+    false
+}
+
 pub fn build_spill(
     blocks: &[crate::mir::Block],
     local_types: &BTreeMap<String, String>,
@@ -193,15 +221,9 @@ pub fn build_spill(
     // slot — a loud cast binds a `0` placeholder and gains nothing.
     for b in blocks {
         for st in &b.statements {
-            if let Stmt::Assign { dest, rvalue: Rvalue::Cast { ty, castkind, src_ty, .. }, .. } = st {
+            if let Stmt::Assign { dest, rvalue: Rvalue::Cast { ty, castkind, src_ty, op, .. }, .. } = st {
                 if copies.contains(dest) && single(dest) && !map.contains_key(dest) {
-                    let dst = crate::asm::cast_dst_short(ty);
-                    let lowers = match (castkind.as_deref(), src_ty.as_deref()) {
-                        (Some(k), Some(s)) => {
-                            crate::asm::lower_cast(k, s, &dst).is_some()
-                        }
-                        _ => false,
-                    };
+                    let lowers = cast_lowers(ty, castkind, src_ty, op, local_types);
                     if lowers {
                         if let Some(t) = cast_spill_ty(ty) {
                             map.insert(dest.clone(), t);
@@ -226,12 +248,8 @@ pub fn build_spill(
     let mut cast_ty: BTreeMap<String, String> = BTreeMap::new();
     for b in blocks {
         for st in &b.statements {
-            if let Stmt::Assign { dest, rvalue: Rvalue::Cast { ty, castkind, src_ty, .. }, .. } = st {
-                let dst = crate::asm::cast_dst_short(ty);
-                let lowers = match (castkind.as_deref(), src_ty.as_deref()) {
-                    (Some(k), Some(s)) => crate::asm::lower_cast(k, s, &dst).is_some(),
-                    _ => false,
-                };
+            if let Stmt::Assign { dest, rvalue: Rvalue::Cast { ty, castkind, src_ty, op, .. }, .. } = st {
+                let lowers = cast_lowers(ty, castkind, src_ty, op, local_types);
                 if lowers {
                     if let Some(t) = cast_spill_ty(ty) {
                         cast_ty.insert(dest.clone(), t);

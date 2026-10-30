@@ -323,6 +323,41 @@ pub fn render_rvalue(
                     pre.push(format!("store {}+0, {} as {}", s, dest, t));
                 }
             };
+            // Slice unsizing (spill-cast cluster): `&[T; N] -> &[T]` is
+            // a fat pointer (data_ptr, N) in the slice.sal layout
+            // (ptr +0, len +8; PtrMetadata reads +8). The truncated
+            // `src_ty` field ("&") cannot supply N; the source local's
+            // driver type in local_types can. A spill reload cannot be
+            // nested in a store, so bind it to a temp first (same rule
+            // as the Convert arm). Dyn targets, fn-pointer coercions and
+            // anything else fall through to lower_cast / loud unchanged.
+            let fat_len = match (castkind.as_deref(), op.as_ref()) {
+                (Some(k), Operand::Move { place } | Operand::Copy { place }) => {
+                    local_types
+                        .get(place)
+                        .or_else(|| local_types.get(crate::asm::strip_version_suffix(place)))
+                        .and_then(|t| crate::asm::unsize_slice_len(k, t, ty))
+                }
+                _ => None,
+            };
+            if let Some(len) = fat_len {
+                let thin = match &reload {
+                    Some(t) => {
+                        let tmp = format!("_mv_{}_{}", bid, mv_idx);
+                        *mv_idx += 1;
+                        pre.push(format!("{} = {}", tmp, t));
+                        tmp
+                    }
+                    None => ot.clone(),
+                };
+                let fat = format!("_fat_{}_{}", bid, dest);
+                pre.push(format!("{} = alloc 16", fat));
+                pre.push(format!("store {}+0, {} as ptr", fat, thin));
+                pre.push(format!("store {}+8, {} as u64", fat, len));
+                pre.push(format!("{} = {}", dest, fat));
+                slot(&mut pre);
+                return pre.join("\n");
+            }
             match (castkind.as_deref(), src_ty.as_deref()) {
                 (Some(k), Some(s)) => match lower_cast(k, s, &dst) {
                     Some(CastLower::Copy) => {
@@ -688,5 +723,67 @@ mod render_tests {
             &lt
         ));
         assert!(!crate::render_util::binop_emittable("Ge", &cp("_3"), &cp("_3"), &lt));
+    }
+
+    #[test]
+    fn slice_unsize_cast_builds_fat_pair() {
+        // Spill-cast cluster: `&[i32; 4] -> &[i32]` lowers to the
+        // (ptr, len) pair, not a loud 0 placeholder. Spill reloads bind
+        // to a temp first (a load cannot nest inside a store).
+        let spilled = std::collections::BTreeMap::from([("_5".to_string(), "ptr".to_string())]);
+        let tys = std::collections::BTreeMap::from([(
+            "_5".to_string(),
+            "&'{erased} [i32; 4_usize]".to_string(),
+        )]);
+        let cast = Rvalue::Cast {
+            op: Box::new(Operand::Move { place: "_5".to_string() }),
+            ty: "&'{erased} [i32]".to_string(),
+            castkind: Some("PointerCoercion(Unsize, Implicit)".to_string()),
+            src_ty: Some("&".to_string()),
+        };
+        let mut idx = 0usize;
+        let mut unsup = vec![];
+        let line = render_rvalue(
+            &cast, "_4", Some("_4"), &mut unsup, "bb0", &mut idx,
+            &std::collections::HashMap::new(), &spilled, &std::collections::BTreeMap::new(), &tys,
+        );
+        assert!(unsup.is_empty(), "{:?}", unsup);
+        assert_eq!(
+            line,
+            "_mv_bb0_0 = load _5_spill+0 as ptr\n_fat_bb0__4 = alloc 16\nstore _fat_bb0__4+0, _mv_bb0_0 as ptr\nstore _fat_bb0__4+8, 4 as u64\n_4 = _fat_bb0__4"
+        );
+        // Non-spill Copy source: the store reads the place directly
+        // (non-consuming), no temp needed.
+        let cast_copy = Rvalue::Cast {
+            op: Box::new(Operand::Copy { place: "_5".to_string() }),
+            ty: "&'{erased} [i32]".to_string(),
+            castkind: Some("PointerCoercion(Unsize, Implicit)".to_string()),
+            src_ty: Some("&".to_string()),
+        };
+        let mut idx = 0usize;
+        let mut unsup = vec![];
+        let line = render_rvalue(
+            &cast_copy, "_4", Some("_4"), &mut unsup, "bb0", &mut idx,
+            &std::collections::HashMap::new(), &std::collections::BTreeMap::new(), &std::collections::BTreeMap::new(), &tys,
+        );
+        assert!(unsup.is_empty(), "{:?}", unsup);
+        assert!(line.contains("_fat_bb0__4 = alloc 16"), "{}", line);
+        assert!(line.contains("store _fat_bb0__4+0, _5 as ptr"), "{}", line);
+        assert!(line.contains("store _fat_bb0__4+8, 4 as u64"), "{}", line);
+        // A dyn target keeps its loud placeholder (vtable, not a length).
+        let dyn_cast = Rvalue::Cast {
+            op: Box::new(Operand::Move { place: "_5".to_string() }),
+            ty: "&'{erased} dyn [Binder { value: Trait(Draw), bound_vars: [] }]".to_string(),
+            castkind: Some("PointerCoercion(Unsize, Implicit)".to_string()),
+            src_ty: Some("&".to_string()),
+        };
+        let mut idx = 0usize;
+        let mut unsup = vec![];
+        let line = render_rvalue(
+            &dyn_cast, "_3", Some("_3"), &mut unsup, "bb0", &mut idx,
+            &std::collections::HashMap::new(), &std::collections::BTreeMap::new(), &std::collections::BTreeMap::new(), &tys,
+        );
+        assert!(!unsup.is_empty());
+        assert!(line.contains("UNSUPPORTED cast"), "{}", line);
     }
 }

@@ -28,11 +28,20 @@ use crate::order::rpo_order;
 type DefSite = (usize, Option<usize>);
 
 /// Collect def sites per local (Assign dests + Call dests + asm outs).
+/// Place stores (dest_place names a field/deref place, not the dest
+/// itself) are NOT def sites: they mutate through the base pointer
+/// and leave the binding -- and its version -- unchanged.
 fn collect_defs(blocks: &[Block]) -> BTreeMap<String, Vec<DefSite>> {
     let mut defs: BTreeMap<String, Vec<DefSite>> = BTreeMap::new();
     for (bi, b) in blocks.iter().enumerate() {
         for (si, st) in b.statements.iter().enumerate() {
-            if let Stmt::Assign { dest, .. } = st {
+            if let Stmt::Assign { dest, dest_place, .. } = st {
+                if dest_place
+                    .as_deref()
+                    .is_some_and(|dp| dp.trim() != dest.trim())
+                {
+                    continue;
+                }
                 defs.entry(dest.clone()).or_default().push((bi, Some(si)));
             }
         }
@@ -223,6 +232,34 @@ fn rewrite_place(
     None
 }
 
+/// Replace the base local token inside a dest_place text
+/// (`(_1.1: u64)` -> `(_1_v0.1: u64)`, `(*_1)` -> `(*_1_v0)`). Only the
+/// first token in base position is replaced (preceded by `(`, `*`, or
+/// whitespace/start, followed by `.`, `)`, `[`, whitespace, or `:`);
+/// anything unrecognized is left unchanged (defensive: the caller
+/// then keeps the original name, which lower() handles as before).
+fn replace_place_base(place: &str, old: &str, new: &str) -> String {
+    let bytes = place.as_bytes();
+    let mut start = 0usize;
+    while let Some(pos) = place[start..].find(old) {
+        let abs = start + pos;
+        let prev_ok = abs == 0
+            || matches!(bytes[abs - 1], b'(' | b'*' | b' ' | b'\t');
+        let next = bytes.get(abs + old.len()).copied();
+        let next_ok = next.is_none()
+            || matches!(next.unwrap(), b'.' | b')' | b'[' | b' ' | b':' | b',');
+        if prev_ok && next_ok {
+            let mut out = String::with_capacity(place.len() + new.len());
+            out.push_str(&place[..abs]);
+            out.push_str(new);
+            out.push_str(&place[abs + old.len()..]);
+            return out;
+        }
+        start = abs + old.len();
+    }
+    place.to_string()
+}
+
 /// Version one function: rename multi-def dests, rewrite uses, mark join
 /// conflicts. Single-def functions return unchanged (fast path).
 pub fn version_function(f: &Function) -> Function {
@@ -298,7 +335,30 @@ pub fn version_function(f: &Function) -> Function {
     for (bi, b) in out.blocks.iter_mut().enumerate() {
         for (si, st) in b.statements.iter_mut().enumerate() {
             match st {
-                Stmt::Assign { dest, rvalue, .. } => {
+                Stmt::Assign { dest, dest_place, rvalue } => {
+                    // Place stores (C5) are not redefinitions: rewrite
+                    // the store's dest and its dest_place base to the
+                    // base's reaching version (pre-store), so lower()
+                    // sees a bound base and emits the real store
+                    // instead of a whole-local def holding the stored
+                    // value. Unresolvable bases (single-def chains,
+                    // params) keep their original name, which is
+                    // already the reaching version; conflict bases keep
+                    // theirs too (lower() then drops the store, and the
+                    // reads stay phi-honest -- same as before, minus
+                    // the crash).
+                    let is_place_store = dest_place
+                        .as_deref()
+                        .is_some_and(|dp| dp.trim() != dest.trim());
+                    if is_place_store {
+                        if let Ok(Some(k)) = resolve(dest, bi, Some(si), &numbered, &inn) {
+                            let new_name = versioned_name(dest, k);
+                            if let Some(dp) = dest_place {
+                                *dp = replace_place_base(dp, dest, &new_name);
+                            }
+                            *dest = new_name;
+                        }
+                    }
                     // Rewrite operand uses first (they read pre-assign versions).
                     let pos = Some(si);
                     match rvalue {
@@ -341,8 +401,9 @@ pub fn version_function(f: &Function) -> Function {
                         }
                         Rvalue::Unsupported { .. } => {}
                     }
-                    // Then rename the def itself (multi-def only).
-                    if multi.contains(dest) {
+                    // Then rename the def itself (multi-def only;
+                    // place stores never take a fresh version).
+                    if !is_place_store && multi.contains(dest) {
                         if let Some(k) = version_of(dest, bi, Some(si)) {
                             *dest = versioned_name(dest, k);
                         }

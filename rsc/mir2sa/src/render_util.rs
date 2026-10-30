@@ -326,6 +326,23 @@ pub fn operand_proj(op: &Operand) -> Option<OperandProj<'_>> {
 /// render as a load/add, never as its root local. Scalar field-0
 /// (pty scalar, off 0) is deliberately NOT projected: collapsed-pair
 /// .0 reads (AddWithOverflow results) hold values, not buffers.
+/// Field-only projection: true when the operand reads a field cell
+/// (non-zero offset) or an aggregate-typed field (pointer slot). Pure
+/// deref reads (`*p`, off 0, scalar/ptr type) are NOT field projections:
+/// they behave like whole-value copies for use-counting (spill slots,
+/// borrow ends, asm gates), and excluding them lost baseline slots
+/// (313: `_7` lost its slot and its dereferenced value conflicted at
+/// the join). Rendering still uses operand_is_projected (which includes
+/// deref) for field loads.
+pub fn operand_is_field_projected(op: &Operand) -> bool {
+    match op {
+        Operand::Move { off, pty, .. } | Operand::Copy { off, pty, .. } => {
+            *off != 0 || pty.as_deref() == Some("buf")
+        }
+        _ => false,
+    }
+}
+
 pub fn operand_is_projected(op: &Operand) -> bool {
     operand_proj(op).is_some_and(|p| p.off != 0 || p.deref || p.pty == Some("buf"))
 }

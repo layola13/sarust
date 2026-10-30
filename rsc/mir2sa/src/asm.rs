@@ -338,7 +338,7 @@ pub fn asm_inout_passthrough(
     if !is_plain_local(dest) {
         return None;
     }
-    if matches!(&ins[0], Operand::Copy { place, off, deref, proj_loud, pty, .. } | Operand::Move { place, off, deref, proj_loud, pty, .. } if place == dest && *off == 0 && !*deref && !*proj_loud && pty.as_deref() != Some("buf")) {
+    if matches!(&ins[0], Operand::Copy { place, off, proj_loud, pty, .. } | Operand::Move { place, off, proj_loud, pty, .. } if place == dest && *off == 0 && !*proj_loud && pty.as_deref() != Some("buf")) {
         // Same local in and out: value already home, comment only.
         return Some((None, None));
     }

@@ -69,15 +69,15 @@ fn copy_use_targets(st: &Stmt) -> Vec<String> {
     match st {
         Stmt::Assign { rvalue, .. } => match rvalue {
             Rvalue::Use { op } => match op {
-                Operand::Copy { place, off, deref, pty, .. } if *off == 0 && !*deref && pty.as_deref() != Some("buf") => vec![place.clone()],
+                Operand::Copy { place, off, pty, .. } if *off == 0 && pty.as_deref() != Some("buf") => vec![place.clone()],
                 _ => vec![],
             },
             Rvalue::Aggregate { elems, .. } if elems.len() == 1 => match &elems[0] {
-                Operand::Copy { place, off, deref, pty, .. } if *off == 0 && !*deref && pty.as_deref() != Some("buf") => vec![place.clone()],
+                Operand::Copy { place, off, pty, .. } if *off == 0 && pty.as_deref() != Some("buf") => vec![place.clone()],
                 _ => vec![],
             },
             Rvalue::Cast { op, .. } => match op.as_ref() {
-                Operand::Copy { place, off, deref, pty, .. } if *off == 0 && !*deref && pty.as_deref() != Some("buf") => vec![place.clone()],
+                Operand::Copy { place, off, pty, .. } if *off == 0 && pty.as_deref() != Some("buf") => vec![place.clone()],
                 _ => vec![],
             },
             _ => vec![],
@@ -93,15 +93,15 @@ fn consuming_use_targets(st: &Stmt) -> Vec<String> {
     match st {
         Stmt::Assign { rvalue, .. } => match rvalue {
             Rvalue::Use { op } => match op {
-                Operand::Move { place, off, deref, pty, .. } if *off == 0 && !*deref && pty.as_deref() != Some("buf") => vec![place.clone()],
+                Operand::Move { place, off, pty, .. } if *off == 0 && pty.as_deref() != Some("buf") => vec![place.clone()],
                 _ => vec![],
             },
             Rvalue::Aggregate { elems, .. } if elems.len() == 1 => match &elems[0] {
-                Operand::Move { place, off, deref, pty, .. } if *off == 0 && !*deref && pty.as_deref() != Some("buf") => vec![place.clone()],
+                Operand::Move { place, off, pty, .. } if *off == 0 && pty.as_deref() != Some("buf") => vec![place.clone()],
                 _ => vec![],
             },
             Rvalue::Cast { op, .. } => match op.as_ref() {
-                Operand::Move { place, off, deref, pty, .. } if *off == 0 && !*deref && pty.as_deref() != Some("buf") => vec![place.clone()],
+                Operand::Move { place, off, pty, .. } if *off == 0 && pty.as_deref() != Some("buf") => vec![place.clone()],
                 _ => vec![],
             },
             _ => vec![],
@@ -177,7 +177,30 @@ pub fn build_spill(
     let mut def_count: BTreeMap<String, usize> = BTreeMap::new();
     for b in blocks {
         for st in &b.statements {
-            if let Stmt::Assign { dest, .. } = st {
+            // Place stores are not definitions (version.rs): a store
+            // through a base must not break the base's single-def
+            // status (118: init + store counted twice, killing the
+            // static-address slot and trapping UseAfterMove on later
+            // copies; 192: a param store broke the param branch).
+            // NOTE: this runs on VERSIONED blocks, where a normal
+            // def's dest_place is stale (versioning renames dest
+            // but not dest_place: dest=_1_v1, dest_place=_1), so
+            // `dest_place != dest` would misclassify every
+            // versioned normal def as a store (22/103/09: _1_v1,
+            // _4_v1, _24_v0 lost their slots). A store place
+            // carries structure (parens/deref/fields); a normal
+            // def's dest_place is a plain local token.
+            if let Stmt::Assign { dest, dest_place, .. } = st {
+                if dest_place.as_deref().is_some_and(|dp| {
+                    let t = dp.trim();
+                    !(t.len() > 1
+                        && t.starts_with('_')
+                        && t[1..]
+                            .chars()
+                            .all(|c| c.is_ascii_alphanumeric() || c == '_'))
+                }) {
+                    continue;
+                }
                 *def_count.entry(dest.clone()).or_insert(0) += 1;
             }
         }
@@ -804,6 +827,80 @@ mod spill_tests {
         }];
         let m = build_spill(&blocks, &BTreeMap::new());
         assert_eq!(m.get("_agg_bb0"), Some(&"ptr".to_string()));
+    }
+
+    #[test]
+    fn versioned_i32_with_plain_copies_spills() {
+        // 22: _1_v1 = Move _3 (Use arm) with three plain Copy uses
+        // must spill as i32 via the driver-typed loop. Versioned
+        // defs carry a STALE dest_place (the pre-versioning name),
+        // and a place store through the version must not break
+        // single-def status either.
+        use crate::mir::{Block, Rvalue, Term};
+        let mut lt = BTreeMap::new();
+        lt.insert("_1".to_string(), "i32".to_string());
+        let blocks = vec![
+            Block {
+                id: "bb0".to_string(),
+                statements: vec![
+                    Stmt::Assign {
+                        dest: "_1_v0".to_string(),
+                        dest_place: Some("_1_v0".to_string()),
+                        rvalue: Rvalue::Use { op: Operand::Const { value: "Val(Scalar(0x00000000), i32)".to_string(), str_bytes: None, str_len: None } },
+                    },
+                    Stmt::Assign {
+                        dest: "_3".to_string(),
+                        dest_place: Some("_3".to_string()),
+                        rvalue: Rvalue::Use { op: Operand::Const { value: "Val(Scalar(0x00000001), i32)".to_string(), str_bytes: None, str_len: None } },
+                    },
+                ],
+                terminator: Term::Goto { target: "bb2".to_string() },
+            },
+            Block {
+                id: "bb2".to_string(),
+                statements: vec![
+                    Stmt::Assign {
+                        dest: "_1_v1".to_string(),
+                        dest_place: Some("_1".to_string()),
+                        rvalue: Rvalue::Use { op: Operand::Move { place: "_3".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false } },
+                    },
+                    Stmt::Assign {
+                        dest: "_6".to_string(),
+                        dest_place: Some("_6".to_string()),
+                        rvalue: Rvalue::Use { op: Operand::Copy { place: "_1_v1".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false } },
+                    },
+                ],
+                terminator: Term::Goto { target: "bb5".to_string() },
+            },
+            Block {
+                id: "bb5".to_string(),
+                statements: vec![
+                    Stmt::Assign {
+                        dest: "_12".to_string(),
+                        dest_place: Some("_12".to_string()),
+                        rvalue: Rvalue::Use { op: Operand::Copy { place: "_1_v1".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false } },
+                    },
+                    // A place store through _1_v1 is not a def.
+                    Stmt::Assign {
+                        dest: "_1_v1".to_string(),
+                        dest_place: Some("(*_1_v1)".to_string()),
+                        rvalue: Rvalue::Use { op: Operand::Move { place: "_9".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false } },
+                    },
+                ],
+                terminator: Term::Goto { target: "bb7".to_string() },
+            },
+            Block {
+                id: "bb7".to_string(),
+                statements: vec![Stmt::Assign {
+                    dest: "_13".to_string(),
+                    dest_place: Some("_13".to_string()),
+                    rvalue: Rvalue::Use { op: Operand::Copy { place: "_1_v1".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false } },
+                }],
+                terminator: Term::Return { ret: None },
+            },
+        ];
+        let m = build_spill(&blocks, &lt);
+        assert_eq!(m.get("_1_v1"), Some(&"i32".to_string()));
     }
 
     #[test]

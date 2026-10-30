@@ -297,20 +297,22 @@ pub struct OperandProj<'a> {
     pub off2: u64,
     pub deref: bool,
     pub deref_first: bool,
+    pub deref_last: bool,
     pub pty: Option<&'a str>,
     pub proj_loud: bool,
 }
 
 pub fn operand_proj(op: &Operand) -> Option<OperandProj<'_>> {
     match op {
-        Operand::Move { place, off, off2, deref, deref_first, pty, proj_loud }
-        | Operand::Copy { place, off, off2, deref, deref_first, pty, proj_loud } => {
+        Operand::Move { place, off, off2, deref, deref_first, deref_last, pty, proj_loud, .. }
+        | Operand::Copy { place, off, off2, deref, deref_first, deref_last, pty, proj_loud, .. } => {
             Some(OperandProj {
                 place,
                 off: *off,
                 off2: *off2,
                 deref: *deref,
                 deref_first: *deref_first,
+                deref_last: *deref_last,
                 pty: pty.as_deref(),
                 proj_loud: *proj_loud,
             })
@@ -319,10 +321,13 @@ pub fn operand_proj(op: &Operand) -> Option<OperandProj<'_>> {
     }
 }
 
-/// True when the operand reads through a projection (a field offset or
-/// a deref): it must render as a load/add, never as its root local.
+/// True when the operand reads through a projection (a field offset,
+/// a deref, or an aggregate-typed field even at offset 0): it must
+/// render as a load/add, never as its root local. Scalar field-0
+/// (pty scalar, off 0) is deliberately NOT projected: collapsed-pair
+/// .0 reads (AddWithOverflow results) hold values, not buffers.
 pub fn operand_is_projected(op: &Operand) -> bool {
-    operand_proj(op).is_some_and(|p| p.off != 0 || p.deref)
+    operand_proj(op).is_some_and(|p| p.off != 0 || p.deref || p.pty == Some("buf"))
 }
 
 /// True when the operand's projection cannot be rendered exactly: the
@@ -361,18 +366,23 @@ pub fn rvalue_proj_loud(rv: &Rvalue) -> bool {
 
 /// True for a long-lived aggregate-field Copy: a Use (or single-elem
 /// aggregate) whose Copy operand reads an aggregate-typed field
-/// (`pty == "buf"`) through a projection. Sharing the buffer (add)
-/// would alias source and dest under later place stores, and
-/// duplicating it needs the inner layout, so it goes loud (Jev:
-/// aggcopy_loud). Transient positions (BinOp/Call args) share like
+/// (`pty == "buf"`) through a projection. Sharing the buffer would
+/// alias source and dest under later place stores, and duplicating it
+/// needs the inner layout, so it goes loud (Jev: aggcopy_loud).
+/// A pure trailing deref is NOT a field copy: it copies the whole
+/// pointee buffer (Clone's *self), shared like any whole-aggregate
+/// Copy. Transient positions (BinOp/Call args) share like
 /// whole-aggregate values already do, and are not covered here.
 pub fn rvalue_agg_field_copy_loud(rv: &Rvalue) -> bool {
     let is_buf_copy = |op: &Operand| -> bool {
         match operand_proj(op) {
+            // pty == "buf" already implies a projection (projectionless
+            // places carry no pty), so a buf Copy is a field copy
+            // unless it is a pure trailing deref (whole pointee value).
             Some(pr) => {
                 matches!(op, Operand::Copy { .. })
-                    && operand_is_projected(op)
                     && pr.pty == Some("buf")
+                    && !(pr.deref && pr.deref_last)
             }
             None => false,
         }
@@ -431,7 +441,17 @@ pub fn field_value_into(
     let (mut lines, bp, off) = field_base(&pr, bid, idx);
     match pr.pty {
         Some("zst") => lines.push(format!("{} = 0", dest)),
-        Some("buf") | Some("ptr") => {
+        Some("buf") => {
+            // A buf value reached through a trailing deref IS the
+            // pointee buffer itself (the deref resolution), not a slot
+            // load: Clone's whole-struct deref copy shares the buffer.
+            if pr.deref && pr.deref_last {
+                lines.push(format!("{} = {}", dest, bp))
+            } else {
+                lines.push(format!("{} = load {}+{} as ptr", dest, bp, off))
+            }
+        }
+        Some("ptr") => {
             lines.push(format!("{} = load {}+{} as ptr", dest, bp, off))
         }
         Some(ty) => lines.push(format!("{} = load {}+{} as {}", dest, bp, off, ty)),
@@ -475,7 +495,14 @@ pub fn field_value_named(op: &Operand, tmp: &str) -> Vec<String> {
     };
     match pr.pty {
         Some("zst") => lines.push(format!("{} = 0", tmp)),
-        Some("buf") | Some("ptr") => {
+        Some("buf") => {
+            if pr.deref && pr.deref_last {
+                lines.push(format!("{} = {}", tmp, bp))
+            } else {
+                lines.push(format!("{} = load {}+{} as ptr", tmp, bp, off))
+            }
+        }
+        Some("ptr") => {
             lines.push(format!("{} = load {}+{} as ptr", tmp, bp, off))
         }
         Some(ty) => lines.push(format!("{} = load {}+{} as {}", tmp, bp, off, ty)),
@@ -496,6 +523,7 @@ pub fn field_addr_into(
     off2: u64,
     deref: bool,
     deref_first: bool,
+    deref_last: bool,
     pty: Option<&str>,
     dest: &str,
     bid: &str,
@@ -507,12 +535,18 @@ pub fn field_addr_into(
         off2,
         deref,
         deref_first,
+        deref_last,
         pty,
         proj_loud: false,
     };
     let (mut lines, bp, o) = field_base(&pr, bid, idx);
     if pty == Some("buf") {
-        lines.push(format!("{} = load {}+{} as ptr", dest, bp, o));
+        // Trailing deref: the address IS the deref resolution itself.
+        if deref && deref_last {
+            lines.push(format!("{} = {}", dest, bp));
+        } else {
+            lines.push(format!("{} = load {}+{} as ptr", dest, bp, o));
+        }
     } else {
         lines.push(format!("{} = add {}, {}", dest, bp, o));
     }

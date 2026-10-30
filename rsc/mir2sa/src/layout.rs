@@ -103,7 +103,7 @@ pub fn lower_adt_init(
                 plans.push(FieldPlan::Store { text: Some(rendered), sa_ty: sa_scalar_ty(ty), size });
                 free_after.push(None);
             }
-            Operand::Move { place, off, off2, deref, deref_first, pty, proj_loud, .. } => {
+            Operand::Move { place, off, off2: _, deref, deref_first: _, pty, proj_loud, .. } => {
                 if *proj_loud || ((*off != 0 || *deref) && pty.is_none()) {
                     return None;
                 }
@@ -117,7 +117,7 @@ pub fn lower_adt_init(
                     free_after.push(None);
                 }
             }
-            Operand::Copy { place, off, off2, deref, deref_first, pty, proj_loud, .. } => {
+            Operand::Copy { place, off, off2: _, deref, deref_first: _, pty, proj_loud, .. } => {
                 if *proj_loud || ((*off != 0 || *deref) && pty.is_none()) {
                     return None;
                 }

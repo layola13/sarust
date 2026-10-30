@@ -427,7 +427,7 @@ mod version_tests {
         Stmt::Assign {
             dest: dest.to_string(),
             dest_place: Some(dest.to_string()),
-            rvalue: Rvalue::Use { op: Operand::Copy { place: place.to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false } },
+            rvalue: Rvalue::Use { op: Operand::Copy { place: place.to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false } },
         }
     }
 
@@ -493,7 +493,7 @@ mod version_tests {
         // Diamond: _1 defined in both branches; join use conflicts.
         let f = mkfn(vec![
             blk("bb0", vec![], Term::SwitchInt {
-                discr: Box::new(Operand::Copy { place: "_9".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false }),
+                discr: Box::new(Operand::Copy { place: "_9".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false }),
                 targets: vec![("0".to_string(), "bb1".to_string())],
                 otherwise: "bb2".to_string(),
             }),
@@ -521,13 +521,13 @@ mod version_tests {
             modifiers: false,
             inout: true,
             outs: vec!["_1".to_string()],
-            ins: vec![Operand::Copy { place: "_1".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false }],
+            ins: vec![Operand::Copy { place: "_1".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false }],
             target: Some("bb1".to_string()),
         };
         let ref_stmt = Stmt::Assign {
             dest: "_5".to_string(),
             dest_place: Some("_5".to_string()),
-            rvalue: Rvalue::Ref { place: "_1".to_string(), mut_: false, via: None, zst: false , off: 0, off2: 0, deref: false, deref_first: false, proj_loud: false , pty: None },
+            rvalue: Rvalue::Ref { place: "_1".to_string(), mut_: false, via: None, zst: false , off: 0, off2: 0, deref: false, deref_first: false, proj_loud: false , pty: None , deref_last: false },
         };
         let f = mkfn(vec![
             blk("bb0", vec![use_stmt("_1", "_9")], asm_term),
@@ -549,11 +549,11 @@ mod version_tests {
         let mkref = || Stmt::Assign {
             dest: "_5".to_string(),
             dest_place: Some("_5".to_string()),
-            rvalue: Rvalue::Ref { place: "_2".to_string(), mut_: false, via: None, zst: false , off: 0, off2: 0, deref: false, deref_first: false, proj_loud: false , pty: None },
+            rvalue: Rvalue::Ref { place: "_2".to_string(), mut_: false, via: None, zst: false , off: 0, off2: 0, deref: false, deref_first: false, proj_loud: false , pty: None , deref_last: false },
         };
         let f = mkfn(vec![
             blk("bb0", vec![use_stmt("_2", "_9")], Term::SwitchInt {
-                discr: Box::new(Operand::Copy { place: "_9".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false }),
+                discr: Box::new(Operand::Copy { place: "_9".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false }),
                 targets: vec![("0".to_string(), "bb5".to_string())],
                 otherwise: "bb2".to_string(),
             }),

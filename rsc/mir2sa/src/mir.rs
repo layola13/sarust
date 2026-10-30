@@ -114,6 +114,8 @@ pub enum Rvalue {
         deref: bool,
         #[serde(default)]
         deref_first: bool,
+        #[serde(default)]
+        deref_last: bool,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pty: Option<String>,
         #[serde(default)]
@@ -151,6 +153,8 @@ pub enum Rvalue {
         deref: bool,
         #[serde(default)]
         deref_first: bool,
+        #[serde(default)]
+        deref_last: bool,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pty: Option<String>,
         #[serde(default)]
@@ -174,6 +178,8 @@ pub enum Operand {
         deref: bool,
         #[serde(default)]
         deref_first: bool,
+        #[serde(default)]
+        deref_last: bool,
         /// SA kind of the projected place: scalar name, "ptr" for a
         /// reference/raw-pointer/fn-pointer value, "buf" for an
         /// aggregate/array/tuple value (a pointer slot in mir2sa
@@ -194,6 +200,8 @@ pub enum Operand {
         deref: bool,
         #[serde(default)]
         deref_first: bool,
+        #[serde(default)]
+        deref_last: bool,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pty: Option<String>,
         #[serde(default)]

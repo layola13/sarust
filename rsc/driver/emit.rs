@@ -25,6 +25,9 @@ fn proj_json<'a>(tcx: TyCtxt<'a>, body: &Body<'a>, p: &Place<'a>, into: &mut Str
     if pr.deref_first {
         into.push_str(", \"deref_first\": true");
     }
+    if pr.deref_last {
+        into.push_str(", \"deref_last\": true");
+    }
     if let Some(t) = pr.pty {
         write!(into, ", \"pty\": \"{}\"", t).unwrap();
     }

@@ -293,12 +293,16 @@ pub fn aggregate_layout<'tcx>(
 /// Projectionless places return the default (no offset, no type, not
 /// loud): they keep exactly today's rendering, including generic
 /// locals whose layout cannot be resolved.
+/// - `deref_last`: the projection's last step is a Deref (the value
+///   is the whole pointee buffer, not a field cell): buf values bind
+///   the deref resolution itself instead of loading a slot.
 #[derive(Clone, Debug, Default)]
 pub struct PlaceProj {
     pub off: u64,
     pub off2: u64,
     pub deref: bool,
     pub deref_first: bool,
+    pub deref_last: bool,
     pub pty: Option<String>,
     pub loud: bool,
 }
@@ -339,6 +343,9 @@ pub fn place_proj<'tcx>(
     };
     let elems: Vec<_> = place.iter_projections().map(|(_, e)| e).collect();
     let n = elems.len();
+    let deref_last = elems
+        .last()
+        .is_some_and(|e| matches!(e, ProjectionElem::Deref));
     for (i, elem) in elems.into_iter().enumerate() {
         match elem {
             ProjectionElem::Field(idx, field_ty) => {
@@ -437,5 +444,6 @@ pub fn place_proj<'tcx>(
             out.loud = true;
         }
     }
+    out.deref_last = deref_last;
     out
 }

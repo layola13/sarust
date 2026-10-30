@@ -561,6 +561,6 @@ mod link_tests {
         };
         let _ = Operand::Copy {
             place: "_1".to_string(),
-        off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false };
+        off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false };
     }
 }

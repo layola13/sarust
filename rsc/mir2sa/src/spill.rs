@@ -69,15 +69,15 @@ fn copy_use_targets(st: &Stmt) -> Vec<String> {
     match st {
         Stmt::Assign { rvalue, .. } => match rvalue {
             Rvalue::Use { op } => match op {
-                Operand::Copy { place, off, deref, .. } if *off == 0 && !*deref => vec![place.clone()],
+                Operand::Copy { place, off, deref, pty, .. } if *off == 0 && !*deref && pty.as_deref() != Some("buf") => vec![place.clone()],
                 _ => vec![],
             },
             Rvalue::Aggregate { elems, .. } if elems.len() == 1 => match &elems[0] {
-                Operand::Copy { place, off, deref, .. } if *off == 0 && !*deref => vec![place.clone()],
+                Operand::Copy { place, off, deref, pty, .. } if *off == 0 && !*deref && pty.as_deref() != Some("buf") => vec![place.clone()],
                 _ => vec![],
             },
             Rvalue::Cast { op, .. } => match op.as_ref() {
-                Operand::Copy { place, off, deref, .. } if *off == 0 && !*deref => vec![place.clone()],
+                Operand::Copy { place, off, deref, pty, .. } if *off == 0 && !*deref && pty.as_deref() != Some("buf") => vec![place.clone()],
                 _ => vec![],
             },
             _ => vec![],
@@ -93,15 +93,15 @@ fn consuming_use_targets(st: &Stmt) -> Vec<String> {
     match st {
         Stmt::Assign { rvalue, .. } => match rvalue {
             Rvalue::Use { op } => match op {
-                Operand::Move { place, off, deref, .. } if *off == 0 && !*deref => vec![place.clone()],
+                Operand::Move { place, off, deref, pty, .. } if *off == 0 && !*deref && pty.as_deref() != Some("buf") => vec![place.clone()],
                 _ => vec![],
             },
             Rvalue::Aggregate { elems, .. } if elems.len() == 1 => match &elems[0] {
-                Operand::Move { place, off, deref, .. } if *off == 0 && !*deref => vec![place.clone()],
+                Operand::Move { place, off, deref, pty, .. } if *off == 0 && !*deref && pty.as_deref() != Some("buf") => vec![place.clone()],
                 _ => vec![],
             },
             Rvalue::Cast { op, .. } => match op.as_ref() {
-                Operand::Move { place, off, deref, .. } if *off == 0 && !*deref => vec![place.clone()],
+                Operand::Move { place, off, deref, pty, .. } if *off == 0 && !*deref && pty.as_deref() != Some("buf") => vec![place.clone()],
                 _ => vec![],
             },
             _ => vec![],
@@ -795,7 +795,7 @@ mod spill_tests {
         let use_agg = Stmt::Assign {
             dest: "_3".to_string(),
             dest_place: Some("_3".to_string()),
-            rvalue: Rvalue::Use { op: Operand::Copy { place: "_agg_bb0".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false } },
+            rvalue: Rvalue::Use { op: Operand::Copy { place: "_agg_bb0".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false } },
         };
         let blocks = vec![Block {
             id: "bb0".to_string(),
@@ -841,12 +841,12 @@ mod spill_tests {
                 Stmt::Assign {
                     dest: "_2".to_string(),
                     dest_place: Some("_2".to_string()),
-                    rvalue: Rvalue::Use { op: Operand::Copy { place: "_1".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false } },
+                    rvalue: Rvalue::Use { op: Operand::Copy { place: "_1".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false } },
                 },
                 Stmt::Assign {
                     dest: "_3".to_string(),
                     dest_place: Some("_3".to_string()),
-                    rvalue: Rvalue::Use { op: Operand::Copy { place: "_1".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false } },
+                    rvalue: Rvalue::Use { op: Operand::Copy { place: "_1".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false } },
                 },
             ],
             terminator: Term::Return { ret: None },
@@ -869,17 +869,17 @@ mod spill_tests {
                 Stmt::Assign {
                     dest: "_1_v1".to_string(),
                     dest_place: Some("_1_v1".to_string()),
-                    rvalue: Rvalue::Use { op: Operand::Move { place: "_4".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false } },
+                    rvalue: Rvalue::Use { op: Operand::Move { place: "_4".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false } },
                 },
                 Stmt::Assign {
                     dest: "_2".to_string(),
                     dest_place: Some("_2".to_string()),
-                    rvalue: Rvalue::Use { op: Operand::Copy { place: "_1_v1".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false } },
+                    rvalue: Rvalue::Use { op: Operand::Copy { place: "_1_v1".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false } },
                 },
                 Stmt::Assign {
                     dest: "_3".to_string(),
                     dest_place: Some("_3".to_string()),
-                    rvalue: Rvalue::Use { op: Operand::Copy { place: "_1_v1".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false } },
+                    rvalue: Rvalue::Use { op: Operand::Copy { place: "_1_v1".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false } },
                 },
             ],
             terminator: Term::Return { ret: None },
@@ -896,7 +896,7 @@ mod spill_tests {
             dest: dest.to_string(),
             dest_place: Some(dest.to_string()),
             rvalue: Rvalue::Cast {
-                op: Box::new(Operand::Copy { place: place.to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false }),
+                op: Box::new(Operand::Copy { place: place.to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false }),
                 ty: ty.to_string(),
                 castkind: Some("PtrToPtr".to_string()),
                 src_ty: Some("*".to_string()),
@@ -913,7 +913,7 @@ mod spill_tests {
                 mut_: false,
                 via: None,
                 zst: false,
-            off: 0, off2: 0, deref: false, deref_first: false, proj_loud: false , pty: None },
+            off: 0, off2: 0, deref: false, deref_first: false, proj_loud: false , pty: None , deref_last: false },
         }
     }
 
@@ -971,7 +971,7 @@ mod spill_tests {
                         dest: "_25".to_string(),
                         dest_place: Some("_25".to_string()),
                         rvalue: Rvalue::Cast {
-                            op: Box::new(Operand::Move { place: "_2".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false }),
+                            op: Box::new(Operand::Move { place: "_2".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false }),
                             ty: "std::ptr::NonNull<std::task::Context<'{erased}>>".to_string(),
                             castkind: Some("Transmute".to_string()),
                             src_ty: Some("&".to_string()),
@@ -981,7 +981,7 @@ mod spill_tests {
                         dest: "_24".to_string(),
                         dest_place: Some("_24".to_string()),
                         rvalue: Rvalue::Aggregate {
-                            elems: vec![Operand::Move { place: "_25".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false }],
+                            elems: vec![Operand::Move { place: "_25".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false }],
                             layout: None,
                         },
                     },
@@ -993,7 +993,7 @@ mod spill_tests {
                 statements: vec![Stmt::Assign {
                     dest: "_12".to_string(),
                     dest_place: Some("_12".to_string()),
-                    rvalue: Rvalue::Use { op: Operand::Move { place: "_24".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false } },
+                    rvalue: Rvalue::Use { op: Operand::Move { place: "_24".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false } },
                 }],
                 terminator: Term::Return { ret: None },
             },
@@ -1006,7 +1006,7 @@ mod spill_tests {
         let mut unsup = vec![];
         let line = crate::render::render_rvalue(
             &Rvalue::Aggregate {
-                elems: vec![Operand::Move { place: "_25".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false }],
+                elems: vec![Operand::Move { place: "_25".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false }],
                 layout: None,
             },
             "_24", Some("_24"), &mut unsup, "bb0", &mut idx,
@@ -1033,7 +1033,7 @@ mod spill_tests {
                     dest: "_77".to_string(),
                     dest_place: Some("_77".to_string()),
                     rvalue: Rvalue::Aggregate {
-                        elems: vec![Operand::Move { place: "_78".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false }],
+                        elems: vec![Operand::Move { place: "_78".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false }],
                         layout: None,
                     },
                 },
@@ -1053,7 +1053,7 @@ mod spill_tests {
             terminator: Term::Call {
                 func: "f".to_string(),
                 func_raw: None,
-                args: vec![Operand::Move { place: "_5".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false }],
+                args: vec![Operand::Move { place: "_5".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false }],
                 dest: Some("_7".to_string()),
                 target: Some("bb1".to_string()),
                 sig: None,
@@ -1084,12 +1084,12 @@ mod spill_tests {
                 Stmt::Assign {
                     dest: "_4".to_string(),
                     dest_place: Some("_4".to_string()),
-                    rvalue: Rvalue::Use { op: Operand::Copy { place: "_1".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false } },
+                    rvalue: Rvalue::Use { op: Operand::Copy { place: "_1".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false } },
                 },
                 Stmt::Assign {
                     dest: "_11".to_string(),
                     dest_place: Some("_11".to_string()),
-                    rvalue: Rvalue::Use { op: Operand::Copy { place: "_1".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false } },
+                    rvalue: Rvalue::Use { op: Operand::Copy { place: "_1".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false } },
                 },
             ],
             terminator: Term::Return { ret: None },
@@ -1138,7 +1138,7 @@ mod spill_tests {
                 Stmt::Assign {
                     dest: "_4".to_string(),
                     dest_place: Some("_4".to_string()),
-                    rvalue: Rvalue::Use { op: Operand::Copy { place: "_1".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false } },
+                    rvalue: Rvalue::Use { op: Operand::Copy { place: "_1".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false } },
                 },
             ],
             terminator: Term::Return { ret: None },
@@ -1164,7 +1164,7 @@ mod spill_tests {
         Stmt::Assign {
             dest: dest.to_string(),
             dest_place: Some(dest.to_string()),
-            rvalue: Rvalue::Use { op: Operand::Copy { place: place.to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false } },
+            rvalue: Rvalue::Use { op: Operand::Copy { place: place.to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false } },
         }
     }
 
@@ -1245,12 +1245,12 @@ mod spill_tests {
                 Stmt::Assign {
                     dest: "_21".to_string(),
                     dest_place: Some("_21".to_string()),
-                    rvalue: Rvalue::Use { op: Operand::Copy { place: "_1".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false } },
+                    rvalue: Rvalue::Use { op: Operand::Copy { place: "_1".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false } },
                 },
                 Stmt::Assign {
                     dest: "_3".to_string(),
                     dest_place: Some("_3".to_string()),
-                    rvalue: Rvalue::Use { op: Operand::Copy { place: "_21".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false } },
+                    rvalue: Rvalue::Use { op: Operand::Copy { place: "_21".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false } },
                 },
                 Stmt::SetDisc { place: "_21".to_string(), variant: 1, place_full: None },
             ],
@@ -1270,7 +1270,7 @@ mod spill_tests {
                 Stmt::Assign {
                     dest: "_4".to_string(),
                     dest_place: Some("_4".to_string()),
-                    rvalue: Rvalue::Use { op: Operand::Copy { place: "_1".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false } },
+                    rvalue: Rvalue::Use { op: Operand::Copy { place: "_1".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false } },
                 },
                 Stmt::Assign {
                     dest: "_3".to_string(),
@@ -1292,7 +1292,7 @@ mod spill_tests {
         let def = |v: u32| Stmt::Assign {
             dest: "_23".to_string(),
             dest_place: Some("_23".to_string()),
-            rvalue: Rvalue::Use { op: Operand::Copy { place: format!("_{}", v) , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false } },
+            rvalue: Rvalue::Use { op: Operand::Copy { place: format!("_{}", v) , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false } },
         };
         let blocks = vec![Block {
             id: "bb0".to_string(),
@@ -1302,7 +1302,7 @@ mod spill_tests {
                 Stmt::Assign {
                     dest: "_3".to_string(),
                     dest_place: Some("_3".to_string()),
-                    rvalue: Rvalue::Use { op: Operand::Copy { place: "_23".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false } },
+                    rvalue: Rvalue::Use { op: Operand::Copy { place: "_23".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false } },
                 },
                 Stmt::SetDisc { place: "_23".to_string(), variant: 1, place_full: None },
             ],
@@ -1322,12 +1322,12 @@ mod spill_tests {
                 Stmt::Assign {
                     dest: "_21".to_string(),
                     dest_place: Some("_21".to_string()),
-                    rvalue: Rvalue::Use { op: Operand::Copy { place: "_1".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false } },
+                    rvalue: Rvalue::Use { op: Operand::Copy { place: "_1".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false } },
                 },
                 Stmt::Assign {
                     dest: "_3".to_string(),
                     dest_place: Some("_3".to_string()),
-                    rvalue: Rvalue::Use { op: Operand::Copy { place: "_21".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false } },
+                    rvalue: Rvalue::Use { op: Operand::Copy { place: "_21".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false } },
                 },
                 Stmt::SetDisc { place: "_21".to_string(), variant: 1, place_full: None },
             ],
@@ -1337,7 +1337,7 @@ mod spill_tests {
         let mut idx = 0usize;
         let mut unsup = vec![];
         let line = crate::render::render_rvalue(
-            &Rvalue::Use { op: Operand::Copy { place: "_1".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false } },
+            &Rvalue::Use { op: Operand::Copy { place: "_1".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false } },
             "_21", Some("_21"), &mut unsup, "bb0", &mut idx,
             &std::collections::HashMap::new(), &m, &std::collections::BTreeMap::new(),
             &std::collections::BTreeMap::new(),
@@ -1360,7 +1360,7 @@ mod spill_tests {
                         mut_: false,
                         via: None,
                         zst: true,
-                    off: 0, off2: 0, deref: false, deref_first: false, proj_loud: false , pty: None },
+                    off: 0, off2: 0, deref: false, deref_first: false, proj_loud: false , pty: None , deref_last: false },
                 },
                 cast_copy("_7", "_6", "usize"),
             ],
@@ -1379,11 +1379,11 @@ mod spill_tests {
             statements: vec![
                 Stmt::Assign {
                     dest: "_2".to_string(), dest_place: None,
-                    rvalue: Rvalue::Use { op: Operand::Copy { place: "_1".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false } },
+                    rvalue: Rvalue::Use { op: Operand::Copy { place: "_1".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false } },
                 },
                 Stmt::Assign {
                     dest: "_3".to_string(), dest_place: None,
-                    rvalue: Rvalue::Use { op: Operand::Copy { place: "_1".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false } },
+                    rvalue: Rvalue::Use { op: Operand::Copy { place: "_1".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false } },
                 },
             ],
             terminator: Term::Return { ret: None },
@@ -1402,7 +1402,7 @@ mod spill_tests {
             id: "bb0".to_string(),
             statements: vec![Stmt::Assign {
                 dest: "_2".to_string(), dest_place: None,
-                rvalue: Rvalue::Use { op: Operand::Copy { place: "_1".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false } },
+                rvalue: Rvalue::Use { op: Operand::Copy { place: "_1".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false } },
             }],
             terminator: Term::Return { ret: None },
         }];
@@ -1421,7 +1421,7 @@ mod spill_tests {
                 id: "bb0".to_string(),
                 statements: vec![Stmt::Assign {
                     dest: "_4_v1".to_string(), dest_place: None,
-                    rvalue: Rvalue::Use { op: Operand::Copy { place: "_0".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false } },
+                    rvalue: Rvalue::Use { op: Operand::Copy { place: "_0".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false } },
                 }],
                 terminator: Term::Goto { target: "bb1".to_string() },
             },
@@ -1429,7 +1429,7 @@ mod spill_tests {
                 id: "bb1".to_string(),
                 statements: vec![Stmt::Assign {
                     dest: "_7".to_string(), dest_place: None,
-                    rvalue: Rvalue::Use { op: Operand::Copy { place: "_4_v1".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false } },
+                    rvalue: Rvalue::Use { op: Operand::Copy { place: "_4_v1".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false } },
                 }],
                 terminator: Term::Goto { target: "bb2".to_string() },
             },
@@ -1437,7 +1437,7 @@ mod spill_tests {
                 id: "bb2".to_string(),
                 statements: vec![Stmt::Assign {
                     dest: "_9".to_string(), dest_place: None,
-                    rvalue: Rvalue::Use { op: Operand::Copy { place: "_4_v1".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false } },
+                    rvalue: Rvalue::Use { op: Operand::Copy { place: "_4_v1".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false } },
                 }],
                 terminator: Term::Return { ret: None },
             },

@@ -521,7 +521,7 @@ mod tests {
         // sla ABI: i32@0 (4B), u64@8 (align 8), u8@16 (packed).
         let elems = vec![
             c("Val(Scalar(0x00000001), i32)"),
-            Operand::Move { place: "_38".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false },
+            Operand::Move { place: "_38".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false },
             c("Val(Scalar(0x01), bool)"),
         ];
         let lines = lower_adt_init("bb13", "_37", "_37", &elems, None).expect("mixed tuple must lower");
@@ -536,8 +536,8 @@ mod tests {
     fn adt_generic_two_moves() {
         // f_generic bb2: (Move _2, Move _4) -> two pointer slots, moves visible.
         let elems = vec![
-            Operand::Move { place: "_2".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false },
-            Operand::Move { place: "_4".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false },
+            Operand::Move { place: "_2".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false },
+            Operand::Move { place: "_4".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false },
         ];
         let lines = lower_adt_init("bb2", "_0", "_0", &elems, None).expect("generic tuple must lower");
         assert_eq!(lines[1], "_agg_bb2 = alloc 16");
@@ -584,7 +584,7 @@ mod tests {
     #[test]
     fn asm_mov_copy_exact() {
         // f_asm bb0 shape: mov {0}, {1}, out _2, in copy _1, no options.
-        let ins = vec![Operand::Copy { place: "_1".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false }];
+        let ins = vec![Operand::Copy { place: "_1".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false }];
         let (d, s) = asm_mov(Some("mov {0}, {1}"), Some(""), false, &["_2"], &ins)
             .expect("corpus mov must lower");
         assert_eq!(d, "_2");
@@ -595,7 +595,7 @@ mod tests {
     fn asm_mov_plain_copy() {
         // SA `=` already moves (`_x = ^_y` is UnknownRegister); Move renders
         // as a plain place in rvalue position, `^` lives only in call args.
-        let ins = vec![Operand::Move { place: "_1".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false }];
+        let ins = vec![Operand::Move { place: "_1".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false }];
         let (_, s) = asm_mov(Some("mov {0}, {1}"), Some(""), false, &["_2"], &ins)
             .expect("move input must lower");
         assert_eq!(s, "_1");
@@ -603,7 +603,7 @@ mod tests {
 
     #[test]
     fn asm_non_mov_stays_loud() {
-        let ins = vec![Operand::Copy { place: "_1".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false }];
+        let ins = vec![Operand::Copy { place: "_1".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false }];
         // Old-schema fixture (no structured fields) -> None -> UNSUPPORTED, counted.
         assert!(asm_mov(None, None, false, &[], &[]).is_none());
         assert!(asm_mov(Some("add {0}, {1}"), Some(""), false, &["_2"], &ins).is_none());
@@ -616,7 +616,7 @@ mod tests {
     #[test]
     fn asm_inout_passthrough_117() {
         // sla-117 shape: comment-only template, inout same local -> comment, no instr.
-        let ins = vec![Operand::Copy { place: "_1".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false }];
+        let ins = vec![Operand::Copy { place: "_1".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false }];
         assert_eq!(
             asm_inout(Some("/* native escape */"), Some(""), false, true, &["_1"], &ins),
             Some((None, None))
@@ -626,7 +626,7 @@ mod tests {
     #[test]
     fn asm_inout_split_places() {
         // Same gate, split places -> materialized copy (plain `=` moves).
-        let ins = vec![Operand::Move { place: "_1".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false }];
+        let ins = vec![Operand::Move { place: "_1".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false }];
         assert_eq!(
             asm_inout(Some("/* nop */"), Some(""), false, true, &["_2"], &ins),
             Some((Some("_2".to_string()), Some("_1".to_string())))
@@ -635,7 +635,7 @@ mod tests {
 
     #[test]
     fn asm_inout_non_passthrough_stays_loud() {
-        let ins = vec![Operand::Copy { place: "_1".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false }];
+        let ins = vec![Operand::Copy { place: "_1".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false }];
         // Not inout -> the inout gate refuses (mov gate may still apply elsewhere).
         assert_eq!(asm_inout(Some("mov {0}, {1}"), Some(""), false, false, &["_2"], &ins), None);
         // Real instruction in template -> loud.
@@ -654,13 +654,13 @@ mod tests {
     fn asm_versioned_names_pass_gates() {
         // Versioned renames (`_1_v1`) are plain locals for gate purposes;
         // otherwise versioning would silence every gated pattern.
-        let ins = vec![Operand::Copy { place: "_1_v0".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false }];
+        let ins = vec![Operand::Copy { place: "_1_v0".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false }];
         assert_eq!(
             asm_inout(Some("/* nop */"), Some(""), false, true, &["_1_v1"], &ins),
             Some((Some("_1_v1".to_string()), Some("_1_v0".to_string())))
         );
         let outs: Vec<String> = vec!["_2_v0".to_string()];
-        let ins2 = vec![Operand::Copy { place: "_1_v0".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false }];
+        let ins2 = vec![Operand::Copy { place: "_1_v0".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false }];
         assert!(crate::asm::asm_mov_copy(
             Some("mov {0}, {1}"), Some(""), false, false, &outs, &ins2
         ).is_some());
@@ -689,7 +689,7 @@ mod tests {
         // [24, 0, 28] size 32. v1 would emit alloc 17 — v2 must win verbatim.
         let elems = vec![
             c("Val(Scalar(0x00000001), i32)"),
-            Operand::Move { place: "_38".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false },
+            Operand::Move { place: "_38".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false },
             c("Val(Scalar(0x01), bool)"),
         ];
         let layout = adt_layout(32, &[24, 0, 28]);
@@ -799,7 +799,7 @@ mod tests {
         // eq + two-target br per arm, fallthrough labels, no inline `==`.
         let f = blank_fn("f_sw", vec![
             blank_block("bb0", Term::SwitchInt {
-                discr: Box::new(Operand::Copy { place: "_1".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false }),
+                discr: Box::new(Operand::Copy { place: "_1".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false }),
                 targets: vec![("0".to_string(), "bb1".to_string()), ("1".to_string(), "bb2".to_string())],
                 otherwise: "bb3".to_string(),
             }),
@@ -836,7 +836,7 @@ mod tests {
         Stmt::Assign {
             dest: dest.to_string(),
             dest_place: Some(dest.to_string()),
-            rvalue: Rvalue::Use { op: Operand::Copy { place: src.to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false } },
+            rvalue: Rvalue::Use { op: Operand::Copy { place: src.to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false } },
         }
     }
 
@@ -926,7 +926,7 @@ mod tests {
         let line = render_rvalue(
             &Rvalue::UnOp {
                 op: "PtrMetadata".to_string(),
-                operand: Box::new(Operand::Copy { place: "_3".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false }),
+                operand: Box::new(Operand::Copy { place: "_3".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false }),
             },
             "_2", Some("_2"), &mut unsup, "bb0", &mut idx,
             &std::collections::HashMap::new(), &std::collections::BTreeMap::new(), &std::collections::BTreeMap::new(),
@@ -940,7 +940,7 @@ mod tests {
         let line = render_rvalue(
             &Rvalue::UnOp {
                 op: "PtrMetadata".to_string(),
-                operand: Box::new(Operand::Move { place: "_3".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false }),
+                operand: Box::new(Operand::Move { place: "_3".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false }),
             },
             "_2", Some("_2"), &mut unsup, "bb0", &mut idx,
             &std::collections::HashMap::new(), &std::collections::BTreeMap::new(), &std::collections::BTreeMap::new(),
@@ -990,7 +990,7 @@ mod tests {
         // parse (UnknownRegister). A plain-copy cast may inline the load.
         let spilled = std::collections::BTreeMap::from([("_2".to_string(), "u8".to_string())]);
         let cast = |kind: &str, src: &str, ty: &str| Rvalue::Cast {
-            op: Box::new(Operand::Copy { place: "_2".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false }),
+            op: Box::new(Operand::Copy { place: "_2".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false }),
             ty: ty.to_string(),
             castkind: Some(kind.to_string()),
             src_ty: Some(src.to_string()),
@@ -1029,8 +1029,8 @@ mod tests {
             let line = render_rvalue(
                 &Rvalue::BinOp {
                     op: op.to_string(),
-                    left: Box::new(Operand::Copy { place: "_1".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false }),
-                    right: Box::new(Operand::Copy { place: "_2".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false }),
+                    left: Box::new(Operand::Copy { place: "_1".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false }),
+                    right: Box::new(Operand::Copy { place: "_2".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false }),
                 },
                 "_3", Some("_3"), &mut unsup, "bb0", &mut idx,
                 &std::collections::HashMap::new(), &std::collections::BTreeMap::new(), &std::collections::BTreeMap::new(),
@@ -1050,7 +1050,7 @@ mod tests {
             id: "bb0".to_string(),
             statements: vec![],
             terminator: Term::Assert {
-                cond: Box::new(Operand::Move { place: "_3".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false }),
+                cond: Box::new(Operand::Move { place: "_3".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false }),
                 target: "bb1".to_string(),
                 msg: Some("Overflow(Add, copy _1, const 1_i32)".to_string()),
                 expected: Some(false),
@@ -1069,7 +1069,7 @@ mod tests {
         // `assert cond` is not an instruction: eq + br + numeric panic.
         let f = blank_fn("f_as", vec![
             blank_block("bb0", Term::Assert {
-                cond: Box::new(Operand::Copy { place: "_1".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false }),
+                cond: Box::new(Operand::Copy { place: "_1".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false }),
                 target: "bb1".to_string(),
                 msg: Some("BoundsCheck { len: const 3_usize, index: copy _2 }".to_string()),
                 expected: Some(true),
@@ -1107,7 +1107,7 @@ mod tests {
             blank_block("bb0", Term::Call {
                 func: "some_fn".to_string(),
                 func_raw: None,
-                args: vec![Operand::Copy { place: "_1".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false }],
+                args: vec![Operand::Copy { place: "_1".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false }],
                 dest: Some("_0".to_string()),
                 target: Some("bb1".to_string()),
                 sig: Some(CallSig { params: vec!["ptr".to_string()], ret: "i32".to_string() }),

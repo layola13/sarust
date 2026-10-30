@@ -297,7 +297,7 @@ pub fn rewrite_operand(
             let temp = format!("_phi_{}_{}", bid, *idx);
             *idx += 1;
             let load = format!("{} = load {}+0 as {}", temp, spill_slot(place), ty);
-            Some((Operand::Copy { place: temp.clone() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false }, Some(load), Some(temp)))
+            Some((Operand::Copy { place: temp.clone() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false }, Some(load), Some(temp)))
         }
         _ => Some((op.clone(), None, None)),
     }
@@ -382,7 +382,7 @@ pub fn rewrite_rvalue(
             }
             Rvalue::Call { func: func.clone(), args: new_args, sig: sig.clone() }
         }
-        Rvalue::Ref { place, mut_, via, zst, off, off2, deref, deref_first, pty, proj_loud, .. } => {
+        Rvalue::Ref { place, mut_, via, zst, off, off2, deref, deref_first, deref_last, pty, proj_loud, .. } => {
             if let Some(base) = phi_place(place) {
                 if *mut_ || !ref_ok {
                     return None;
@@ -398,7 +398,7 @@ pub fn rewrite_rvalue(
                 }
                 // The phi temp holds the base's current value, so
                 // the same projection still applies to it.
-                Rvalue::Ref { place: temp, mut_: *mut_, via: via.clone(), zst: *zst, off: *off, off2: *off2, deref: *deref, deref_first: *deref_first, pty: pty.clone(), proj_loud: *proj_loud }
+                Rvalue::Ref { place: temp, mut_: *mut_, via: via.clone(), zst: *zst, off: *off, off2: *off2, deref: *deref, deref_first: *deref_first, pty: pty.clone(), proj_loud: *proj_loud, deref_last: *deref_last }
             } else {
                 rv.clone()
             }
@@ -415,7 +415,7 @@ pub fn rewrite_rvalue(
                 rv.clone()
             }
         }
-        Rvalue::RawPtr { place, mut_, off, off2, deref, deref_first, pty, proj_loud, .. } => {
+        Rvalue::RawPtr { place, mut_, off, off2, deref, deref_first, deref_last, pty, proj_loud, .. } => {
             if let Some(base) = phi_place(place) {
                 let ty = phi.get(base)?;
                 let temp = format!("_phi_{}_{}", bid, *idx);
@@ -423,7 +423,7 @@ pub fn rewrite_rvalue(
                 loads.push(format!("{} = load {}+0 as {}", temp, spill_slot(base), ty));
                 // Plain copy: the use moves the temp.
                 // Same projection-preservation rule as Ref above.
-                Rvalue::RawPtr { place: temp, mut_: *mut_, off: *off, off2: *off2, deref: *deref, deref_first: *deref_first, pty: pty.clone(), proj_loud: *proj_loud }
+                Rvalue::RawPtr { place: temp, mut_: *mut_, off: *off, off2: *off2, deref: *deref, deref_first: *deref_first, pty: pty.clone(), proj_loud: *proj_loud, deref_last: *deref_last }
             } else {
                 rv.clone()
             }
@@ -510,14 +510,14 @@ mod phi_tests {
 
     #[test]
     fn mut_ref_stays_loud() {
-        let rv = Rvalue::Ref { place: "__PHI__:_2".to_string(), mut_: true, via: None, zst: false , off: 0, off2: 0, deref: false, deref_first: false, proj_loud: false , pty: None };
+        let rv = Rvalue::Ref { place: "__PHI__:_2".to_string(), mut_: true, via: None, zst: false , off: 0, off2: 0, deref: false, deref_first: false, proj_loud: false , pty: None , deref_last: false };
         let mut idx = 0;
         assert!(rewrite_rvalue(&rv, &phi_map(), "bb3", &mut idx, true).is_none());
     }
 
     #[test]
     fn shared_ref_needs_dominating_block() {
-        let rv = Rvalue::Ref { place: "__PHI__:_2".to_string(), mut_: false, via: None, zst: false , off: 0, off2: 0, deref: false, deref_first: false, proj_loud: false , pty: None };
+        let rv = Rvalue::Ref { place: "__PHI__:_2".to_string(), mut_: false, via: None, zst: false , off: 0, off2: 0, deref: false, deref_first: false, proj_loud: false , pty: None , deref_last: false };
         let mut idx = 0;
         assert!(rewrite_rvalue(&rv, &phi_map(), "bb3", &mut idx, false).is_none());
         let mut idx = 0;

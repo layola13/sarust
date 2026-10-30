@@ -328,6 +328,12 @@ pub fn place_proj<'tcx>(
         return out;
     }
     let mut cur_ty = body.local_decls[place.local].ty;
+    // True while every projection step so far is a field of a union:
+    // such a chain reads the union storage itself (all fields overlap
+    // at offset 0), so it renders as the root local, not as a field
+    // cell load. Any deref, downcast, index, or non-union field ends
+    // the chain (mixed chains keep the computed offset below).
+    let mut only_union_fields = true;
     let mut variant: Option<rustc_middle::ty::layout::TyAndLayout<'tcx>> = None;
     let mut seen_deref = false;
     // mir2sa stores an aggregate-typed field as a POINTER SLOT in the
@@ -357,11 +363,23 @@ pub fn place_proj<'tcx>(
                     out.loud = true;
                     return out;
                 };
-                if !matches!(
-                    lay.fields,
-                    rustc_abi::FieldsShape::Arbitrary { .. }
-                        | rustc_abi::FieldsShape::Array { .. }
-                ) {
+                // Unions overlap every field at offset 0, so a union
+                // field read is the whole union value (scalar identity
+                // when the union local is scalar-stored, a base+0 load
+                // when it is buffered): exact, never loud. Other
+                // non-Arbitrary/Array shapes (primitives) have no
+                // fields and stay loud.
+                let is_union = matches!(lay.fields, rustc_abi::FieldsShape::Union(..));
+                if !is_union {
+                    only_union_fields = false;
+                }
+                if !is_union
+                    && !matches!(
+                        lay.fields,
+                        rustc_abi::FieldsShape::Arbitrary { .. }
+                            | rustc_abi::FieldsShape::Array { .. }
+                    )
+                {
                     out.loud = true;
                     return out;
                 }
@@ -369,7 +387,11 @@ pub fn place_proj<'tcx>(
                     out.loud = true;
                     return out;
                 }
-                let o = lay.fields.offset(idx.index()).bytes();
+                let o = if is_union {
+                    0
+                } else {
+                    lay.fields.offset(idx.index()).bytes()
+                };
                 if seen_deref {
                     out.off2 += o;
                 } else {
@@ -383,6 +405,7 @@ pub fn place_proj<'tcx>(
                 cur_ty = field_ty;
             }
             ProjectionElem::Deref => {
+                only_union_fields = false;
                 if seen_deref {
                     out.loud = true;
                     return out;
@@ -400,6 +423,7 @@ pub fn place_proj<'tcx>(
                 variant = None;
             }
             ProjectionElem::Downcast(_, variant_idx) => {
+                only_union_fields = false;
                 if !matches!(cur_ty.kind(), TyKind::Adt(..)) {
                     out.loud = true;
                     return out;
@@ -421,6 +445,14 @@ pub fn place_proj<'tcx>(
                 return out;
             }
         }
+    }
+    // A pure union-field chain is the root local itself: report no
+    // projection at all, so mir2sa renders the plain root local
+    // (the pre-field-precision rendering, which is exact here because
+    // a union field has no cell of its own). Reporting off=0/pty=buf
+    // instead would make mir2sa load a field cell that does not exist.
+    if only_union_fields {
+        return PlaceProj::default();
     }
     let Some(final_lay) = proj_layout(tcx, cur_ty) else {
         out.loud = true;

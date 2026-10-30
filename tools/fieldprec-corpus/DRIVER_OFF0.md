@@ -193,7 +193,7 @@ plain 渲染。`scalar_width_bits("ptr")` 本就是 64，无需另改。
 单测：`main.rs::field_zero_ptr_of_buffer_loads`（镜像
 `field_zero_of_buffer_loads` 的 buf-def 结构）。
 
-探针验证（未进语料，`/tmp/probe16x/`，已删证据链见汇报）：ptr
+探针验证（未进语料，探针文件存于 `/tmp/probe16x/`，结论见协调员汇报）：ptr
 field-0 出现在 call 实参与 aggregate 元素位置时，优化后 MIR 都会
 先把它物化成 Assign-Use 临时变量（如 16 的 `_4`），因此 Assign 位
 的修复已覆盖这两个位置——两探针在修复后均为 33=33，且 .sa 里

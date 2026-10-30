@@ -529,7 +529,7 @@ pub fn rewrite_rvalue(
             }
             Rvalue::Call { func: func.clone(), args: new_args, sig: sig.clone() }
         }
-        Rvalue::Ref { place, mut_, via, zst, off, off2, deref, deref_first, deref_last, pty, proj_loud, .. } => {
+        Rvalue::Ref { place, mut_, via, zst, off, off2, deref, deref_first, deref_last, pty, proj_loud, idx: ridx, idx_size: ridx_size, idx_const: ridx_const, idx_fe: ridx_fe, fat: rfat, .. } => {
             if let Some(base) = phi_place(place) {
                 if *mut_ || !ref_ok {
                     return None;
@@ -545,7 +545,7 @@ pub fn rewrite_rvalue(
                 }
                 // The phi temp holds the base's current value, so
                 // the same projection still applies to it.
-                Rvalue::Ref { place: temp, mut_: *mut_, via: via.clone(), zst: *zst, off: *off, off2: *off2, deref: *deref, deref_first: *deref_first, pty: pty.clone(), proj_loud: *proj_loud, deref_last: *deref_last }
+                Rvalue::Ref { place: temp, mut_: *mut_, via: via.clone(), zst: *zst, off: *off, off2: *off2, deref: *deref, deref_first: *deref_first, pty: pty.clone(), proj_loud: *proj_loud, deref_last: *deref_last, idx: ridx.clone(), idx_size: *ridx_size, idx_const: *ridx_const, idx_fe: *ridx_fe, fat: *rfat }
             } else {
                 rv.clone()
             }
@@ -562,7 +562,7 @@ pub fn rewrite_rvalue(
                 rv.clone()
             }
         }
-        Rvalue::RawPtr { place, mut_, off, off2, deref, deref_first, deref_last, pty, proj_loud, .. } => {
+        Rvalue::RawPtr { place, mut_, off, off2, deref, deref_first, deref_last, pty, proj_loud, idx: ridx, idx_size: ridx_size, idx_const: ridx_const, idx_fe: ridx_fe, fat: rfat, .. } => {
             if let Some(base) = phi_place(place) {
                 let ty = phi.get(base)?;
                 let temp = format!("_phi_{}_{}", bid, *idx);
@@ -570,7 +570,7 @@ pub fn rewrite_rvalue(
                 loads.push(format!("{} = load {}+0 as {}", temp, spill_slot(base), ty));
                 // Plain copy: the use moves the temp.
                 // Same projection-preservation rule as Ref above.
-                Rvalue::RawPtr { place: temp, mut_: *mut_, off: *off, off2: *off2, deref: *deref, deref_first: *deref_first, pty: pty.clone(), proj_loud: *proj_loud, deref_last: *deref_last }
+                Rvalue::RawPtr { place: temp, mut_: *mut_, off: *off, off2: *off2, deref: *deref, deref_first: *deref_first, pty: pty.clone(), proj_loud: *proj_loud, deref_last: *deref_last, idx: ridx.clone(), idx_size: *ridx_size, idx_const: *ridx_const, idx_fe: *ridx_fe, fat: *rfat }
             } else {
                 rv.clone()
             }
@@ -687,14 +687,14 @@ mod phi_tests {
 
     #[test]
     fn mut_ref_stays_loud() {
-        let rv = Rvalue::Ref { place: "__PHI__:_2".to_string(), mut_: true, via: None, zst: false , off: 0, off2: 0, deref: false, deref_first: false, proj_loud: false , pty: None , deref_last: false };
+        let rv = Rvalue::Ref { place: "__PHI__:_2".to_string(), mut_: true, via: None, zst: false , off: 0, off2: 0, deref: false, deref_first: false, proj_loud: false , pty: None , deref_last: false , idx: None, idx_size: 0, idx_const: None, idx_fe: None, fat: false};
         let mut idx = 0;
         assert!(rewrite_rvalue(&rv, &phi_map(), "bb3", &mut idx, true).is_none());
     }
 
     #[test]
     fn shared_ref_needs_dominating_block() {
-        let rv = Rvalue::Ref { place: "__PHI__:_2".to_string(), mut_: false, via: None, zst: false , off: 0, off2: 0, deref: false, deref_first: false, proj_loud: false , pty: None , deref_last: false };
+        let rv = Rvalue::Ref { place: "__PHI__:_2".to_string(), mut_: false, via: None, zst: false , off: 0, off2: 0, deref: false, deref_first: false, proj_loud: false , pty: None , deref_last: false , idx: None, idx_size: 0, idx_const: None, idx_fe: None, fat: false};
         let mut idx = 0;
         assert!(rewrite_rvalue(&rv, &phi_map(), "bb3", &mut idx, false).is_none());
         let mut idx = 0;

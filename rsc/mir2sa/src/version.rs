@@ -192,6 +192,54 @@ fn rewrite_operand(
     numbered: &BTreeMap<String, Vec<((usize, Option<usize>), usize)>>,
     inn: &[BTreeMap<String, BTreeSet<usize>>],
 ) {
+    // Indexed reads rewrite their base AND their index local; a
+    // conflict in either makes the whole read a loud Conflict (with
+    // proj_loud set, so phi.rs refuses to resolve it through a slot
+    // and drop the index -- the slot value alone would be wrong).
+    if matches!(op, Operand::Index { .. }) {
+        let (base, idx_local, off, off2, deref, deref_first, pty) = match op {
+            Operand::Index { place, idx, off, off2, deref, deref_first, pty, .. } => {
+                (place.clone(), idx.clone(), *off, *off2, *deref, *deref_first, pty.clone())
+            }
+            _ => unreachable!(),
+        };
+        let mut conflict = false;
+        match resolve(&base, user_block, user_pos, numbered, inn) {
+            Ok(Some(k)) => {
+                if let Operand::Index { place, .. } = op {
+                    *place = versioned_name(&base, k);
+                }
+            }
+            Err(()) => conflict = true,
+            Ok(None) => {}
+        }
+        if !conflict {
+            if let Some(il) = &idx_local {
+                match resolve(il, user_block, user_pos, numbered, inn) {
+                    Ok(Some(k)) => {
+                        if let Operand::Index { idx, .. } = op {
+                            *idx = Some(versioned_name(il, k));
+                        }
+                    }
+                    Err(()) => conflict = true,
+                    Ok(None) => {}
+                }
+            }
+        }
+        if conflict {
+            *op = Operand::Conflict {
+                place: base,
+                off,
+                off2,
+                deref,
+                deref_first,
+                deref_last: false,
+                pty,
+                proj_loud: true,
+            };
+        }
+        return;
+    }
     let local = match op {
         Operand::Move { place , .. } | Operand::Copy { place , .. } => place.clone(),
         _ => return,
@@ -399,14 +447,29 @@ pub fn version_function(f: &Function) -> Function {
                             rewrite_operand(op, bi, pos, &numbered, &inn)
                         }
                         Rvalue::ThreadLocal { .. } => {}
-                        Rvalue::Ref { place, .. }
-                        | Rvalue::Discriminant { place }
-                        | Rvalue::RawPtr { place, .. } => {
+                        Rvalue::Discriminant { place } => {
                             // Conflict places keep their kind: the phi
                             // marker lets lower() resolve (slot load) or
                             // go loud, instead of losing the rvalue shape.
                             if let Some(base) = rewrite_place(place, bi, &numbered, &inn) {
                                 *place = crate::phi::phi_marker(&base);
+                            }
+                        }
+                        Rvalue::Ref { place, idx, proj_loud, .. }
+                        | Rvalue::RawPtr { place, idx, proj_loud, .. } => {
+                            if let Some(base) = rewrite_place(place, bi, &numbered, &inn) {
+                                *place = crate::phi::phi_marker(&base);
+                            }
+                            // The index local rewrites like any use; a
+                            // join-ambiguous index has no slot mechanism
+                            // (unlike the base), so it stays loud.
+                            if let Some(il) = idx.clone() {
+                                let mut tmp = il;
+                                if rewrite_place(&mut tmp, bi, &numbered, &inn).is_some() {
+                                    *proj_loud = true;
+                                } else {
+                                    *idx = Some(tmp);
+                                }
                             }
                         }
                         Rvalue::Unsupported { .. } => {}
@@ -598,7 +661,7 @@ mod version_tests {
         let ref_stmt = Stmt::Assign {
             dest: "_5".to_string(),
             dest_place: Some("_5".to_string()),
-            rvalue: Rvalue::Ref { place: "_1".to_string(), mut_: false, via: None, zst: false , off: 0, off2: 0, deref: false, deref_first: false, proj_loud: false , pty: None , deref_last: false },
+            rvalue: Rvalue::Ref { place: "_1".to_string(), mut_: false, via: None, zst: false , off: 0, off2: 0, deref: false, deref_first: false, proj_loud: false , pty: None , deref_last: false , idx: None, idx_size: 0, idx_const: None, idx_fe: None, fat: false},
         };
         let f = mkfn(vec![
             blk("bb0", vec![use_stmt("_1", "_9")], asm_term),
@@ -620,7 +683,7 @@ mod version_tests {
         let mkref = || Stmt::Assign {
             dest: "_5".to_string(),
             dest_place: Some("_5".to_string()),
-            rvalue: Rvalue::Ref { place: "_2".to_string(), mut_: false, via: None, zst: false , off: 0, off2: 0, deref: false, deref_first: false, proj_loud: false , pty: None , deref_last: false },
+            rvalue: Rvalue::Ref { place: "_2".to_string(), mut_: false, via: None, zst: false , off: 0, off2: 0, deref: false, deref_first: false, proj_loud: false , pty: None , deref_last: false , idx: None, idx_size: 0, idx_const: None, idx_fe: None, fat: false},
         };
         let f = mkfn(vec![
             blk("bb0", vec![use_stmt("_2", "_9")], Term::SwitchInt {

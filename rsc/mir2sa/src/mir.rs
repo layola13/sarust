@@ -120,6 +120,23 @@ pub enum Rvalue {
         pty: Option<String>,
         #[serde(default)]
         proj_loud: bool,
+        /// Index-ref (W1): one of idx / idx_const / idx_fe is set when
+        /// the place's LAST projection step is an index. `idx` is the
+        /// dynamic index local, `idx_size` its element stride;
+        /// `idx_const` a static byte offset (fat ConstantIndex);
+        /// `idx_fe` a slice from-end offset (effective index =
+        /// fat-length - idx_fe); `fat` marks a fat-pointer deref in
+        /// the chain (data pointer at pair +0, length at +8).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        idx: Option<String>,
+        #[serde(default)]
+        idx_size: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        idx_const: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        idx_fe: Option<u64>,
+        #[serde(default)]
+        fat: bool,
     },
     Call {
         func: String,
@@ -159,6 +176,23 @@ pub enum Rvalue {
         pty: Option<String>,
         #[serde(default)]
         proj_loud: bool,
+        /// Index-ref (W1): one of idx / idx_const / idx_fe is set when
+        /// the place's LAST projection step is an index. `idx` is the
+        /// dynamic index local, `idx_size` its element stride;
+        /// `idx_const` a static byte offset (fat ConstantIndex);
+        /// `idx_fe` a slice from-end offset (effective index =
+        /// fat-length - idx_fe); `fat` marks a fat-pointer deref in
+        /// the chain (data pointer at pair +0, length at +8).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        idx: Option<String>,
+        #[serde(default)]
+        idx_size: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        idx_const: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        idx_fe: Option<u64>,
+        #[serde(default)]
+        fat: bool,
     },
     Repeat { op: Box<Operand>, len: String },
     ThreadLocal { def: String },
@@ -206,6 +240,41 @@ pub enum Operand {
         pty: Option<String>,
         #[serde(default)]
         proj_loud: bool,
+    },
+    /// Indexed read (W1 index-ref): the place's LAST projection step
+    /// is an index into an array/slice. Static field/deref fields
+    /// mean exactly what they mean for Copy/Move; the index itself is
+    /// one of `idx` (dynamic index local, stride `idx_size`),
+    /// `idx_const` (static byte offset, fat ConstantIndex), or
+    /// `idx_fe` (slice from-end offset, effective index = fat-length
+    /// - idx_fe, stride `idx_size`). `fat` marks a fat-pointer deref
+    /// in the chain. A second projection step after the index never
+    /// produces this variant (the driver stays loud there), so
+    /// `deref_last` has no meaning here and is omitted.
+    Index {
+        place: String,
+        #[serde(default)]
+        off: u64,
+        #[serde(default)]
+        off2: u64,
+        #[serde(default)]
+        deref: bool,
+        #[serde(default)]
+        deref_first: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pty: Option<String>,
+        #[serde(default)]
+        proj_loud: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        idx: Option<String>,
+        #[serde(default)]
+        idx_size: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        idx_const: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        idx_fe: Option<u64>,
+        #[serde(default)]
+        fat: bool,
     },
     Const {
         value: String,

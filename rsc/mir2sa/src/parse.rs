@@ -146,11 +146,11 @@ pub fn parse_rvalue(rhs: &str) -> Rvalue {
     let rhs = rhs.trim();
     if let Some(rest) = rhs.strip_prefix("&mut ") {
         let p = rest.trim();
-        return Rvalue::Ref { place: base_local(p).unwrap_or_else(|| p.to_string()), mut_: true, via: None, zst: false , off: 0, off2: 0, deref: false, deref_first: false, proj_loud: false , pty: None , deref_last: false };
+        return Rvalue::Ref { place: base_local(p).unwrap_or_else(|| p.to_string()), mut_: true, via: None, zst: false , off: 0, off2: 0, deref: false, deref_first: false, proj_loud: false , pty: None , deref_last: false, idx: None, idx_size: 0, idx_const: None, idx_fe: None, fat: false };
     }
     if let Some(rest) = rhs.strip_prefix('&') {
         let p = rest.trim();
-        return Rvalue::Ref { place: base_local(p).unwrap_or_else(|| p.to_string()), mut_: false, via: None, zst: false , off: 0, off2: 0, deref: false, deref_first: false, proj_loud: false , pty: None , deref_last: false };
+        return Rvalue::Ref { place: base_local(p).unwrap_or_else(|| p.to_string()), mut_: false, via: None, zst: false , off: 0, off2: 0, deref: false, deref_first: false, proj_loud: false , pty: None , deref_last: false, idx: None, idx_size: 0, idx_const: None, idx_fe: None, fat: false };
     }
     // Cast before plain Use so `copy X as T (Kind)` is not swallowed.
     if let Some(as_pos) = rhs.find(" as ") {

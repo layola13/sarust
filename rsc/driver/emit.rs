@@ -13,6 +13,13 @@ use std::fmt::Write as _;
 /// identical (serde defaults); unknown keys are ignored by old mir2sa.
 fn proj_json<'a>(tcx: TyCtxt<'a>, body: &Body<'a>, p: &Place<'a>, into: &mut String) {
     let pr = place_proj(tcx, body, p);
+    proj_json_with(&pr, into);
+}
+
+/// Projection fields for one place operand, from an already-computed
+/// PlaceProj (operand_json needs the projection first to decide
+/// whether an indexed read changes its operand kind).
+fn proj_json_with(pr: &crate::tyinfo::PlaceProj, into: &mut String) {
     if pr.off != 0 {
         write!(into, ", \"off\": {}", pr.off).unwrap();
     }
@@ -28,8 +35,23 @@ fn proj_json<'a>(tcx: TyCtxt<'a>, body: &Body<'a>, p: &Place<'a>, into: &mut Str
     if pr.deref_last {
         into.push_str(", \"deref_last\": true");
     }
-    if let Some(t) = pr.pty {
+    if let Some(t) = &pr.pty {
         write!(into, ", \"pty\": \"{}\"", t).unwrap();
+    }
+    if let Some(l) = &pr.idx_local {
+        write!(into, ", \"idx\": \"{}\"", l).unwrap();
+    }
+    if pr.idx_size != 0 {
+        write!(into, ", \"idx_size\": {}", pr.idx_size).unwrap();
+    }
+    if let Some(b) = pr.idx_const {
+        write!(into, ", \"idx_const\": {}", b).unwrap();
+    }
+    if let Some(off) = pr.idx_fe {
+        write!(into, ", \"idx_fe\": {}", off).unwrap();
+    }
+    if pr.fat {
+        into.push_str(", \"fat\": true");
     }
     if pr.loud {
         into.push_str(", \"proj_loud\": true");
@@ -40,14 +62,34 @@ pub fn operand_json<'a>(op: &Operand<'a>, tcx: TyCtxt<'a>, body: &Body<'a>, into
     match op {
         Operand::Copy(p) => {
             let (s, _) = place_name(p);
-            write!(into, "{{\"kind\": \"Copy\", \"place\": \"{}\"", s).unwrap();
-            proj_json(tcx, body, p, into);
+            let pr = place_proj(tcx, body, p);
+            // A renderable indexed read changes its operand kind: the
+            // backend's Copy variant has no index fields, so serde
+            // would silently drop the idx keys and the read would
+            // render as its root local (element 0). Loud index forms
+            // keep the old kind + proj_loud (the loud path never
+            // renders, so no kind is needed there).
+            if !pr.loud
+                && (pr.idx_local.is_some() || pr.idx_const.is_some() || pr.idx_fe.is_some())
+            {
+                write!(into, "{{\"kind\": \"Index\", \"place\": \"{}\"", s).unwrap();
+            } else {
+                write!(into, "{{\"kind\": \"Copy\", \"place\": \"{}\"", s).unwrap();
+            }
+            proj_json_with(&pr, into);
             into.push('}');
         }
         Operand::Move(p) => {
             let (s, _) = place_name(p);
-            write!(into, "{{\"kind\": \"Move\", \"place\": \"{}\"", s).unwrap();
-            proj_json(tcx, body, p, into);
+            let pr = place_proj(tcx, body, p);
+            if !pr.loud
+                && (pr.idx_local.is_some() || pr.idx_const.is_some() || pr.idx_fe.is_some())
+            {
+                write!(into, "{{\"kind\": \"Index\", \"place\": \"{}\"", s).unwrap();
+            } else {
+                write!(into, "{{\"kind\": \"Move\", \"place\": \"{}\"", s).unwrap();
+            }
+            proj_json_with(&pr, into);
             into.push('}');
         }
         Operand::Constant(c) => {

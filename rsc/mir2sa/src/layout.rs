@@ -131,6 +131,21 @@ pub fn lower_adt_init(
                     free_after.push(None);
                 }
             }
+            Operand::Index { .. } => {
+                // Indexed elements load their value into a temp first
+                // (loads never consume the base, so the Move/Copy
+                // distinction the Index form erases does not matter
+                // here); the temp is freed right after its store,
+                // exactly like a projected Copy element.
+                if crate::render_util::operand_proj_loud(e) {
+                    return None;
+                }
+                let tmp = format!("_fld_{}_{}_{}", bid, dest, plans.len());
+                let ipr = crate::render_util::operand_index(e).unwrap();
+                pre.extend(crate::render_util::index_value_named(&ipr, &tmp));
+                plans.push(FieldPlan::Store { text: Some(tmp.clone()), sa_ty: "u64", size: 8 });
+                free_after.push(Some(tmp));
+            }
         }
     }
     // v1 footprint (also the all-zero-sized detector).

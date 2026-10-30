@@ -809,19 +809,6 @@ fn parse_agg_place(full: &str) -> Option<(String, usize, String)> {
     Some((base.to_string(), field, md_arg.to_string()))
 }
 
-/// `*const T` / `*mut T` -> `T`; None for other types.
-fn strip_raw_ptr(ty: &str) -> Option<String> {
-    let t = ty.trim();
-    let rest = t
-        .strip_prefix("*const ")
-        .or_else(|| t.strip_prefix("*mut "))?;
-    let rest = rest.trim();
-    if rest.is_empty() {
-        None
-    } else {
-        Some(rest.to_string())
-    }
-}
 
 /// True when `ty` names a MaybeUninit union (all fields at offset 0).
 fn is_maybe_uninit(ty: &str) -> bool {

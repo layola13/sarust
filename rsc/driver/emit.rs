@@ -1,6 +1,6 @@
 //! rsc_driver::emit.
 use crate::place::{place_name, place_via};
-use crate::tyinfo::{aggregate_layout, fn_operand_sig, operand_ty_short, str_const_bytes, ty_sa_sig_opt};
+use crate::tyinfo::{aggregate_layout, fn_operand_sig, operand_ty_short, resolve_const, str_const_bytes, ty_sa_sig_opt};
 use crate::util::{bb_name, esc, local_name, sanitize, trunc};
 use rustc_ast::ast::InlineAsmTemplatePiece;
 use rustc_middle::mir::{Body, BorrowKind, Const, ConstOperand, InlineAsmOperand, Local, Operand, Rvalue, StatementKind, TerminatorKind};
@@ -19,13 +19,21 @@ pub fn operand_json<'a>(op: &Operand<'a>, tcx: TyCtxt<'a>, into: &mut String) {
             write!(into, "{{\"kind\": \"Move\", \"place\": \"{}\"}}", s).unwrap();
         }
         Operand::Constant(c) => {
-            let v = trunc(format!("{:?}", c.const_), 60);
+            // Unevaluated consts (const items that escaped substitution)
+            // are resolved through the compiler's own evaluator first:
+            // `resolve_const` returns the original const untouched when
+            // evaluation fails, so unresolvable items keep their honest
+            // `Unevaluated(...)` Debug text and stay loud downstream.
+            // A resolved value also feeds the byte-payload extraction
+            // below (a resolved `&str` literal carries its bytes).
+            let resolved = resolve_const(tcx, &c.const_);
+            let v = trunc(format!("{:?}", resolved), 60);
             into.push_str("{\"kind\": \"Const\", \"value\": \"");
             esc(&v, into);
             into.push('"');
             // String-literal payload rides along only when resolvable;
             // absent fields keep old fixtures byte-compatible.
-            if let Some((bytes, len)) = str_const_bytes(tcx, &c.const_) {
+            if let Some((bytes, len)) = str_const_bytes(tcx, &resolved) {
                 into.push_str(", \"str_bytes\": [");
                 for (i, b) in bytes.iter().enumerate() {
                     if i > 0 {

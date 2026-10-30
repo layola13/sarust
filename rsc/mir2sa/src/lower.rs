@@ -4,7 +4,7 @@ use std::process::ExitCode;
 use crate::asm::{asm_inout_passthrough, asm_mov_copy, is_plain_local};
 use crate::mir::*;
 use crate::render::*;
-use crate::render_util::{assert_panic_code, assign_loud_const, build_constmap, call_sig_loud, const_needs_loud, flat_comment, is_overflow_assert, loud_const_kind, loud_operand_reason, render_call_arg, render_operand, sa_ident, sa_label, unreachable_panic_code};
+use crate::render_util::{assert_panic_code, assign_loud_const, build_constmap, call_sig_loud, const_needs_loud, flat_comment, is_overflow_assert, loud_const_kind, loud_const_kind_call, loud_operand_reason, render_call_arg, render_operand, sa_ident, sa_label, unreachable_panic_code};
 use crate::spill::{build_spill, spill_slot};
 
 /// Placeholder bind for loud paths: an unbound dest gets `= 0` so
@@ -269,11 +269,11 @@ pub fn lower_function(f: &Function, unsup: &mut Vec<String>) -> String {    // T
                     unsup.push(format!("{}: Rebind", b.id));
                     out.push(format!("    // UNSUPPORTED rebind -> {} (already bound; keeping first value)", dest.as_deref().unwrap_or("_0")));
                 }
-                if let Some(kind) = args.iter().find_map(loud_const_kind) {
+                if let Some(kind) = args.iter().find_map(loud_const_kind_call) {
                     unsup.push(format!("{}: Call{}", b.id, kind));
                     out.push(format!(
                         "    // UNSUPPORTED call-args: {} (control preserved)",
-                        loud_operand_reason(args.iter().find(|a| loud_const_kind(a).is_some()).unwrap()).unwrap_or_default()
+                        loud_operand_reason(args.iter().find(|a| loud_const_kind_call(a).is_some()).unwrap()).unwrap_or_default()
                     ));
                     bind_placeholder(&mut out, &mut bound, dest);
                     spill_placeholder(&mut out, &spill, dest);
@@ -297,7 +297,21 @@ pub fn lower_function(f: &Function, unsup: &mut Vec<String>) -> String {    // T
                     }
                     continue;
                 }
-                let a: Vec<String> = args.iter().map(render_call_arg).collect();
+                // Slice-literal call args materialize via a preamble (byte
+                // buffer + pair) and pass the pair address; other args render
+                // inline as before. The preamble shares the block's `mv_idx`
+                // counter with the statement arms, so pair temps stay unique.
+                let mut a: Vec<String> = vec![];
+                let mut pair_bufs: Vec<String> = vec![];
+                for arg in args.iter() {
+                    let (lines, text, mut b) =
+                        crate::render_util::render_call_arg_preamble(arg, &b.id, &mut mv_idx);
+                    for l in lines {
+                        out.push(format!("    {}", l));
+                    }
+                    a.push(text);
+                    pair_bufs.append(&mut b);
+                }
                 // Void calls bind nothing (`_x = call @void()` is InvalidSyntax):
                 // the unit dest gets an exact `0` marker (unit carries no data).
                 let is_void = sig.as_ref().is_some_and(|s| s.ret == "void");
@@ -321,6 +335,12 @@ pub fn lower_function(f: &Function, unsup: &mut Vec<String>) -> String {    // T
                             out.push(format!("    store {}+0, {} as {}", slot, d, ty));
                         }
                     }
+                }
+                // Free pair byte buffers right after the call (see
+                // render_call_arg_preamble): they are never moved, so no
+                // later pass frees them on normal-return paths.
+                for b in pair_bufs {
+                    out.push(format!("    !{}", b));
                 }
                 match target {
                     Some(t) => out.push(format!("    jmp {}", sa_label(t))),
@@ -563,6 +583,20 @@ pub fn lower_function(f: &Function, unsup: &mut Vec<String>) -> String {    // T
                 let e = tfrees.entry(bi).or_default();
                 for r in v {
                     if !already.contains(&r) && !e.contains(&r) {
+                        e.push(r);
+                    }
+                }
+            }
+            // Call dests consumed exactly once as a call argument (see
+            // drop::call_dest_frees): merged the same way, so the
+            // one-direction cross-filter against exit_frees below
+            // applies to them too (never freed twice).
+            let already2: std::collections::BTreeSet<String> =
+                tfrees.values().flatten().cloned().collect();
+            for (bi, v) in crate::drop::call_dest_frees(&lines_by_orig) {
+                let e = tfrees.entry(bi).or_default();
+                for r in v {
+                    if !already2.contains(&r) && !e.contains(&r) {
                         e.push(r);
                     }
                 }

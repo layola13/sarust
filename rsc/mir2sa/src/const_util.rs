@@ -1,5 +1,29 @@
 //! mir2sa::const_util.
 
+
+/// Unwrap a `Const::Ty` Debug wrapper: `Ty(usize, 4_usize)` -> `4_usize`,
+/// `Ty(i32, -1_i32)` -> `-1_i32`. The driver emits the whole `Const`
+/// Debug, so a type-level const arrives with its type wrapped around the
+/// scalar text; the scalar parsers below only understand the inner text.
+/// Returns None for non-Ty shapes, unbalanced text, or a missing top-level
+/// comma (never panics on truncated driver text).
+pub fn unwrap_ty_const(value: &str) -> Option<&str> {
+    let v = value.trim();
+    let inner = v.strip_prefix("Ty(")?.strip_suffix(')')?;
+    let mut depth = 0usize;
+    for (i, ch) in inner.char_indices() {
+        match ch {
+            '(' | '[' => depth += 1,
+            ')' | ']' => depth = depth.checked_sub(1)?,
+            ',' if depth == 0 => {
+                return Some(inner[i + 1..].trim());
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
 pub fn array_elem_size(ty: &str) -> Option<usize> {
     match ty {
         "i8" | "u8" | "bool" => Some(1),
@@ -22,6 +46,10 @@ pub fn sa_scalar_ty(ty: &str) -> &str {
 /// form (`1_i32`, `true`) and the driver's Debug form
 /// (`Val(Scalar(0x00000001), i32)`). Anything else -> None (stay UNSUPPORTED).
 pub fn const_array_elem(value: &str, ty: &str, size: usize) -> Option<String> {
+    // `Const::Ty` wrapper (e.g. `Ty(usize, 4_usize)`): parse the inner text.
+    if let Some(inner) = unwrap_ty_const(value) {
+        return const_array_elem(inner, ty, size);
+    }
     if ty == "bool" {
         return match value {
             "true" => Some("1".to_string()),
@@ -116,6 +144,10 @@ pub fn byte_value(v: i128, ty: &str) -> Option<i128> {
 }
 
 pub fn repeat_len(len_text: &str) -> Option<usize> {
+    // `Const::Ty` wrapper on a repeat length: parse the inner text.
+    if let Some(inner) = unwrap_ty_const(len_text) {
+        return repeat_len(inner);
+    }
     let t = len_text.trim();
     if let Ok(n) = t.parse::<usize>() {
         return Some(n);
@@ -137,6 +169,10 @@ pub fn repeat_len(len_text: &str) -> Option<usize> {
 /// (`Val(Scalar(0x00000001), i32)`); bool true/false included.
 pub fn const_elem_ty(value: &str) -> Option<(&'static str, usize)> {
     let v = value.trim();
+    // `Const::Ty` wrapper: type and size come from the inner scalar text.
+    if let Some(inner) = unwrap_ty_const(v) {
+        return const_elem_ty(inner);
+    }
     if v == "true" || v == "false" {
         return Some(("bool", 1));
     }
@@ -216,6 +252,30 @@ pub fn const_elem_ty(value: &str) -> Option<(&'static str, usize)> {
     // `Val(Scalar(0x01), bool)` single-hex bool is covered above via suffix;
     // bare `0`/`1` without suffix cannot be typed -> caller keeps UNSUPPORTED.
     None
+}
+
+#[cfg(test)]
+mod ty_unwrap_tests {
+    use super::*;
+
+    #[test]
+    fn ty_wrapper_unwraps_to_scalar() {
+        assert_eq!(unwrap_ty_const("Ty(usize, 4_usize)"), Some("4_usize"));
+        assert_eq!(unwrap_ty_const("Ty(i32, -1_i32)"), Some("-1_i32"));
+        assert_eq!(const_elem_ty("Ty(usize, 4_usize)"), Some(("usize", 8)));
+        assert_eq!(const_elem_ty("Ty(i32, 59_i32)"), Some(("i32", 4)));
+        assert_eq!(const_array_elem("Ty(usize, 4_usize)", "usize", 8), Some("4".to_string()));
+        assert_eq!(const_array_elem("Ty(i32, -1_i32)", "i32", 4), Some("-1".to_string()));
+        assert_eq!(repeat_len("Ty(usize, 4_usize)"), Some(4));
+    }
+
+    #[test]
+    fn ty_unwrap_rejects_malformed() {
+        assert_eq!(unwrap_ty_const("Ty(usize)"), None);
+        assert_eq!(unwrap_ty_const("Ty(usize, 4_usize"), None);
+        assert_eq!(unwrap_ty_const("Val(Scalar(0x01), i32)"), None);
+        assert_eq!(unwrap_ty_const("4_usize"), None);
+    }
 }
 
 #[cfg(test)]

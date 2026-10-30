@@ -328,12 +328,17 @@ pub fn build_spill(
     // buffer address (known `ptr`). MIR Copy-uses of a Copy-typed local lower
     // to plain assigns, which consume the reg — a later `Copy` (or the
     // borrow-end release) would then read a reg the Referee dropped.
+    // Slice-literal dests (`_x = <&str payload>`) join this branch too:
+    // the pair planner binds the (ptr,len) pair's address, which is
+    // likewise a thin `ptr`, so Copy uses reload it the same way.
     for b in blocks {
         for st in &b.statements {
             if let Stmt::Assign { dest, rvalue: Rvalue::Use { op: Operand::Const { value, str_bytes, str_len } }, .. } = st {
                 let inlineable =
                     crate::layout::plan_const_bytes(dest, "bb", 0, value, str_bytes.as_ref(), *str_len)
-                        .is_some();
+                        .is_some()
+                        || crate::layout::plan_str_pair(dest, "bb", 0, value, str_bytes.as_ref(), *str_len)
+                            .is_some();
                 let used = copies.contains(dest) || consuming.contains(dest);
                 if inlineable && used && single(dest) && !map.contains_key(dest) {
                     map.insert(dest.clone(), "ptr".to_string());
@@ -1089,10 +1094,13 @@ mod spill_tests {
     }
 
     #[test]
-    fn fat_byte_const_dest_does_not_spill() {
+    fn fat_byte_const_dest_spills_as_pair_address() {
         use crate::mir::{Block, Rvalue, Term};
-        // A `&str` pointee is a fat pointer: value position cannot represent
-        // it, so the dest stays loud and gets no slot.
+        // A `&str` pointee materializes in value position as the (ptr,len)
+        // pair's address (see layout::plan_str_pair): a thin `ptr`, so a
+        // copied dest claims a slot exactly like a byte-literal dest.
+        // (Previously value position could not represent it at all, so the
+        // dest stayed loud with no slot; the pair planner changed that.)
         let blocks = vec![Block {
             id: "bb0".to_string(),
             statements: vec![
@@ -1115,7 +1123,7 @@ mod spill_tests {
             ],
             terminator: Term::Return { ret: None },
         }];
-        assert!(!build_spill(&blocks, &BTreeMap::new()).contains_key("_1"));
+        assert_eq!(build_spill(&blocks, &BTreeMap::new()).get("_1"), Some(&"ptr".to_string()));
     }
 
     fn static_addr_const_def(dest: &str, value: &str) -> Stmt {

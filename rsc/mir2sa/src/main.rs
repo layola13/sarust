@@ -171,9 +171,9 @@ fn cmd_coverage(args: &[String]) -> ExitCode {
             // Terminator dests join the bound set exactly like lower().
             match &b.terminator {
                 Term::Call { args, sig, dest, .. } => {
-                    if args.iter().any(const_needs_loud) {
+                    if args.iter().any(const_needs_loud_call) {
                         tot_unsup += 1;
-                        let kind = args.iter().find_map(loud_const_kind).unwrap_or("ConstValue");
+                        let kind = args.iter().find_map(loud_const_kind_call).unwrap_or("ConstValue");
                         unsup.push(format!("{}: T/Call{}", b.id, kind));
                     } else if call_sig_loud(sig, args) {
                         tot_unsup += 1;

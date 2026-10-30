@@ -238,6 +238,55 @@ pub fn plan_const_bytes(
     Some(lines)
 }
 
+/// Plan a `&str` / `&[u8]` slice-literal const in a single-register
+/// position (value position or a call argument): inline the payload into a
+/// byte buffer, then build the (ptr,len) fat-pointer pair in a second
+/// buffer and bind its address to `dest`.
+///
+/// Why the pair address, not the byte-buffer address: the codebase's
+/// slice representation is the pair itself (see `plan_str_field` and
+/// slice.sal: Slice_ptr=+0, Slice_len=+8; `PtrMetadata` reads `p+8`).
+/// A register holding the pair address therefore keeps both components
+/// readable by exactly the loads other lowering arms already emit, while
+/// a thin byte address would silently drop the length. Callers that only
+/// need a thin pointer (sized `&[u8; K]`) keep using `plan_const_bytes`.
+///
+/// Gate: driver-resolved bytes, 1..=STR_INLINE_MAX bytes, counts agree,
+/// and the Debug text names a string/slice value. Empty slices stay loud
+/// (no `alloc 0` shape is known-good); over-long or unresolved slices
+/// stay loud too. Temp names use the `_sbuf_`/`_spair_` prefixes so they
+/// cannot collide with `plan_const_bytes`' `_str_` temps in the same
+/// block even when both arms share the block's `mv_idx` counter.
+pub fn plan_str_pair(
+    dest: &str,
+    bid: &str,
+    idx: usize,
+    value: &str,
+    str_bytes: Option<&Vec<u64>>,
+    str_len: Option<u64>,
+) -> Option<Vec<String>> {
+    let bytes = str_bytes?;
+    let len = str_len?;
+    if len == 0 || len > STR_INLINE_MAX || bytes.len() as u64 != len {
+        return None;
+    }
+    // Sanity: the Debug text must name a string/slice value (never trust blindly).
+    if !(value.contains("str") || value.contains("Slice")) {
+        return None;
+    }
+    let buf = format!("_sbuf_{}_{}", bid, idx);
+    let pair = format!("_spair_{}_{}", bid, idx);
+    let mut lines = vec![format!("{} = alloc {}", buf, bytes.len())];
+    for (j, b) in bytes.iter().enumerate() {
+        lines.push(format!("store {}+{}, {} as u8", buf, j, b));
+    }
+    lines.push(format!("{} = alloc 16", pair));
+    lines.push(format!("store {}+0, {} as ptr", pair, buf));
+    lines.push(format!("store {}+8, {} as u64", pair, bytes.len()));
+    lines.push(format!("{} = {}", dest, pair));
+    Some(lines)
+}
+
 /// FNV-1a 64 of a ThreadLocal def path: the u64 key passed to
 /// `sa_thread_local_slot` (see `sci/sa_std/thread_local.sai`). Keeps .sa
 /// string-free; collisions across a crate's few TLS statics are impractical.

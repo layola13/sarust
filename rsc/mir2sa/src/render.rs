@@ -149,7 +149,7 @@ pub fn render_rvalue(
                     s
                 }
                 // Byte-literal const in value position: inline the payload
-                // and bind its thin address (fat pointees stay loud).
+                // and bind its thin address.
                 Operand::Const { value, str_bytes, str_len } => {
                     if let Some(mut lines) = crate::layout::plan_const_bytes(
                         dest, bid, *mv_idx, value, str_bytes.as_ref(), *str_len,
@@ -157,6 +157,23 @@ pub fn render_rvalue(
                         *mv_idx += 1;
                         // Spilled dests keep a slot so their Copy-uses reload
                         // instead of moving the buffer address.
+                        if let Some(t) = spill.get(dest) {
+                            let s = crate::spill::spill_slot(dest);
+                            lines.push(format!("{} = alloc 8", s));
+                            lines.push(format!("store {}+0, {} as {}", s, dest, t));
+                        }
+                        return lines.join("\n");
+                    }
+                    // Slice-literal const in value position: inline the
+                    // payload plus the (ptr,len) pair and bind the pair
+                    // address (see layout::plan_str_pair). Spilled dests
+                    // keep a slot exactly like the thin-address arm above:
+                    // the pair address is a thin `ptr`, so Copy uses
+                    // reload it instead of moving it twice.
+                    if let Some(mut lines) = crate::layout::plan_str_pair(
+                        dest, bid, *mv_idx, value, str_bytes.as_ref(), *str_len,
+                    ) {
+                        *mv_idx += 1;
                         if let Some(t) = spill.get(dest) {
                             let s = crate::spill::spill_slot(dest);
                             lines.push(format!("{} = alloc 8", s));
@@ -212,8 +229,29 @@ pub fn render_rvalue(
                 unsup.push(format!("{}:{} CallNoSig", bid, dest));
                 return format!("// UNSUPPORTED call-sig -> {}: unresolvable callee signature", dest);
             }
-            let a: Vec<String> = args.iter().map(render_call_arg).collect();
+            // Slice-literal call args materialize via a preamble (byte
+            // buffer + pair) and pass the pair address; other args render
+            // inline as before.
+            let mut pre: Vec<String> = vec![];
+            let mut a: Vec<String> = vec![];
+            let mut bufs: Vec<String> = vec![];
+            for arg in args {
+                let (mut lines, text, mut b) =
+                    crate::render_util::render_call_arg_preamble(arg, bid, mv_idx);
+                pre.append(&mut lines);
+                a.push(text);
+                bufs.append(&mut b);
+            }
             let mut s = format!("{} = call @{}({})", dest, sa_ident(func), a.join(", "));
+            if !pre.is_empty() {
+                s = format!("{}\n{}", pre.join("\n"), s);
+            }
+            // Free pair byte buffers right after the call (see
+            // render_call_arg_preamble): they are never moved, so no
+            // later pass frees them on normal-return paths.
+            for b in bufs {
+                s.push_str(&format!("\n!{}", b));
+            }
             // Spilled call dests get their slot setup inline.
             if let Some(ty) = spill.get(dest) {
                 let slot = crate::spill::spill_slot(dest);

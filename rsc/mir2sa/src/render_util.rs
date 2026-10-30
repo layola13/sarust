@@ -94,10 +94,88 @@ pub fn const_needs_loud_value(op: &Operand) -> bool {
             let inlineable = crate::layout::plan_const_bytes(
                 "_probe", "bb", 0, value, str_bytes.as_ref(), *str_len,
             )
-            .is_some();
+            .is_some()
+                || crate::layout::plan_str_pair(
+                    "_probe", "bb", 0, value, str_bytes.as_ref(), *str_len,
+                )
+                .is_some();
             !inlineable && const_needs_loud(op)
         }
         _ => const_needs_loud(op),
+    }
+}
+
+/// True when a const operand in CALL-ARGUMENT position needs loud
+/// handling: same as `const_needs_loud`, except a slice literal the pair
+/// planner can materialize (see `layout::plan_str_pair`) is fine — the
+/// call site emits the byte buffer + (ptr,len) pair preamble and passes
+/// the pair address as the single `ptr` argument. Scalar-position rules
+/// are unchanged (a slice const in a binop operand, discr, or assert
+/// cond is still loud: those positions take a plain scalar, not a pair).
+pub fn const_needs_loud_call(op: &Operand) -> bool {
+    match op {
+        Operand::Const { value, str_bytes, str_len } => {
+            if crate::layout::plan_str_pair(
+                "_probe", "bb", 0, value, str_bytes.as_ref(), *str_len,
+            )
+            .is_some()
+            {
+                return false;
+            }
+            const_needs_loud(op)
+        }
+        _ => const_needs_loud(op),
+    }
+}
+
+/// Call-position loud kind, mirroring `loud_const_kind` but through the
+/// call predicate (pair-materializable slice args are not loud).
+pub fn loud_const_kind_call(op: &Operand) -> Option<&'static str> {
+    match op {
+        Operand::Conflict { .. } => Some("Conflict"),
+        Operand::Const { .. } => const_needs_loud_call(op).then_some("ConstValue"),
+        _ => None,
+    }
+}
+
+/// Render one call argument, materializing a slice-literal const into a
+/// preamble when possible. Returns (preamble lines, argument text,
+/// byte-buffer registers to free after the call); the caller emits the
+/// preamble before the call, uses the text inline, and frees each buffer
+/// right after the call.
+///
+/// The post-call free is required, not cosmetic: the byte buffer is only
+/// ever read by the pair-building `store`, never moved, so on a
+/// normal-return path through a non-dominating block no later pass frees
+/// it and `sa check` traps MemoryLeak at `return` (105, 56). The pair
+/// itself is consumed by the `_carg` move and freed by borrow-end, so
+/// only the byte buffer needs this. `exit_frees` skips registers already
+/// freed on the path (its stale set), so entry-block calls do not
+/// double-free. This mirrors the existing post-call frees of call-arg
+/// temps (`!_carg_*`, `!_12` for a thin string buffer).
+/// `idx` is the block's temp counter (shared with the Use arms, so pair
+/// temps stay unique within the block).
+pub fn render_call_arg_preamble(
+    op: &Operand,
+    bid: &str,
+    idx: &mut usize,
+) -> (Vec<String>, String, Vec<String>) {
+    match op {
+        Operand::Const { value, str_bytes, str_len } => {
+            let tmp = format!("_carg_{}_{}", bid, *idx);
+            if let Some(lines) = crate::layout::plan_str_pair(
+                &tmp, bid, *idx, value, str_bytes.as_ref(), *str_len,
+            ) {
+                // plan_str_pair binds `tmp` as its last line; the whole
+                // plan is the preamble and the arg is `tmp`. The byte
+                // buffer is the plan's first allocation.
+                let buf = format!("_sbuf_{}_{}", bid, *idx);
+                *idx += 1;
+                return (lines, tmp, vec![buf]);
+            }
+            (vec![], render_call_arg(op), vec![])
+        }
+        _ => (vec![], render_call_arg(op), vec![]),
     }
 }
 
@@ -118,7 +196,7 @@ pub fn assign_loud_const(rv: &Rvalue) -> Option<String> {
         }
         Rvalue::UnOp { operand, .. } => Some(operand.as_ref()).filter(|o| const_needs_loud(o)),
         Rvalue::Cast { op, .. } => Some(op.as_ref()).filter(|o| const_needs_loud(o)),
-        Rvalue::Call { args, .. } => args.iter().find(|a| const_needs_loud(a)),
+        Rvalue::Call { args, .. } => args.iter().find(|a| const_needs_loud_call(a)),
         Rvalue::Aggregate { elems, .. } if elems.len() <= 1 => {
             elems.first().filter(|e| matches!(e, Operand::Const { .. }) && const_needs_loud(e))
         }

@@ -475,6 +475,235 @@ pub fn move_frees(body_lines: &[Vec<String>]) -> BTreeMap<usize, Vec<String>> {
     out
 }
 
+/// Per-block frees for CALL dests consumed exactly once as a call argument
+/// in a later (or same) block (`_3 = call @from_str(...)` in bb1, then
+/// `call @print(_3)` in bb2, then nothing: `_3` is dead after bb2's call).
+///
+/// Why this class exists: a call dest defined in a block that does not
+/// dominate the exit is skipped by `exit_frees` (dominance gate), and it
+/// is not a plain move, so `move_frees` skips it too. When the call that
+/// defined it was loud, the dest was a `0` placeholder (not an
+/// allocation) and nothing leaked; un-louding the call turns the dest
+/// into a real allocation and the latent gap becomes a MemoryLeak trap
+/// at `return` (105: `_3`, 56: `_8` — both `from_str` results printed
+/// once on a branch path). The gap is pre-existing and was masked by
+/// loud placeholders, exactly like the binop/cast louds that un-louding
+/// a const exposes; this rule closes it for the narrow shape below.
+///
+/// Gates (all must hold; anything else is left to `exit_frees`, i.e.
+/// under-freeing, never a speculative free):
+/// - the register is defined exactly once in the whole function, by a
+///   call-dest line (`r = call @f(...)`, Term::Call or Rvalue::Call);
+/// - it is mentioned in exactly two non-comment lines total: the def
+///   line and one call-argument use line (`call @g(..., r, ...)` or
+///   `d = call @g(..., r, ...)`), with the use line after the def line
+///   (same block: later line; other block: any line — a use in an
+///   earlier block than the def would make the use itself trap first,
+///   and the free sits after the use in the use block, so it cannot
+///   introduce a new trap class);
+/// - it is never freed anywhere, never a borrow source, never a plain
+///   move source (every such event would be a third mention line and
+///   already vetoes via the two-line gate; the checks are explicit so a
+///   future classify change cannot silently widen this);
+/// - the use block is straight-line (no label past its first line) and
+///   ends in a terminator (`jmp`/`br`/`return`/`panic`), so the
+///   pre-terminator insertion point (shared with `tfrees`) is provably
+///   after the consuming call;
+/// - no join mixes a freed path with an un-freed defined path: the set
+///   of blocks reachable from the def block without passing through the
+///   use block must be disjoint from the set reachable from the use
+///   block. Otherwise the join would see Freed on one incoming edge and
+///   Active on another and `sa check` traps PhiStateConflict (129,
+///   185: def in a dominating block, use on one branch only). A veto
+///   here simply keeps baseline behavior (no free), never a new trap.
+///   The 105 shape passes this gate: the def block's only successor is
+///   the use block, so the without-use set is just the def block itself.
+/// A spilled dest is vetoed automatically: its slot store is a third
+/// mention line. The caller merges this into `tfrees`, so the existing
+/// dedup and one-direction cross-filter against `exit_frees` apply
+/// (a register freed here is never also freed at an exit).
+pub fn call_dest_frees(body_lines: &[Vec<String>]) -> BTreeMap<usize, Vec<String>> {
+    let is_label = |l: &str| {
+        let t = l.trim();
+        t.starts_with("L_") && t.ends_with(':') && !t.contains(' ')
+    };
+    let is_comment = |l: &str| l.trim_start().starts_with("//");
+    // Args of a call line (`call @f(a, b)` or `d = call @f(a, b)`),
+    // or None when the line is not a call.
+    let call_args = |line: &str| -> Option<Vec<String>> {
+        let t = line.trim_start();
+        let rest = t.strip_prefix("call @").or_else(|| {
+            let eq = t.find(" = call @")?;
+            Some(&t[eq + " = call @".len()..])
+        })?;
+        let open = rest.find('(')?;
+        let mut depth = 0usize;
+        let mut end = None;
+        for (i, ch) in rest[open..].char_indices() {
+            match ch {
+                '(' => depth += 1,
+                ')' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        end = Some(open + i);
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        let args = &rest[open + 1..end?];
+        if args.trim().is_empty() {
+            return Some(vec![]);
+        }
+        Some(
+            args.split(',')
+                .map(|a| a.trim().trim_start_matches('^').to_string())
+                .collect(),
+        )
+    };
+    let is_call_dest = |line: &str| -> Option<String> {
+        let t = line.trim_start();
+        let eq = t.find(" = call @")?;
+        let dest = t[..eq].trim();
+        if is_reg(dest) {
+            Some(dest.to_string())
+        } else {
+            None
+        }
+    };
+    let cls: Vec<Vec<LineUse>> =
+        body_lines.iter().map(|ls| ls.iter().map(|l| classify(l)).collect()).collect();
+    let mut def_count: BTreeMap<String, usize> = BTreeMap::new();
+    let mut def_pos: BTreeMap<String, (usize, usize)> = BTreeMap::new();
+    let mut freed_anywhere: BTreeSet<String> = BTreeSet::new();
+    let mut moved: BTreeSet<String> = BTreeSet::new();
+    let mut borrow_sources: BTreeSet<String> = BTreeSet::new();
+    // (block, line) of every non-comment mention, per register.
+    let mut mentions: BTreeMap<String, Vec<(usize, usize)>> = BTreeMap::new();
+    for (bi, ls) in body_lines.iter().enumerate() {
+        for (li, l) in ls.iter().enumerate() {
+            if is_comment(l) {
+                continue;
+            }
+            let u = &cls[bi][li];
+            if let Some(d) = &u.def {
+                *def_count.entry(d.clone()).or_insert(0) += 1;
+                def_pos.entry(d.clone()).or_insert((bi, li));
+            }
+            for f in &u.freed {
+                freed_anywhere.insert(f.clone());
+            }
+            for m in &u.move_srcs {
+                moved.insert(m.clone());
+            }
+            if let Some((_, src)) = &u.borrow {
+                borrow_sources.insert(src.clone());
+            }
+            for r in regs_in(l.as_str()) {
+                mentions.entry(r).or_default().push((bi, li));
+            }
+        }
+    }
+    // Successor graph over first-line labels only (mid-block switch /
+    // assert labels stay intra-block, as in `stale_out_sets`).
+    let mut label_block: BTreeMap<&str, usize> = BTreeMap::new();
+    for (bi, ls) in body_lines.iter().enumerate() {
+        if let Some(first) = ls.first() {
+            let t = first.trim();
+            if t.starts_with("L_") && t.ends_with(':') && !t.contains(' ') {
+                label_block.insert(t.trim_end_matches(':'), bi);
+            }
+        }
+    }
+    let mut succ: Vec<BTreeSet<usize>> = vec![BTreeSet::new(); body_lines.len()];
+    for (bi, ls) in body_lines.iter().enumerate() {
+        for l in ls {
+            let t = l.trim_start();
+            if let Some(rest) = t.strip_prefix("jmp ") {
+                if let Some(&tb) = label_block.get(rest.trim()) {
+                    succ[bi].insert(tb);
+                }
+            } else if let Some(rest) = t.strip_prefix("br ") {
+                if let Some(arrow) = rest.find("->") {
+                    for tgt in rest[arrow + 2..].split(',') {
+                        if let Some(&tb) = label_block.get(tgt.trim()) {
+                            succ[bi].insert(tb);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let reachable = |from: usize, avoid: Option<usize>| -> BTreeSet<usize> {
+        let mut seen: BTreeSet<usize> = BTreeSet::new();
+        let mut stack = vec![from];
+        while let Some(cur) = stack.pop() {
+            if Some(cur) == avoid {
+                continue;
+            }
+            if !seen.insert(cur) {
+                continue;
+            }
+            for &n in &succ[cur] {
+                stack.push(n);
+            }
+        }
+        seen
+    };
+    let mut out: BTreeMap<usize, Vec<String>> = BTreeMap::new();
+    for (r, ms) in &mentions {
+        if def_count.get(r).copied().unwrap_or(0) != 1 {
+            continue;
+        }
+        let (dbi, dli) = def_pos[r];
+        if is_call_dest(&body_lines[dbi][dli]).as_deref() != Some(r.as_str()) {
+            continue;
+        }
+        if ms.len() != 2 {
+            continue;
+        }
+        let use_pos = ms.iter().find(|&&(bi, li)| !(bi == dbi && li == dli));
+        let Some(&(ubi, uli)) = use_pos else { continue };
+        if ubi == dbi && uli <= dli {
+            continue;
+        }
+        if freed_anywhere.contains(r) || moved.contains(r) || borrow_sources.contains(r) {
+            continue;
+        }
+        let use_line = &body_lines[ubi][uli];
+        let Some(args) = call_args(use_line) else { continue };
+        if !args.iter().any(|a| a == r) {
+            continue;
+        }
+        // Join gate: no block may be reachable both without the use
+        // block (from the def) and from the use block.
+        let without_use = reachable(dbi, Some(ubi));
+        let from_use = reachable(ubi, None);
+        if !without_use.is_disjoint(&from_use) {
+            continue;
+        }
+        // Straight-line use block ending in a terminator.
+        let uls = &body_lines[ubi];
+        if uls.iter().skip(1).any(|l| is_label(l)) {
+            continue;
+        }
+        let last = uls.last().map(|l| l.trim_start()).unwrap_or("");
+        if !(last.starts_with("jmp ")
+            || last.starts_with("br ")
+            || last.starts_with("return")
+            || last.starts_with("panic("))
+        {
+            continue;
+        }
+        out.entry(ubi).or_default().push(r.clone());
+    }
+    for v in out.values_mut() {
+        v.sort();
+    }
+    out
+}
+
 /// Stale-free sets per block (MAY analysis for exit_frees).
 /// A register is stale at a block's end iff some path to that block freed
 /// it (a `!r` line) without redefining it afterwards. Unconditional defs
@@ -705,6 +934,89 @@ pub fn exit_frees(
         }
     }
     out
+}
+
+#[cfg(test)]
+mod call_dest_frees_tests {
+    use super::*;
+
+    fn lines(ls: &[&str]) -> Vec<String> {
+        ls.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn frees_call_dest_after_single_print_use() {
+        // 105 shape: from_str result printed once on a branch path.
+        let body = vec![
+            lines(&["L_bb0:", "jmp L_bb1"]),
+            lines(&["L_bb1:", "_3 = call @from_str(_carg)", "jmp L_bb2"]),
+            lines(&["L_bb2:", "call @print(_3)", "_2 = 0", "jmp L_bb6"]),
+            lines(&["L_bb6:", "return 0"]),
+        ];
+        let out = call_dest_frees(&body);
+        assert_eq!(out.get(&2), Some(&vec!["_3".to_string()]), "{:?}", out);
+        assert_eq!(out.len(), 1, "{:?}", out);
+    }
+
+    #[test]
+    fn vetoes_second_use_and_plain_move_def() {
+        let body = vec![
+            lines(&["L_bb0:", "_3 = call @f(0)", "jmp L_bb1"]),
+            lines(&["L_bb1:", "call @g(_3)", "_x = _3", "jmp L_bb2"]),
+            lines(&["L_bb2:", "return 0"]),
+        ];
+        assert!(call_dest_frees(&body).is_empty(), "{:?}", call_dest_frees(&body));
+        let body = vec![
+            lines(&["L_bb0:", "_3 = _1", "jmp L_bb1"]),
+            lines(&["L_bb1:", "call @g(_3)", "jmp L_bb2"]),
+            lines(&["L_bb2:", "return 0"]),
+        ];
+        assert!(call_dest_frees(&body).is_empty(), "{:?}", call_dest_frees(&body));
+    }
+
+    #[test]
+    fn vetoes_join_mixing_freed_and_active_paths() {
+        // 129 shape: def in the entry block, use on one branch only, and
+        // the join is reachable from both sides -> freeing would make the
+        // join see Freed vs Active. No free (baseline behavior kept).
+        let body = vec![
+            lines(&["L_bb0:", "_3 = call @f(0)", "br _c -> L_bb1, L_bb2"]),
+            lines(&["L_bb1:", "call @g(_3)", "jmp L_bb3"]),
+            lines(&["L_bb2:", "jmp L_bb3"]),
+            lines(&["L_bb3:", "return 0"]),
+        ];
+        assert!(call_dest_frees(&body).is_empty(), "{:?}", call_dest_frees(&body));
+        // 105 shape: the def block's only successor is the use block, so
+        // no join can mix paths -> the free is kept.
+        let body = vec![
+            lines(&["L_bb0:", "jmp L_bb1"]),
+            lines(&["L_bb1:", "_3 = call @f(0)", "jmp L_bb2"]),
+            lines(&["L_bb2:", "call @g(_3)", "jmp L_bb3"]),
+            lines(&["L_bb3:", "return 0"]),
+        ];
+        assert_eq!(
+            call_dest_frees(&body).get(&2),
+            Some(&vec!["_3".to_string()]),
+            "{:?}",
+            call_dest_frees(&body)
+        );
+    }
+
+    #[test]
+    fn vetoes_already_freed_and_mid_label_use_block() {
+        let body = vec![
+            lines(&["L_bb0:", "_3 = call @f(0)", "jmp L_bb1"]),
+            lines(&["L_bb1:", "call @g(_3)", "!_3", "jmp L_bb2"]),
+            lines(&["L_bb2:", "return 0"]),
+        ];
+        assert!(call_dest_frees(&body).is_empty(), "{:?}", call_dest_frees(&body));
+        let body = vec![
+            lines(&["L_bb0:", "_3 = call @f(0)", "jmp L_bb1"]),
+            lines(&["L_bb1:", "call @g(_3)", "L_sw_bb1_0:", "jmp L_bb2"]),
+            lines(&["L_bb2:", "return 0"]),
+        ];
+        assert!(call_dest_frees(&body).is_empty(), "{:?}", call_dest_frees(&body));
+    }
 }
 
 #[cfg(test)]

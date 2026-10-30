@@ -142,6 +142,119 @@ pub fn lower_cast(kind: &str, src_ty: &str, dst_ty: &str) -> Option<CastLower> {
     None
 }
 
+/// Base local of a (possibly versioned) register: `_4_v1` -> `_4`,
+/// `_1` -> `_1`. Anything else passes through unchanged (mirrors
+/// spill::strip_version, which is private to that module).
+pub fn strip_version_suffix(reg: &str) -> &str {
+    if let Some(idx) = reg.rfind("_v") {
+        let (base, suffix) = reg.split_at(idx);
+        if !suffix[2..].is_empty()
+            && suffix[2..].chars().all(|ch| ch.is_ascii_digit())
+            && is_plain_local(base)
+        {
+            return base;
+        }
+    }
+    reg
+}
+
+/// Strip one reference prefix from a driver Debug type: `&`, an optional
+/// lifetime (`'{erased}`, `'^0`, ...), and an optional `mut`. Returns the
+/// pointee text, or None when the type is not a reference (raw pointers
+/// are not refs: their unsizing is out of scope for the slice-cast cluster).
+fn strip_ref_prefix(ty: &str) -> Option<&str> {
+    let t = ty.trim().strip_prefix('&')?.trim_start();
+    let t = if let Some(rest) = t.strip_prefix('\'') {
+        match rest.find('}') {
+            Some(i) => rest[i + 1..].trim_start(),
+            None => return None,
+        }
+    } else {
+        t
+    };
+    let t = t.strip_prefix("mut").map(str::trim_start).unwrap_or(t);
+    Some(t)
+}
+
+/// Length of a sized array pointee, or None: `[T; N_usize]` -> N.
+/// The separator is the TOP-LEVEL `;` inside the outer brackets, so a
+/// nested sized array element (`[[i32; 2_usize]; 3_usize]`) still parses
+/// as 3. An already-unsized slice (`[T]`) has no separator -> None.
+fn array_len_of_ref(src_ty: &str) -> Option<u64> {
+    let pointee = strip_ref_prefix(src_ty)?.trim();
+    let inner = pointee.strip_prefix('[')?.strip_suffix(']')?;
+    let mut depth = 0usize;
+    let mut sep = None;
+    for (i, ch) in inner.char_indices() {
+        match ch {
+            '[' | '(' | '<' => depth += 1,
+            ']' | ')' | '>' => depth = depth.saturating_sub(1),
+            ';' if depth == 0 => {
+                sep = Some(i);
+                break;
+            }
+            _ => {}
+        }
+    }
+    let len_text = inner[sep? + 1..].trim();
+    let digits: String = len_text.chars().take_while(|c| c.is_ascii_digit()).collect();
+    if digits.is_empty() {
+        return None;
+    }
+    if len_text != digits && len_text != format!("{}_usize", digits) {
+        return None;
+    }
+    digits.parse().ok()
+}
+
+/// True when the type is an unsized slice reference (`&[T]`, `&mut [T]`,
+/// `&[&str]`): a reference whose pointee is brackets with NO top-level
+/// `;`. Trait objects (`dyn`) are excluded: they need a vtable pointer,
+/// not a length, and stay loud (Phase 3 territory).
+fn is_unsized_slice_ref(dst_ty: &str) -> bool {
+    if dst_ty.contains("dyn") {
+        return false;
+    }
+    let Some(pointee) = strip_ref_prefix(dst_ty) else {
+        return false;
+    };
+    let pointee = pointee.trim();
+    let Some(inner) = pointee.strip_prefix('[').and_then(|s| s.strip_suffix(']')) else {
+        return false;
+    };
+    let mut depth = 0usize;
+    for ch in inner.chars() {
+        match ch {
+            '[' | '(' | '<' => depth += 1,
+            ']' | ')' | '>' => depth = depth.saturating_sub(1),
+            ';' if depth == 0 => return false,
+            _ => {}
+        }
+    }
+    true
+}
+
+/// Slice-unsizing length for a MIR cast, or None.
+/// Gates (all must hold; anything else falls through to the existing
+/// lower_cast / loud path unchanged):
+/// - kind is `PointerCoercion(Unsize, ...)` (reify/closure fn-pointer
+///   coercions, which share the PointerCoercion prefix, are excluded);
+/// - the SOURCE local's driver type (local_types, not the truncated
+///   `src_ty` field, which is just `"&"`) is a sized array reference;
+/// - the destination is an unsized slice reference.
+/// The returned length is the array length N: the fat pointer for
+/// `&[T; N] -> &[T]` is the (data_ptr, N) pair, data_ptr unchanged.
+pub fn unsize_slice_len(kind: &str, src_local_ty: &str, dst_ty: &str) -> Option<u64> {
+    let k = kind.trim();
+    if !k.starts_with("PointerCoercion") || !k.contains("Unsize") {
+        return None;
+    }
+    if !is_unsized_slice_ref(dst_ty) {
+        return None;
+    }
+    array_len_of_ref(src_local_ty)
+}
+
 /// Plain `_N` local or a versioned `_N_vK` rename (see version.rs).
 /// Matches mir2sa parse's base_local contract on unversioned names.
 pub fn is_plain_local(s: &str) -> bool {
@@ -223,4 +336,55 @@ pub fn asm_inout_passthrough(
     }
     // Split places (or an immediate): materialize the passthrough copy.
     Some((Some(dest.to_string()), Some(render_operand(&ins[0]))))
+}
+
+#[cfg(test)]
+mod asm_unsize_tests {
+    use super::*;
+
+    #[test]
+    fn unsize_slice_len_gates() {
+        let k = "PointerCoercion(Unsize, Implicit)";
+        assert_eq!(
+            unsize_slice_len(k, "&'{erased} [i32; 4_usize]", "&'{erased} [i32]"),
+            Some(4)
+        );
+        assert_eq!(
+            unsize_slice_len(k, "&'{erased} mut [u8; 10_usize]", "&'{erased} mut [u8]"),
+            Some(10)
+        );
+        assert_eq!(
+            unsize_slice_len(
+                k,
+                "&'{erased} [&'{erased} str; 3_usize]",
+                "&'{erased} [&'{erased} str]"
+            ),
+            Some(3)
+        );
+        // Nested sized array element: outer length wins.
+        assert_eq!(
+            unsize_slice_len(k, "&'{erased} [[i32; 2_usize]; 3_usize]", "&'{erased} [[i32; 2_usize]]"),
+            Some(3)
+        );
+        // Dyn target: vtable, not a length.
+        assert_eq!(
+            unsize_slice_len(k, "&'{erased} Button", "&'{erased} dyn [Binder { value: Trait(Draw), bound_vars: [] }]"),
+            None
+        );
+        // Fn-pointer coercions share the prefix but are not Unsize.
+        assert_eq!(
+            unsize_slice_len("PointerCoercion(ReifyFnPointer(Safe), Implicit)", "", "fn(i32) -> i32"),
+            None
+        );
+        // Already-unsized source has no length to read.
+        assert_eq!(
+            unsize_slice_len(k, "&'{erased} [i32]", "&'{erased} [i32]"),
+            None
+        );
+        // Sized destination is not an unsizing.
+        assert_eq!(
+            unsize_slice_len(k, "&'{erased} [i32; 4_usize]", "&'{erased} [i32; 4_usize]"),
+            None
+        );
+    }
 }

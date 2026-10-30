@@ -286,10 +286,10 @@ fn cmd_coverage(args: &[String]) -> ExitCode {
                 }
                 Term::Assert { cond, .. } if const_needs_loud(cond) && {
                     let mut cov_idx = 0usize;
-                    !matches!(
-                        crate::phi::rewrite_operand(cond, phi_b, &b.id, &mut cov_idx),
-                        Some((_, Some(_), _))
-                    )
+                    match crate::phi::rewrite_operand(cond, phi_b, &b.id, &mut cov_idx) {
+                        Some((_, loads, _)) => loads.is_empty(),
+                        None => true,
+                    }
                 } => {
                     tot_unsup += 1;
                     let kind = loud_const_kind(cond).unwrap_or("ConstValue");
@@ -297,10 +297,10 @@ fn cmd_coverage(args: &[String]) -> ExitCode {
                 }
                 Term::SwitchInt { discr, .. } if const_needs_loud(discr) && {
                     let mut cov_idx = 0usize;
-                    !matches!(
-                        crate::phi::rewrite_operand(discr, phi_b, &b.id, &mut cov_idx),
-                        Some((_, Some(_), _))
-                    )
+                    match crate::phi::rewrite_operand(discr, phi_b, &b.id, &mut cov_idx) {
+                        Some((_, loads, _)) => loads.is_empty(),
+                        None => true,
+                    }
                 } => {
                     tot_unsup += 1;
                     let kind = loud_const_kind(discr).unwrap_or("ConstValue");

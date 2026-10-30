@@ -233,7 +233,7 @@ fn reachable_from(succ: &[Vec<usize>], from: usize) -> HashSet<usize> {
 
 fn operand_place(op: &Operand) -> Option<&str> {
     match op {
-        Operand::Move { place , .. } | Operand::Copy { place , .. } | Operand::Conflict { place } => {
+        Operand::Move { place , .. } | Operand::Copy { place , .. } | Operand::Conflict { place, .. } => {
             Some(place.as_str())
         }
         _ => None,

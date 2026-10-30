@@ -655,7 +655,7 @@ fn ptr_operand(place: &str, map: &SpillMap, local_types: &BTreeMap<String, Strin
 }
 
 fn count_operand(map: &mut BTreeMap<String, usize>, op: &Operand) {
-    if let Operand::Move { place , .. } | Operand::Copy { place , .. } | Operand::Conflict { place } = op {
+    if let Operand::Move { place , .. } | Operand::Copy { place , .. } | Operand::Conflict { place, .. } = op {
         *map.entry(place.clone()).or_insert(0) += 1;
     }
 }
@@ -700,7 +700,7 @@ pub fn dead_locals(blocks: &[crate::mir::Block], n_params: usize) -> BTreeSet<St
     let mut read: BTreeSet<String> = BTreeSet::new();
     let mut note = |op: &Operand, defined: &mut BTreeSet<String>, read: &mut BTreeSet<String>| {
         let place = match op {
-            Operand::Move { place , .. } | Operand::Copy { place , .. } | Operand::Conflict { place } => {
+            Operand::Move { place , .. } | Operand::Copy { place , .. } | Operand::Conflict { place, .. } => {
                 place.as_str()
             }
             _ => return,

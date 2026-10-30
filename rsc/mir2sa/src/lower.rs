@@ -608,9 +608,7 @@ pub fn lower_function_with_layouts(
                     for arg in args.iter() {
                         match crate::phi::rewrite_operand(arg, phi_b, &b.id, &mut mv_idx) {
                             Some((n, l, t)) => {
-                                if let Some(l) = l {
-                                    loads.push(l);
-                                }
+                                loads.extend(l);
                                 if let Some(t) = t {
                                     frees.push(t);
                                 }
@@ -787,10 +785,10 @@ pub fn lower_function_with_layouts(
                 let (discr_rw, phi_load, phi_free) =
                     match crate::phi::rewrite_operand(discr, phi_b, &b.id, &mut mv_idx) {
                         Some((n, l, t)) => (Box::new(n), l, t),
-                        None => (discr.clone(), None, None),
+                        None => (discr.clone(), vec![], None),
                     };
                 let discr = &discr_rw;
-                if let Some(l) = phi_load {
+                for l in &phi_load {
                     out.push(format!("    {}", l));
                 }
                 // Single-move fan-out: a Move discriminant must be bound once,
@@ -868,10 +866,10 @@ pub fn lower_function_with_layouts(
                 let (cond_rw, phi_load, phi_free) =
                     match crate::phi::rewrite_operand(cond, phi_b, &b.id, &mut mv_idx) {
                         Some((n, l, t)) => (Box::new(n), l, t),
-                        None => (cond.clone(), None, None),
+                        None => (cond.clone(), vec![], None),
                     };
                 let cond = &cond_rw;
-                if let Some(l) = phi_load {
+                for l in &phi_load {
                     out.push(format!("    {}", l));
                 }
                 // Overflow asserts are folded: the accompanying

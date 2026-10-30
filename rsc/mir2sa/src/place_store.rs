@@ -34,7 +34,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use crate::asm::{is_plain_local, strip_version_suffix};
-use crate::const_util::{array_elem_size, sa_scalar_ty};
+use crate::const_util::{array_elem_size, const_array_elem, const_elem_ty, sa_scalar_ty};
 use crate::mir::{Function, Operand, Rvalue, Stmt};
 use crate::render_util::{assign_loud_const, const_scalar_text, field_value_temp, operand_is_projected, operand_proj_loud};
 use crate::spill::{spill_slot, SpillMap};
@@ -621,6 +621,395 @@ pub fn emit_place_store(
     Some(lines)
 }
 
+/// Aggregate place store (W2 aggstore): `(((*base).1: ManuallyDrop<T>).0: T)`
+/// with an Aggregate rvalue, where `base` is already bound (the C5 rebind
+/// branch). This is the `vec!` / `Box::new_uninit` + `write` shape: the
+/// compiler writes a whole array (or tuple/struct) into a MaybeUninit
+/// buffer through a raw pointer, then `assume_init` turns the buffer into
+/// the value. The old code dropped it as `UNSUPPORTED rebind`.
+///
+/// Gates (anything outside stays on the old loud path):
+/// - rvalue is an Aggregate with >= 1 elems, no Conflict elems, no
+///   phi markers on the value side, no loud consts;
+/// - the place parses exactly as deref + one field projection of a
+///   ManuallyDrop wrapper + field 0 (see `parse_agg_place`); the final
+///   suffix type is NOT trusted (the driver truncates dest_place at 80
+///   chars, so for long element types it is cut mid-type — the
+///   ManuallyDrop type argument, which ends earlier, is the stored type);
+/// - wrapper offset is 0 when the base pointee is a MaybeUninit union
+///   (all union fields sit at offset 0), or the rustc layout offset for
+///   that field when the crate layout index knows the pointee type;
+/// - element offsets come from the rvalue's own rustc layout (arity
+///   must match), else from `i * elem_size` for an array stored type,
+///   else offset 0 for a single element;
+/// - element values: scalar Consts store with their exact scalar type;
+///   `&str` literal Consts store the (ptr, len) pair; plain Move/Copy
+///   locals store with their scalar type when known, else one u64 slot
+///   at the layout offset — exactly lower_adt_init's convention for a
+///   fresh aggregate def (Jev 2026-10-30, scalar_plus_u64_fallback);
+///   fat (`&str`/`&[T]`) Move/Copy values stay loud (one slot cannot
+///   hold a pair); phi-managed bases and phi-marked value places stay
+///   loud; the base must be a raw pointer (`*const`/`*mut`), a
+///   reference, or a ptr param in SA.
+pub enum AggElemPlan {
+    /// Zero-sized const: occupies 0 bytes, emits no store.
+    Skip,
+    /// Scalar const literal, stored with its exact SA type.
+    Const { text: String, sa_ty: String },
+    /// `&str` literal: byte buffer + (ptr, len) pair at offset/+8.
+    StrLit { bytes: Vec<u64> },
+    /// Plain Move/Copy local, stored with `sa_ty` (scalar, `ptr`, or
+    /// the `u64` fallback for non-scalar values).
+    Place {
+        place: String,
+        sa_ty: String,
+        is_copy: bool,
+    },
+    /// Projected Move/Copy: loads its field cell into a temp first.
+    Projected { op: Operand, sa_ty: String },
+}
+
+/// A lowerable aggregate place store, or None (caller stays loud).
+pub struct AggPlaceStorePlan {
+    /// SA register holding the buffer pointer.
+    base: String,
+    /// Byte offset of the ManuallyDrop value field inside the pointee.
+    wrapper_offset: u64,
+    /// Per-element rustc layout offsets (relative to the stored value).
+    offsets: Vec<u64>,
+    elems: Vec<AggElemPlan>,
+}
+
+/// Parse `(((*base).F: ManuallyDrop<INNER>).0: ...)` into
+/// (base, field, stored_type). The final suffix type is ignored (it may
+/// be driver-truncated); the stored type is the ManuallyDrop argument.
+fn parse_agg_place(full: &str) -> Option<(String, usize, String)> {
+    // Inside-out scan, deliberately independent of the outer parens
+    // and of the final suffix type: the driver truncates dest_place at
+    // 80 chars, so for long element types the string ends mid-suffix
+    // with unbalanced parens (the 32 case). The ManuallyDrop argument
+    // itself always ends before the truncation point.
+    let deref = full.find("(*")?;
+    let after_open = &full[deref + 2..];
+    let close = after_open.find(')')?;
+    let base = after_open[..close].trim();
+    if !is_plain_local(base) {
+        return None;
+    }
+    let tail = after_open[close + 1..].trim_start();
+    let field_str = tail.strip_prefix('.')?;
+    let colon = field_str.find(':')?;
+    let field_digits = &field_str[..colon];
+    if field_digits.is_empty() || !field_digits.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    let field: usize = field_digits.parse().ok()?;
+    let md = field_str[colon + 1..].trim_start();
+    let md_arg_open = md
+        .strip_prefix("std::mem::ManuallyDrop<")
+        .or_else(|| md.strip_prefix("ManuallyDrop<"))?;
+    // Balanced scan for the ManuallyDrop argument's closing `>`.
+    let mut depth = 1i32;
+    let mut end = None;
+    for (i, ch) in md_arg_open.char_indices() {
+        match ch {
+            '<' => depth += 1,
+            '>' => {
+                depth -= 1;
+                if depth == 0 {
+                    end = Some(i);
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+    let end = end?;
+    let md_arg = &md_arg_open[..end];
+    if md_arg.is_empty() {
+        return None;
+    }
+    // The ManuallyDrop value must be followed by its field-0 projection.
+    let rest = md_arg_open[end + 1..].trim_start();
+    if !rest.starts_with(").0") {
+        return None;
+    }
+    Some((base.to_string(), field, md_arg.to_string()))
+}
+
+/// `*const T` / `*mut T` -> `T`; None for other types.
+fn strip_raw_ptr(ty: &str) -> Option<String> {
+    let t = ty.trim();
+    let rest = t
+        .strip_prefix("*const ")
+        .or_else(|| t.strip_prefix("*mut "))?;
+    let rest = rest.trim();
+    if rest.is_empty() {
+        None
+    } else {
+        Some(rest.to_string())
+    }
+}
+
+/// True when `ty` names a MaybeUninit union (all fields at offset 0).
+fn is_maybe_uninit(ty: &str) -> bool {
+    let t = ty.trim();
+    t.starts_with("std::mem::MaybeUninit<") || t.starts_with("MaybeUninit<")
+}
+
+/// SA store type for a plain (non-projected) Move/Copy element, or None
+/// when the value cannot live in one store (fat reference/slice).
+fn elem_sa_ty(f: &Function, place: &str) -> Option<String> {
+    let ty = type_of_local(&f.local_types, place)?;
+    let t = ty.trim();
+    if let Some(sa) = scalar_sa_ty(t) {
+        return Some(sa.to_string());
+    }
+    if is_fat_str(t) || t.starts_with("&[") || t.starts_with("&'{") && t.contains('[') {
+        return None;
+    }
+    if t.starts_with('&') || t.starts_with('*') {
+        return Some("ptr".to_string());
+    }
+    // Non-scalar values (enum payload registers, Box<dyn>, structs):
+    // one u64 slot at the layout offset, per lower_adt_init.
+    Some("u64".to_string())
+}
+
+fn elem_sa_ty_projected(op: &Operand) -> String {
+    match op {
+        Operand::Move { pty, .. } | Operand::Copy { pty, .. } => match pty.as_deref() {
+            Some(ty) if scalar_sa_ty(ty).is_some() => sa_scalar_ty(ty).to_string(),
+            Some("ptr") => "ptr".to_string(),
+            _ => "u64".to_string(),
+        },
+        _ => "u64".to_string(),
+    }
+}
+
+/// Pure predicate shared by lower() and coverage(): Some(plan) iff this
+/// Assign is an exactly-lowerable aggregate place store.
+pub fn plan_agg_place_store(
+    dest_place: Option<&str>,
+    dest: &str,
+    rvalue: &Rvalue,
+    f: &Function,
+    layouts: &AdtLayoutIndex,
+    phi_b: &BTreeMap<String, String>,
+) -> Option<AggPlaceStorePlan> {
+    let full = dest_place?;
+    if full.trim() == dest.trim() {
+        return None;
+    }
+    if full.contains(" as ") {
+        return None;
+    }
+    let Rvalue::Aggregate { elems, layout } = rvalue else {
+        return None;
+    };
+    if elems.is_empty() {
+        return None;
+    }
+    let (base, field, stored_ty) = parse_agg_place(full)?;
+    // Phi-managed bases: the slot owns the current pointer, not the reg.
+    if phi_b.contains_key(strip_version_suffix(&base)) {
+        return None;
+    }
+    let base_ty = type_of_local(&f.local_types, &base)?;
+    // Base must be a buffer pointer in SA: raw pointer, reference, or
+    // ptr param.
+    let base_is_ptr = strip_raw_ptr(&base_ty).is_some()
+        || strip_ref(&base_ty).is_some()
+        || is_param_ptr(f, &base);
+    if !base_is_ptr {
+        return None;
+    }
+    // Wrapper offset: MaybeUninit union fields are all at offset 0;
+    // otherwise the crate layout index for the pointee type, if known.
+    let pointee = strip_raw_ptr(&base_ty)
+        .or_else(|| strip_ref(&base_ty))
+        .unwrap_or_else(|| base_ty.trim().to_string());
+    let wrapper_offset = if is_maybe_uninit(&pointee) {
+        if field != 1 {
+            // MaybeUninit's value field is field 1; any other field of
+            // the union is the `()` uninit slot, never an aggregate.
+            return None;
+        }
+        0u64
+    } else {
+        match layouts.layouts.get(&pointee) {
+            Some(offsets) if field < offsets.len() => offsets[field],
+            _ => return None,
+        }
+    };
+    // Element offsets: rvalue rustc layout wins; else array stride; else
+    // a single element at offset 0.
+    let offsets: Vec<u64> = if let Some(l) = layout {
+        if l.offsets.len() != elems.len() {
+            return None;
+        }
+        l.offsets.clone()
+    } else if elems.len() == 1 {
+        vec![0]
+    } else if let Some(elem_ty) = array_elem(&stored_ty) {
+        let size = array_elem_size(&elem_ty)? as u64;
+        (0..elems.len() as u64).map(|i| i * size).collect()
+    } else {
+        return None;
+    };
+    let mut plans = Vec::with_capacity(elems.len());
+    for e in elems {
+        match e {
+            Operand::Conflict { .. } => return None,
+            Operand::Const {
+                value,
+                str_bytes,
+                str_len,
+            } => {
+                if value.trim_start().starts_with("Val(ZeroSized") {
+                    plans.push(AggElemPlan::Skip);
+                    continue;
+                }
+                if str_bytes.is_some() {
+                    match crate::layout::plan_str_field(value, str_bytes.as_ref(), *str_len) {
+                        Some(crate::layout::FieldPlan::StrLit { bytes }) => {
+                            plans.push(AggElemPlan::StrLit { bytes });
+                        }
+                        _ => return None,
+                    }
+                    continue;
+                }
+                let (ty, size) = const_elem_ty(value)?;
+                let text = const_array_elem(value, ty, size)?;
+                plans.push(AggElemPlan::Const {
+                    text,
+                    sa_ty: sa_scalar_ty(ty).to_string(),
+                });
+            }
+            Operand::Move { place, .. } | Operand::Copy { place, .. } => {
+                if operand_proj_loud(e) {
+                    return None;
+                }
+                if crate::phi::phi_place(place).is_some() {
+                    return None;
+                }
+                if operand_is_projected(e) {
+                    plans.push(AggElemPlan::Projected {
+                        op: e.clone(),
+                        sa_ty: elem_sa_ty_projected(e),
+                    });
+                } else {
+                    if !is_plain_local(place) {
+                        return None;
+                    }
+                    let sa_ty = elem_sa_ty(f, place)?;
+                    plans.push(AggElemPlan::Place {
+                        place: place.clone(),
+                        sa_ty,
+                        is_copy: matches!(e, Operand::Copy { .. }),
+                    });
+                }
+            }
+        }
+    }
+    Some(AggPlaceStorePlan {
+        base,
+        wrapper_offset,
+        offsets,
+        elems: plans,
+    })
+}
+
+/// Emit SA lines for a planned aggregate place store (unindented; the
+/// caller adds the 4-space indent). Returns None if emission is
+/// impossible, in which case the caller must fall back to loud.
+pub fn emit_agg_place_store(
+    dest_place: Option<&str>,
+    dest: &str,
+    rvalue: &Rvalue,
+    f: &Function,
+    layouts: &AdtLayoutIndex,
+    phi_b: &BTreeMap<String, String>,
+    spill: &SpillMap,
+    cmap: &HashMap<String, String>,
+    bid: &str,
+    mv_idx: &mut usize,
+) -> Option<Vec<String>> {
+    let plan = plan_agg_place_store(dest_place, dest, rvalue, f, layouts, phi_b)?;
+    let mut lines = vec![format!(
+        "// aggregate place store {}",
+        dest_place.unwrap_or("").trim()
+    )];
+    for (i, elem) in plan.elems.iter().enumerate() {
+        let off = plan.wrapper_offset + plan.offsets[i];
+        match elem {
+            AggElemPlan::Skip => {}
+            AggElemPlan::Const { text, sa_ty } => {
+                lines.push(format!(
+                    "store {}+{}, {} as {}",
+                    plan.base, off, text, sa_ty
+                ));
+            }
+            AggElemPlan::StrLit { bytes } => {
+                let buf = format!("_ags_{}_{}_{}", bid, *mv_idx, i);
+                *mv_idx += 1;
+                lines.push(format!("{} = alloc {}", buf, bytes.len()));
+                for (j, b) in bytes.iter().enumerate() {
+                    lines.push(format!("store {}+{}, {} as u8", buf, j, b));
+                }
+                lines.push(format!("store {}+{}, {} as ptr", plan.base, off, buf));
+                lines.push(format!(
+                    "store {}+{}, {} as u64",
+                    plan.base,
+                    off + 8,
+                    bytes.len()
+                ));
+            }
+            AggElemPlan::Place {
+                place,
+                sa_ty,
+                is_copy,
+            } => {
+                let src = if *is_copy {
+                    if let Some(ty) = spill.get(place) {
+                        let tmp = format!("_ps_{}_{}", bid, *mv_idx);
+                        *mv_idx += 1;
+                        lines.push(format!(
+                            "{} = load {}+0 as {}",
+                            tmp,
+                            spill_slot(place),
+                            ty
+                        ));
+                        tmp
+                    } else if let Some(lit) = cmap.get(place) {
+                        lit.clone()
+                    } else {
+                        place.clone()
+                    }
+                } else {
+                    place.clone()
+                };
+                // A spilled Copy reloads from its slot; a plain register
+                // reads directly (stores never consume, so drop glue
+                // still frees it at exits, as for scalar place stores).
+                lines.push(format!(
+                    "store {}+{}, {} as {}",
+                    plan.base, off, src, sa_ty
+                ));
+            }
+            AggElemPlan::Projected { op, sa_ty } => {
+                let (mut plines, tmp) = field_value_temp(op, bid, mv_idx);
+                lines.append(&mut plines);
+                lines.push(format!(
+                    "store {}+{}, {} as {}",
+                    plan.base, off, tmp, sa_ty
+                ));
+            }
+        }
+    }
+    Some(lines)
+}
+
 #[cfg(test)]
 mod place_store_tests {
     use super::*;
@@ -937,5 +1326,323 @@ mod place_store_tests {
             "unsup still has rebind: {:?}",
             unsup
         );
+    }
+    fn agg_rv(elems: Vec<Operand>, layout: Option<AdtLayout>) -> Rvalue {
+        Rvalue::Aggregate { elems, layout }
+    }
+
+    fn agg_layout(offsets: Vec<u64>) -> AdtLayout {
+        AdtLayout {
+            size: offsets.last().copied().unwrap_or(0) + 4,
+            offsets,
+        }
+    }
+
+    #[test]
+    fn agg_place_const_array_plans() {
+        let f = fn_with_types(
+            "main",
+            vec!["ptr".to_string()],
+            vec![(
+                "_21",
+                "*const std::mem::MaybeUninit<[i32; 4_usize]>",
+            )],
+            vec![],
+        );
+        let plan = plan_agg_place_store(
+            Some("(((*_21).1: std::mem::ManuallyDrop<[i32; 4]>).0: [i32; 4])"),
+            "_21",
+            &agg_rv(
+                vec![
+                    Operand::Const {
+                        value: "Val(Scalar(0x0000000a), i32)".to_string(),
+                        str_bytes: None,
+                        str_len: None,
+                    },
+                    Operand::Const {
+                        value: "Val(Scalar(0x00000014), i32)".to_string(),
+                        str_bytes: None,
+                        str_len: None,
+                    },
+                    Operand::Const {
+                        value: "Val(Scalar(0x0000001e), i32)".to_string(),
+                        str_bytes: None,
+                        str_len: None,
+                    },
+                    Operand::Const {
+                        value: "Val(Scalar(0x00000028), i32)".to_string(),
+                        str_bytes: None,
+                        str_len: None,
+                    },
+                ],
+                Some(agg_layout(vec![0, 4, 8, 12])),
+            ),
+            &f,
+            &AdtLayoutIndex::default(),
+            &BTreeMap::new(),
+        )
+        .expect("const array aggstore must plan");
+        assert_eq!(plan.base, "_21");
+        assert_eq!(plan.wrapper_offset, 0);
+        assert_eq!(plan.offsets, vec![0, 4, 8, 12]);
+        assert_eq!(plan.elems.len(), 4);
+    }
+
+    #[test]
+    fn agg_place_truncated_suffix_and_u64_fallback_plan() {
+        // Driver truncates dest_place at 80 chars: the final suffix type
+        // is cut mid-type, but the ManuallyDrop argument is complete.
+        // Non-scalar Move elems fall back to u64 slots (lower_adt_init).
+        let f = fn_with_types(
+            "main",
+            vec!["ptr".to_string()],
+            vec![
+                (
+                    "_24",
+                    "*const std::mem::MaybeUninit<[std::boxed::Box<dyn Score>; 2_usize]>",
+                ),
+                ("_4", "std::boxed::Box<dyn Score>"),
+                ("_7", "std::boxed::Box<dyn Score>"),
+            ],
+            vec![],
+        );
+        let plan = plan_agg_place_store(
+            Some("(((*_24).1: std::mem::ManuallyDrop<[std::boxed::Box<dyn Score>; 2]>).0: [std::bo"),
+            "_24",
+            &agg_rv(
+                vec![
+                    Operand::Move {
+                        place: "_4".to_string(),
+                        off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false, deref_last: false,
+                    },
+                    Operand::Move {
+                        place: "_7".to_string(),
+                        off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false, deref_last: false,
+                    },
+                ],
+                Some(AdtLayout {
+                    size: 32,
+                    offsets: vec![0, 16],
+                }),
+            ),
+            &f,
+            &AdtLayoutIndex::default(),
+            &BTreeMap::new(),
+        )
+        .expect("truncated-suffix aggstore must plan");
+        assert_eq!(plan.offsets, vec![0, 16]);
+        assert!(plan.elems.iter().all(|e| matches!(
+            e,
+            AggElemPlan::Place { sa_ty, .. } if sa_ty == "u64"
+        )));
+    }
+
+    #[test]
+    fn agg_place_move_scalar_and_no_layout_stride() {
+        let f = fn_with_types(
+            "main",
+            vec!["ptr".to_string()],
+            vec![
+                ("_14", "*mut std::mem::MaybeUninit<[i32; 3_usize]>"),
+                ("_3", "i32"),
+                ("_5", "i32"),
+            ],
+            vec![],
+        );
+        let plan = plan_agg_place_store(
+            Some("(((*_14).1: std::mem::ManuallyDrop<[i32; 3]>).0: [i32; 3])"),
+            "_14",
+            &agg_rv(
+                vec![
+                    Operand::Move {
+                        place: "_3".to_string(),
+                        off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false, deref_last: false,
+                    },
+                    Operand::Copy {
+                        place: "_5".to_string(),
+                        off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false, deref_last: false,
+                    },
+                    Operand::Const {
+                        value: "Val(Scalar(0x00000003), i32)".to_string(),
+                        str_bytes: None,
+                        str_len: None,
+                    },
+                ],
+                None,
+            ),
+            &f,
+            &AdtLayoutIndex::default(),
+            &BTreeMap::new(),
+        )
+        .expect("no-layout array aggstore must plan via stride");
+        assert_eq!(plan.offsets, vec![0, 4, 8]);
+        assert!(matches!(
+            &plan.elems[0],
+            AggElemPlan::Place { sa_ty, is_copy, .. } if sa_ty == "i32" && !is_copy
+        ));
+        assert!(matches!(
+            &plan.elems[1],
+            AggElemPlan::Place { sa_ty, is_copy, .. } if sa_ty == "i32" && *is_copy
+        ));
+    }
+
+    #[test]
+    fn agg_place_non_union_without_layout_stays_loud() {
+        let f = fn_with_types(
+            "main",
+            vec!["ptr".to_string()],
+            vec![("_1", "*const Foo")],
+            vec![],
+        );
+        assert!(plan_agg_place_store(
+            Some("(((*_1).1: std::mem::ManuallyDrop<[i32; 2]>).0: [i32; 2])"),
+            "_1",
+            &agg_rv(
+                vec![Operand::Const {
+                    value: "Val(Scalar(0x00000001), i32)".to_string(),
+                    str_bytes: None,
+                    str_len: None,
+                }],
+                Some(agg_layout(vec![0])),
+            ),
+            &f,
+            &AdtLayoutIndex::default(),
+            &BTreeMap::new(),
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn agg_place_conflict_and_phi_base_stay_loud() {
+        let f = fn_with_types(
+            "main",
+            vec!["ptr".to_string()],
+            vec![(
+                "_21",
+                "*const std::mem::MaybeUninit<[i32; 2_usize]>",
+            )],
+            vec![],
+        );
+        let place = "(((*_21).1: std::mem::ManuallyDrop<[i32; 2]>).0: [i32; 2])";
+        assert!(plan_agg_place_store(
+            Some(place),
+            "_21",
+            &agg_rv(
+                vec![Operand::Conflict {
+                    place: "_2".to_string(),
+                    off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false, deref_last: false,
+                }],
+                Some(agg_layout(vec![0])),
+            ),
+            &f,
+            &AdtLayoutIndex::default(),
+            &BTreeMap::new(),
+        )
+        .is_none());
+        let phi_b: BTreeMap<String, String> =
+            [("_21".to_string(), "ptr".to_string())].into_iter().collect();
+        assert!(plan_agg_place_store(
+            Some(place),
+            "_21",
+            &agg_rv(
+                vec![Operand::Const {
+                    value: "Val(Scalar(0x00000001), i32)".to_string(),
+                    str_bytes: None,
+                    str_len: None,
+                }],
+                Some(agg_layout(vec![0])),
+            ),
+            &f,
+            &AdtLayoutIndex::default(),
+            &phi_b,
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn render_sa_end_to_end_agg_place_store() {
+        // _1 is a ptr param, hence bound: the aggregate write must emit
+        // stores through it, never a rebind marker or a rebind of _1.
+        let f = fn_with_types(
+            "main",
+            vec!["ptr".to_string()],
+            vec![(
+                "_1",
+                "*const std::mem::MaybeUninit<[i32; 4_usize]>",
+            )],
+            vec![Block {
+                id: "bb0".to_string(),
+                statements: vec![Stmt::Assign {
+                    dest: "_1".to_string(),
+                    dest_place: Some(
+                        "(((*_1).1: std::mem::ManuallyDrop<[i32; 4]>).0: [i32; 4])"
+                            .to_string(),
+                    ),
+                    rvalue: agg_rv(
+                        vec![
+                            Operand::Const {
+                                value: "Val(Scalar(0x0000000a), i32)".to_string(),
+                                str_bytes: None,
+                                str_len: None,
+                            },
+                            Operand::Const {
+                                value: "Val(Scalar(0x00000014), i32)".to_string(),
+                                str_bytes: None,
+                                str_len: None,
+                            },
+                            Operand::Const {
+                                value: "Val(Scalar(0x0000001e), i32)".to_string(),
+                                str_bytes: None,
+                                str_len: None,
+                            },
+                            Operand::Const {
+                                value: "Val(Scalar(0x00000028), i32)".to_string(),
+                                str_bytes: None,
+                                str_len: None,
+                            },
+                        ],
+                        Some(agg_layout(vec![0, 4, 8, 12])),
+                    ),
+                }],
+                terminator: Term::Return { ret: None },
+            }],
+        );
+        let mir = crate::mir::MirFile {
+            source: None,
+            crate_name: None,
+            functions: vec![f],
+        };
+        let (sa, unsup) = crate::lower::render_sa(&mir);
+        assert!(
+            !sa.contains("UNSUPPORTED rebind"),
+            "aggstore rebind must be gone:\n{}",
+            sa
+        );
+        assert!(
+            sa.contains("store _1+0, 10 as i32"),
+            "elem 0 store missing:\n{}",
+            sa
+        );
+        assert!(
+            sa.contains("store _1+4, 20 as i32"),
+            "elem 1 store missing:\n{}",
+            sa
+        );
+        assert!(
+            sa.contains("store _1+8, 30 as i32"),
+            "elem 2 store missing:\n{}",
+            sa
+        );
+        assert!(
+            sa.contains("store _1+12, 40 as i32"),
+            "elem 3 store missing:\n{}",
+            sa
+        );
+        assert!(
+            !sa.contains("_1 = _agg_"),
+            "aggstore must not rebind the base:\n{}",
+            sa
+        );
+        assert!(unsup.is_empty(), "unsup must be empty: {:?}", unsup);
     }
 }

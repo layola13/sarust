@@ -97,7 +97,7 @@ fn cmd_coverage(args: &[String]) -> ExitCode {
                         // Place stores (C5) mirror lower(): an exactly
                         // lowerable store is not a Rebind failure.
                         if bound.contains(dest)
-                            && crate::place_store::plan_place_store(
+                            && (crate::place_store::plan_place_store(
                                 dest_place.as_deref(),
                                 dest,
                                 rvalue,
@@ -107,6 +107,15 @@ fn cmd_coverage(args: &[String]) -> ExitCode {
                                 &std::collections::HashMap::new(),
                             )
                             .is_some()
+                                || crate::place_store::plan_agg_place_store(
+                                    dest_place.as_deref(),
+                                    dest,
+                                    rvalue,
+                                    f,
+                                    &cov_layouts,
+                                    phi_b,
+                                )
+                                .is_some())
                         {
                             continue;
                         }

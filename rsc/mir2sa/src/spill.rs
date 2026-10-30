@@ -699,14 +699,28 @@ pub fn dead_locals(blocks: &[crate::mir::Block], n_params: usize) -> BTreeSet<St
     let mut defined: BTreeSet<String> = BTreeSet::new();
     let mut read: BTreeSet<String> = BTreeSet::new();
     let mut note = |op: &Operand, defined: &mut BTreeSet<String>, read: &mut BTreeSet<String>| {
-        let place = match op {
+        match op {
             Operand::Move { place , .. } | Operand::Copy { place , .. } | Operand::Conflict { place, .. } => {
-                place.as_str()
+                if defined.contains(place.as_str()) {
+                    read.insert(place.clone());
+                }
             }
-            _ => return,
-        };
-        if defined.contains(place) {
-            read.insert(place.to_string());
+            // An indexed read reads both its base and its index local.
+            // Without this, a byte-literal array read only through Index
+            // was judged dead, its Const never materialized, and the
+            // index address computation referenced an undeclared
+            // register (190: UnknownRegister check-fail).
+            Operand::Index { place, idx, .. } => {
+                if defined.contains(place.as_str()) {
+                    read.insert(place.clone());
+                }
+                if let Some(i) = idx {
+                    if defined.contains(i.as_str()) {
+                        read.insert(i.clone());
+                    }
+                }
+            }
+            _ => {}
         }
     };
     for b in blocks {
@@ -1010,7 +1024,7 @@ mod spill_tests {
                 mut_: false,
                 via: None,
                 zst: false,
-            off: 0, off2: 0, deref: false, deref_first: false, proj_loud: false , pty: None , deref_last: false },
+            off: 0, off2: 0, deref: false, deref_first: false, proj_loud: false , pty: None , deref_last: false , idx: None, idx_size: 0, idx_const: None, idx_fe: None, fat: false},
         }
     }
 
@@ -1457,7 +1471,7 @@ mod spill_tests {
                         mut_: false,
                         via: None,
                         zst: true,
-                    off: 0, off2: 0, deref: false, deref_first: false, proj_loud: false , pty: None , deref_last: false },
+                    off: 0, off2: 0, deref: false, deref_first: false, proj_loud: false , pty: None , deref_last: false , idx: None, idx_size: 0, idx_const: None, idx_fe: None, fat: false},
                 },
                 cast_copy("_7", "_6", "usize"),
             ],
@@ -1543,4 +1557,63 @@ mod spill_tests {
         lt.insert("_4".to_string(), "i32".to_string());
         assert_eq!(build_spill(&blocks, &lt).get("_4_v1"), Some(&"i32".to_string()));
     }
+    #[test]
+    fn index_only_read_keeps_byte_literal_alive() {
+        // Regression for 190: a static byte array whose only reads are
+        // indexed must not be judged dead (else its Const is skipped
+        // and the index address references an undeclared register).
+        use crate::mir::{Block, Rvalue, Term};
+        let blocks = vec![Block {
+            id: "bb0".to_string(),
+            statements: vec![
+                Stmt::Assign {
+                    dest: "_41".to_string(),
+                    dest_place: Some("_41".to_string()),
+                    rvalue: Rvalue::Use {
+                        op: Operand::Const {
+                            value: "Val(Scalar(alloc1), &'[u8; 64])".to_string(),
+                            str_bytes: Some(vec![65, 66]),
+                            str_len: Some(2),
+                        },
+                    },
+                },
+                Stmt::Assign {
+                    dest: "_42".to_string(),
+                    dest_place: Some("_42".to_string()),
+                    rvalue: Rvalue::Use {
+                        op: Operand::Const {
+                            value: "Val(Scalar(0x0000000000000000), usize)".to_string(),
+                            str_bytes: None,
+                            str_len: None,
+                        },
+                    },
+                },
+                Stmt::Assign {
+                    dest: "_40".to_string(),
+                    dest_place: Some("_40".to_string()),
+                    rvalue: Rvalue::Use {
+                        op: Operand::Index {
+                            place: "_41".to_string(),
+                            off: 0,
+                            off2: 0,
+                            deref: true,
+                            deref_first: true,
+                            pty: Some("u8".to_string()),
+                            proj_loud: false,
+                            idx: Some("_42".to_string()),
+                            idx_size: 1,
+                            idx_const: None,
+                            idx_fe: None,
+                            fat: false,
+                        },
+                    },
+                },
+            ],
+            terminator: Term::Return { ret: None },
+        }];
+        let dead = crate::spill::dead_locals(&blocks, 0);
+        assert!(!dead.contains("_41"));
+        assert!(!dead.contains("_42"));
+    }
+
 }

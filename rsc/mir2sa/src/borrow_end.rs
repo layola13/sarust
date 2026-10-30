@@ -236,6 +236,10 @@ fn operand_place(op: &Operand) -> Option<&str> {
         Operand::Move { place , .. } | Operand::Copy { place , .. } | Operand::Conflict { place, .. } => {
             Some(place.as_str())
         }
+        // An indexed read's base is its lifetime-relevant place. The
+        // index local itself is a scalar, read by its own bounds check
+        // through plain operands, and never a borrow or drop target.
+        Operand::Index { place, .. } => Some(place.as_str()),
         _ => None,
     }
 }
@@ -1716,7 +1720,7 @@ mod borrow_end_tests {
         Stmt::Assign {
             dest: dest.to_string(),
             dest_place: None,
-            rvalue: Rvalue::Ref { place: place.to_string(), mut_: true, via: None, zst: false , off: 0, off2: 0, deref: false, deref_first: false, proj_loud: false , pty: None , deref_last: false },
+            rvalue: Rvalue::Ref { place: place.to_string(), mut_: true, via: None, zst: false , off: 0, off2: 0, deref: false, deref_first: false, proj_loud: false , pty: None , deref_last: false , idx: None, idx_size: 0, idx_const: None, idx_fe: None, fat: false},
         }
     }
 
@@ -1724,7 +1728,7 @@ mod borrow_end_tests {
         Stmt::Assign {
             dest: dest.to_string(),
             dest_place: None,
-            rvalue: Rvalue::Ref { place: place.to_string(), mut_: false, via: None, zst: false , off: 0, off2: 0, deref: false, deref_first: false, proj_loud: false , pty: None , deref_last: false },
+            rvalue: Rvalue::Ref { place: place.to_string(), mut_: false, via: None, zst: false , off: 0, off2: 0, deref: false, deref_first: false, proj_loud: false , pty: None , deref_last: false , idx: None, idx_size: 0, idx_const: None, idx_fe: None, fat: false},
         }
     }
 
@@ -1881,7 +1885,7 @@ mod borrow_end_tests {
         let blocks = vec![
             blk("bb0", vec![Stmt::Assign {
                 dest: "_2".to_string(), dest_place: None,
-                rvalue: Rvalue::Ref { place: "_1".to_string(), mut_: false, via: None, zst: true , off: 0, off2: 0, deref: false, deref_first: false, proj_loud: false , pty: None , deref_last: false },
+                rvalue: Rvalue::Ref { place: "_1".to_string(), mut_: false, via: None, zst: true , off: 0, off2: 0, deref: false, deref_first: false, proj_loud: false , pty: None , deref_last: false , idx: None, idx_size: 0, idx_const: None, idx_fe: None, fat: false},
             }], Term::Goto { target: "bb1".to_string() }),
             blk("bb1", vec![], Term::Drop { place: "_1".to_string(), target: "bb2".to_string() }),
             blk("bb2", vec![], Term::Return { ret: None }),
@@ -2279,7 +2283,7 @@ mod borrow_end_tests {
         // (UnknownRegister on the consumed register).
         let rawptr = Stmt::Assign {
             dest: "_2".to_string(), dest_place: None,
-            rvalue: Rvalue::RawPtr { place: "_3".to_string(), mut_: true , off: 0, off2: 0, deref: false, deref_first: false, proj_loud: false , pty: None , deref_last: false },
+            rvalue: Rvalue::RawPtr { place: "_3".to_string(), mut_: true , off: 0, off2: 0, deref: false, deref_first: false, proj_loud: false , pty: None , deref_last: false , idx: None, idx_size: 0, idx_const: None, idx_fe: None, fat: false},
         };
         let blocks = vec![
             blk("bb0", vec![rf("_3", "_1"), rawptr, use_move("_5", "_2")], Term::Call {

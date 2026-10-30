@@ -446,6 +446,13 @@ pub fn plan_place_store(
             (None, Some(place.clone()), matches!(op, Operand::Copy { .. }))
         }
         Operand::Conflict { .. } => return None,
+        // Indexed store values stay loud here by design: the value
+        // side is renderable (field_value_temp), but this plan
+        // function belongs to the store lane (W2/W3), and indexed
+        // values through a place store are their follow-up, not a
+        // W1 load-side change. Behavior-preserving: indexed values
+        // were proj_loud before and returned None above.
+        Operand::Index { .. } => return None,
     };
     // Place side.
     let stripped = strip_outer_parens(full);

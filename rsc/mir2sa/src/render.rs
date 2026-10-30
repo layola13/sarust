@@ -233,6 +233,27 @@ pub fn render_rvalue(
             if *zst {
                 return format!("// zero-sized borrow (no storage)\n{} = 0", dest);
             }
+            // Index-ref: a borrow of an indexed element points at
+            // the element cell (base + index * stride, through a fat
+            // data pointer when the chain dereferences a slice).
+            if let Some(ipr) = crate::render_util::rvalue_index(rv) {
+                let mut lines = vec![];
+                if *mut_ {
+                    lines.push("// mut-borrow (Phase1: & + Referee)".to_string());
+                }
+                if let Some(v) = via {
+                    lines.push(format!("// via {}", flat_comment(v)));
+                }
+                lines.append(&mut crate::render_util::index_addr_into(
+                    &ipr, dest, bid, mv_idx,
+                ));
+                if let Some(t) = spill.get(dest) {
+                    let slot = crate::spill::spill_slot(dest);
+                    lines.push(format!("{} = alloc 8", slot));
+                    lines.push(format!("store {}+0, {} as {}", slot, dest, t));
+                }
+                return lines.join("\n");
+            }
             // Field-precision: a field borrow points at the field cell
             // (scalar/reference fields) or at the buffer whose address
             // the slot stores (aggregate fields), never at the root.
@@ -498,6 +519,11 @@ pub fn render_rvalue(
             format!("{} = load {}+0 as i64", dest, place)
         }
         Rvalue::RawPtr { place, off, off2, deref, deref_first, deref_last, pty, .. } => {
+            // Index-ref: same element-address rule as Ref.
+            if let Some(ipr) = crate::render_util::rvalue_index(rv) {
+                return crate::render_util::index_addr_into(&ipr, dest, bid, mv_idx)
+                    .join("\n");
+            }
             // Field-precision: a raw pointer to a field uses the field
             // address, not the root local (same rule as Ref).
             if *off != 0 || *deref || pty.as_deref() == Some("buf") {
@@ -715,14 +741,14 @@ mod render_tests {
         assert_eq!(line, "_2 = load _1+8 as u64");
         // Scalar field borrow adds the offset (never moves the base).
         let (line, unsup) = render(
-            &Rvalue::Ref { place: "_1".to_string(), mut_: false, via: None, zst: false, off: 8, off2: 0, deref: false, deref_first: false, pty: Some("u64".to_string()), proj_loud: false , deref_last: false },
+            &Rvalue::Ref { place: "_1".to_string(), mut_: false, via: None, zst: false, off: 8, off2: 0, deref: false, deref_first: false, pty: Some("u64".to_string()), proj_loud: false , deref_last: false , idx: None, idx_size: 0, idx_const: None, idx_fe: None, fat: false},
             "_3",
         );
         assert!(unsup.is_empty(), "{:?}", unsup);
         assert_eq!(line, "_3 = add _1, 8");
         // Aggregate field borrow loads the slot's buffer address.
         let (line, unsup) = render(
-            &Rvalue::Ref { place: "_1".to_string(), mut_: false, via: None, zst: false, off: 16, off2: 0, deref: false, deref_first: false, pty: Some("buf".to_string()), proj_loud: false , deref_last: false },
+            &Rvalue::Ref { place: "_1".to_string(), mut_: false, via: None, zst: false, off: 16, off2: 0, deref: false, deref_first: false, pty: Some("buf".to_string()), proj_loud: false , deref_last: false , idx: None, idx_size: 0, idx_const: None, idx_fe: None, fat: false},
             "_4",
         );
         assert!(unsup.is_empty(), "{:?}", unsup);

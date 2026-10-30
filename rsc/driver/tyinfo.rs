@@ -1,5 +1,5 @@
 //! rsc_driver::tyinfo.
-use crate::util::trunc;
+use crate::util::{local_name, trunc};
 use rustc_middle::mir::interpret::GlobalId;
 use rustc_middle::mir::{Body, Const, ConstOperand, Operand, Place};
 use rustc_middle::ty::{ConstKind, Mutability, Ty, TyCtxt, TyKind};
@@ -305,6 +305,24 @@ pub struct PlaceProj {
     pub deref_last: bool,
     pub pty: Option<String>,
     pub loud: bool,
+    /// Dynamic index (Index step, last): the index local's name and
+    /// the element stride in bytes. None when the chain has no
+    /// dynamic index step.
+    pub idx_local: Option<String>,
+    pub idx_size: u64,
+    /// Static index byte offset (fat ConstantIndex, last): bytes from
+    /// the deref data pointer (or the base when no deref). A non-fat
+    /// static index folds into off/off2 instead and needs no marker.
+    pub idx_const: Option<u64>,
+    /// Slice from-end index (ConstantIndex from_end on a slice base):
+    /// the from-end offset; effective index = len - offset (min_length
+    /// is only a length precondition, not part of the index math --
+    /// confirmed by slice patterns [-2 of 2] / [-1 of 2] on len 4).
+    pub idx_fe: Option<u64>,
+    /// A deref in the chain dereferences a fat pointer (slice/str
+    /// pointee). Only meaningful together with an index step: plain
+    /// fat derefs keep today's rendering (the pair address itself).
+    pub fat: bool,
 }
 
 fn proj_layout<'tcx>(
@@ -336,6 +354,14 @@ pub fn place_proj<'tcx>(
     let mut only_union_fields = true;
     let mut variant: Option<rustc_middle::ty::layout::TyAndLayout<'tcx>> = None;
     let mut seen_deref = false;
+    // Index scope (W1, Jev A: index as the LAST step only): any
+    // projection after an index step, a second index step, an index
+    // through a union field (unverified union storage), or an index
+    // through an aggregate-typed field (the existing buf-crossing rule
+    // below already louds those) stays loud.
+    let mut seen_index = false;
+    let mut saw_union_field = false;
+    let mut deref_fat = false;
     // mir2sa stores an aggregate-typed field as a POINTER SLOT in the
     // outer buffer (lower_adt_init stores `^inner`, not inline bytes),
     // so a path that crosses such a field cannot use one total rustc
@@ -355,6 +381,10 @@ pub fn place_proj<'tcx>(
     for (i, elem) in elems.into_iter().enumerate() {
         match elem {
             ProjectionElem::Field(idx, field_ty) => {
+                if seen_index {
+                    out.loud = true;
+                    return out;
+                }
                 let lay = match &variant {
                     Some(v) => Some(*v),
                     None => proj_layout(tcx, cur_ty),
@@ -370,6 +400,9 @@ pub fn place_proj<'tcx>(
                 // non-Arbitrary/Array shapes (primitives) have no
                 // fields and stay loud.
                 let is_union = matches!(lay.fields, rustc_abi::FieldsShape::Union(..));
+                if is_union {
+                    saw_union_field = true;
+                }
                 if !is_union {
                     only_union_fields = false;
                 }
@@ -406,6 +439,10 @@ pub fn place_proj<'tcx>(
             }
             ProjectionElem::Deref => {
                 only_union_fields = false;
+                if seen_index {
+                    out.loud = true;
+                    return out;
+                }
                 if seen_deref {
                     out.loud = true;
                     return out;
@@ -413,6 +450,14 @@ pub fn place_proj<'tcx>(
                 seen_deref = true;
                 out.deref = true;
                 out.deref_first = i == 0;
+                // Fat when the pointer's pointee is unsized (slice/str):
+                // its SA value is a (ptr, len) pair, so an index past
+                // this deref reads through the pair's data pointer.
+                deref_fat = matches!(
+                    cur_ty.kind(),
+                    TyKind::Ref(_, inner, _) | TyKind::RawPtr(inner, _)
+                        if matches!(inner.kind(), TyKind::Slice(..) | TyKind::Str)
+                );
                 cur_ty = match cur_ty.kind() {
                     TyKind::Ref(_, inner, _) | TyKind::RawPtr(inner, _) => *inner,
                     _ => {
@@ -424,6 +469,10 @@ pub fn place_proj<'tcx>(
             }
             ProjectionElem::Downcast(_, variant_idx) => {
                 only_union_fields = false;
+                if seen_index {
+                    out.loud = true;
+                    return out;
+                }
                 if !matches!(cur_ty.kind(), TyKind::Adt(..)) {
                     out.loud = true;
                     return out;
@@ -436,7 +485,129 @@ pub fn place_proj<'tcx>(
                 let cx = LayoutCx::new(tcx, typing_env);
                 variant = Some(lay.for_variant(&cx, variant_idx));
             }
-            ProjectionElem::ConstantIndex { .. } => {
+            ProjectionElem::Index(idx_local) => {
+                only_union_fields = false;
+                if seen_index || saw_union_field {
+                    out.loud = true;
+                    return out;
+                }
+                seen_index = true;
+                let (elem_ty, stride) = match cur_ty.kind() {
+                    TyKind::Array(elem, _) | TyKind::Slice(elem) => {
+                        let Some(l) = proj_layout(tcx, *elem) else {
+                            out.loud = true;
+                            return out;
+                        };
+                        (*elem, l.size.bytes())
+                    }
+                    _ => {
+                        out.loud = true;
+                        return out;
+                    }
+                };
+                out.idx_local = Some(local_name(idx_local));
+                out.idx_size = stride;
+                out.fat = seen_deref && deref_fat;
+                cur_ty = elem_ty;
+            }
+            ProjectionElem::ConstantIndex { offset, min_length: _min_length, from_end } => {
+                only_union_fields = false;
+                if seen_index || saw_union_field {
+                    out.loud = true;
+                    return out;
+                }
+                seen_index = true;
+                // (element type, stride, array length when known).
+                // Array length comes from the rustc layout (size /
+                // stride), never from const-eval: arrays carry no
+                // padding beyond the element stride.
+                let (elem_ty, stride, arr_len) = match cur_ty.kind() {
+                    TyKind::Array(elem, _) => {
+                        let Some(l) = proj_layout(tcx, *elem) else {
+                            out.loud = true;
+                            return out;
+                        };
+                        let stride = l.size.bytes();
+                        let arr_len = if stride == 0 {
+                            None // ZST: every index is byte 0, no length math.
+                        } else {
+                            match proj_layout(tcx, cur_ty) {
+                                Some(al) if al.size.bytes() % stride == 0 => {
+                                    Some(al.size.bytes() / stride)
+                                }
+                                _ => {
+                                    out.loud = true;
+                                    return out;
+                                }
+                            }
+                        };
+                        (*elem, stride, arr_len)
+                    }
+                    TyKind::Slice(elem) => {
+                        let Some(l) = proj_layout(tcx, *elem) else {
+                            out.loud = true;
+                            return out;
+                        };
+                        (*elem, l.size.bytes(), None)
+                    }
+                    _ => {
+                        out.loud = true;
+                        return out;
+                    }
+                };
+                if stride == 0 {
+                    // Zero-sized elements: the byte offset is always 0.
+                } else if from_end {
+                    match arr_len {
+                        Some(len) => {
+                            // Array: static. rustc from-end semantics
+                            // (slice patterns [-2 of 2] / [-1 of 2] on
+                            // len 4): element at len - offset.
+                            if offset == 0 || offset > len {
+                                out.loud = true;
+                                return out;
+                            }
+                            let idx = len - offset;
+                            let bytes = idx * stride;
+                            if seen_deref {
+                                out.off2 += bytes;
+                            } else {
+                                out.off += bytes;
+                            }
+                        }
+                        None => {
+                            // Slice: dynamic from the fat length; a
+                            // fat deref is mandatory (a thin pointer
+                            // cannot point at a slice).
+                            if !seen_deref || !deref_fat || offset == 0 {
+                                out.loud = true;
+                                return out;
+                            }
+                            out.idx_fe = Some(offset);
+                            out.idx_size = stride;
+                            out.fat = true;
+                        }
+                    }
+                } else if seen_deref && deref_fat {
+                    // Fat static index: keep the step explicit so the
+                    // backend loads the pair's data pointer first; a
+                    // fold into off2 would load from the pair address.
+                    out.idx_const = Some(offset.saturating_mul(stride));
+                    out.idx_size = stride;
+                    out.fat = true;
+                } else {
+                    let bytes = offset.saturating_mul(stride);
+                    if seen_deref {
+                        out.off2 += bytes;
+                    } else {
+                        out.off += bytes;
+                    }
+                }
+                cur_ty = elem_ty;
+            }
+            ProjectionElem::Subslice { .. } => {
+                // A subslice is a fat slice value, not a scalar load:
+                // stays loud (Jev A scope).
                 out.loud = true;
                 return out;
             }
@@ -475,6 +646,12 @@ pub fn place_proj<'tcx>(
         if out.pty.is_none() {
             out.loud = true;
         }
+    }
+    // Aggregate-typed index elements have two live storage shapes
+    // (inline bytes for const-init arrays, pointer slots for ADT-path
+    // arrays); one pty cannot tell them apart, so they stay loud.
+    if seen_index && out.pty.as_deref() == Some("buf") {
+        out.loud = true;
     }
     out.deref_last = deref_last;
     out

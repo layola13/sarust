@@ -264,6 +264,11 @@ pub fn render_operand(op: &Operand) -> String {
     match op {
         Operand::Move { place , .. } => place.clone(),
         Operand::Copy { place , .. } => place.clone(),
+        // Indexed reads never reach here either: every code position
+        // checks operand_is_projected / operand_proj_loud first and
+        // routes through index_value_into; only loud-fallback comment
+        // strings can still print an indexed operand's root.
+        Operand::Index { place, .. } => place.clone(),
         // Conflict sentinels never reach here (intercepted loud upstream);
         // the fallback keeps rendering total.
         Operand::Conflict { place, .. } => place.clone(),
@@ -302,6 +307,117 @@ pub struct OperandProj<'a> {
     pub proj_loud: bool,
 }
 
+/// Index projection view, shared by Operand::Index and by Ref/RawPtr
+/// rvalues carrying index fields. `place` is the root local; off/off2
+/// are the static field offsets (pre/post deref) exactly as for
+/// Copy/Move; exactly one of idx / idx_const / idx_fe selects the
+/// index form (see mir.rs). `fat` marks a fat-pointer deref in the
+/// chain (data pointer at pair +0, length at +8).
+pub struct IndexProj<'a> {
+    pub place: &'a str,
+    pub off: u64,
+    pub off2: u64,
+    pub deref: bool,
+    pub deref_first: bool,
+    pub pty: Option<&'a str>,
+    pub proj_loud: bool,
+    pub idx: Option<&'a str>,
+    pub idx_size: u64,
+    pub idx_const: Option<u64>,
+    pub idx_fe: Option<u64>,
+    pub fat: bool,
+}
+
+/// The index form of an IndexProj: dynamic local + stride, static
+/// byte offset, or slice from-end offset + stride.
+pub enum IndexForm<'a> {
+    Dyn(&'a str, u64),
+    Const(u64),
+    FromEnd(u64, u64),
+}
+
+impl<'a> IndexProj<'a> {
+    pub fn form(&self) -> Option<IndexForm<'a>> {
+        match (self.idx, self.idx_const, self.idx_fe) {
+            (Some(l), None, None) => Some(IndexForm::Dyn(l, self.idx_size)),
+            (None, Some(b), None) => Some(IndexForm::Const(b)),
+            (None, None, Some(o)) => Some(IndexForm::FromEnd(o, self.idx_size)),
+            _ => None,
+        }
+    }
+}
+
+pub fn operand_index(op: &Operand) -> Option<IndexProj<'_>> {
+    match op {
+        Operand::Index { place, off, off2, deref, deref_first, pty, proj_loud, idx, idx_size, idx_const, idx_fe, fat } => {
+            Some(IndexProj {
+                place,
+                off: *off,
+                off2: *off2,
+                deref: *deref,
+                deref_first: *deref_first,
+                pty: pty.as_deref(),
+                proj_loud: *proj_loud,
+                idx: idx.as_deref(),
+                idx_size: *idx_size,
+                idx_const: *idx_const,
+                idx_fe: *idx_fe,
+                fat: *fat,
+            })
+        }
+        _ => None,
+    }
+}
+
+/// Index view of a Ref/RawPtr rvalue, Some only when an index form is
+/// present (a plain fat deref without an index keeps the old path:
+/// its address IS the pair address, not the data pointer).
+pub fn rvalue_index(rv: &Rvalue) -> Option<IndexProj<'_>> {
+    match rv {
+        Rvalue::Ref { place, off, off2, deref, deref_first, pty, proj_loud, idx, idx_size, idx_const, idx_fe, fat, .. } => {
+            if idx.is_some() || idx_const.is_some() || idx_fe.is_some() {
+                Some(IndexProj {
+                    place,
+                    off: *off,
+                    off2: *off2,
+                    deref: *deref,
+                    deref_first: *deref_first,
+                    pty: pty.as_deref(),
+                    proj_loud: *proj_loud,
+                    idx: idx.as_deref(),
+                    idx_size: *idx_size,
+                    idx_const: *idx_const,
+                    idx_fe: *idx_fe,
+                    fat: *fat,
+                })
+            } else {
+                None
+            }
+        }
+        Rvalue::RawPtr { place, off, off2, deref, deref_first, pty, proj_loud, idx, idx_size, idx_const, idx_fe, fat, .. } => {
+            if idx.is_some() || idx_const.is_some() || idx_fe.is_some() {
+                Some(IndexProj {
+                    place,
+                    off: *off,
+                    off2: *off2,
+                    deref: *deref,
+                    deref_first: *deref_first,
+                    pty: pty.as_deref(),
+                    proj_loud: *proj_loud,
+                    idx: idx.as_deref(),
+                    idx_size: *idx_size,
+                    idx_const: *idx_const,
+                    idx_fe: *idx_fe,
+                    fat: *fat,
+                })
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
 pub fn operand_proj(op: &Operand) -> Option<OperandProj<'_>> {
     match op {
         Operand::Move { place, off, off2, deref, deref_first, deref_last, pty, proj_loud, .. }
@@ -335,6 +451,13 @@ pub fn operand_proj(op: &Operand) -> Option<OperandProj<'_>> {
 /// the join). Rendering still uses operand_is_projected (which includes
 /// deref) for field loads.
 pub fn operand_is_field_projected(op: &Operand) -> bool {
+    // An indexed read loads from a buffer cell and never consumes its
+    // base, exactly like a field read (borrow_end skips it as a
+    // consuming event for the base; the index local itself is a scalar
+    // read by its own bounds check through plain operands).
+    if operand_index(op).is_some() {
+        return true;
+    }
     match op {
         Operand::Move { off, pty, .. } | Operand::Copy { off, pty, .. } => {
             *off != 0 || pty.as_deref() == Some("buf")
@@ -344,13 +467,48 @@ pub fn operand_is_field_projected(op: &Operand) -> bool {
 }
 
 pub fn operand_is_projected(op: &Operand) -> bool {
+    // An index read never binds its root local: even index 0 must
+    // load the cell (a plain move would bind the buffer pointer).
+    if operand_index(op).is_some() {
+        return true;
+    }
     operand_proj(op).is_some_and(|p| p.off != 0 || p.deref || p.pty == Some("buf"))
 }
 
 /// True when the operand's projection cannot be rendered exactly: the
 /// driver flagged it, or it is projected without a field type (old or
 /// hand-written mir.json cannot type the load). Such operands go loud.
+/// True when an indexed place cannot be rendered exactly: the driver
+/// flagged it, the index form is missing or ambiguous (two forms at
+/// once), the element type is unknown or aggregate-typed (inline
+/// bytes vs ADT pointer slots share one pty, so neither is exact),
+/// a fat flag appears without a deref, or a from-end index lacks the
+/// fat length it computes from.
+pub fn index_proj_loud(pr: &IndexProj<'_>) -> bool {
+    if pr.proj_loud {
+        return true;
+    }
+    if pr.form().is_none() {
+        return true;
+    }
+    match pr.pty {
+        None => return true,
+        Some("buf") => return true,
+        _ => {}
+    }
+    if pr.fat && !pr.deref {
+        return true;
+    }
+    if pr.idx_fe.is_some() && !pr.fat {
+        return true;
+    }
+    false
+}
+
 pub fn operand_proj_loud(op: &Operand) -> bool {
+    if let Some(ipr) = operand_index(op) {
+        return index_proj_loud(&ipr);
+    }
     match operand_proj(op) {
         Some(pr) => pr.proj_loud || (operand_is_projected(op) && pr.pty.is_none()),
         None => false,
@@ -372,9 +530,15 @@ pub fn rvalue_proj_loud(rv: &Rvalue) -> bool {
         Rvalue::Aggregate { elems, .. } => elems.iter().any(operand_proj_loud),
         Rvalue::Repeat { op, .. } => operand_proj_loud(op.as_ref()),
         Rvalue::Ref { proj_loud, off, deref, pty, .. } => {
+            if let Some(ipr) = rvalue_index(rv) {
+                return index_proj_loud(&ipr);
+            }
             *proj_loud || ((*off != 0 || *deref) && pty.is_none())
         }
         Rvalue::RawPtr { proj_loud, off, deref, pty, .. } => {
+            if let Some(ipr) = rvalue_index(rv) {
+                return index_proj_loud(&ipr);
+            }
             *proj_loud || ((*off != 0 || *deref) && pty.is_none())
         }
         _ => false,
@@ -440,6 +604,259 @@ fn field_base(
     }
 }
 
+/// (lines, data_reg, pair_reg, static_tail) for an indexed place:
+/// `data_reg` holds the element array's data pointer; `pair_reg` is
+/// Some only for fat derefs (the (ptr, len) pair address, which
+/// from-end indices read their length from); `static_tail` is the
+/// static byte offset still to add (off with no deref, off2 after a
+/// deref). Loads read without consuming, so spilled and unspilled
+/// bases behave identically here, as for field_base.
+fn index_base(
+    pr: &IndexProj<'_>,
+    bid: &str,
+    idx: &mut usize,
+) -> (Vec<String>, String, Option<String>, u64) {
+    if !pr.deref {
+        (vec![], pr.place.to_string(), None, pr.off)
+    } else if pr.deref_first {
+        if pr.fat {
+            let data = format!("_mv_{}_{}", bid, *idx);
+            *idx += 1;
+            (
+                vec![format!("{} = load {}+0 as ptr", data, pr.place)],
+                data,
+                Some(pr.place.to_string()),
+                pr.off2,
+            )
+        } else {
+            (vec![], pr.place.to_string(), None, pr.off2)
+        }
+    } else {
+        let p = format!("_mv_{}_{}", bid, *idx);
+        *idx += 1;
+        let mut lines = vec![format!("{} = load {}+{} as ptr", p, pr.place, pr.off)];
+        if pr.fat {
+            let data = format!("_mv_{}_{}", bid, *idx);
+            *idx += 1;
+            lines.push(format!("{} = load {}+0 as ptr", data, p));
+            (lines, data, Some(p), pr.off2)
+        } else {
+            (lines, p, None, pr.off2)
+        }
+    }
+}
+
+/// (lines, addr_reg, addr_is_fresh) for an indexed place's element
+/// address: `addr_reg` holds base + static_tail + index * stride.
+/// When `addr_is_fresh` is false, `addr_reg` IS the base register
+/// itself (zero total offset, no resolution temps) and callers must
+/// bind it with `add base, 0`, never with a plain move.
+fn index_addr_reg(
+    pr: &IndexProj<'_>,
+    bid: &str,
+    idx: &mut usize,
+) -> (Vec<String>, String, bool) {
+    let (mut lines, data, pair, tail) = index_base(pr, bid, idx);
+    let had_temps = !lines.is_empty();
+    match pr.form() {
+        Some(IndexForm::Dyn(local, size)) => {
+            if size == 0 {
+                (lines, data, had_temps)
+            } else {
+                let sc = format!("_mv_{}_{}", bid, *idx);
+                *idx += 1;
+                lines.push(format!("{} = mul {}, {}", sc, local, size));
+                let mut addr = format!("_mv_{}_{}", bid, *idx);
+                *idx += 1;
+                lines.push(format!("{} = add {}, {}", addr, data, sc));
+                if tail != 0 {
+                    let a2 = format!("_mv_{}_{}", bid, *idx);
+                    *idx += 1;
+                    lines.push(format!("{} = add {}, {}", a2, addr, tail));
+                    addr = a2;
+                }
+                (lines, addr, true)
+            }
+        }
+        Some(IndexForm::Const(bytes)) => {
+            if tail + bytes == 0 {
+                (lines, data, had_temps)
+            } else {
+                let addr = format!("_mv_{}_{}", bid, *idx);
+                *idx += 1;
+                lines.push(format!("{} = add {}, {}", addr, data, tail + bytes));
+                (lines, addr, true)
+            }
+        }
+        Some(IndexForm::FromEnd(off, size)) => {
+            // The loud gate guarantees a fat pair here; the fallback
+            // keeps rendering total for direct (non-pipeline) callers.
+            let Some(pair) = pair else {
+                return (lines, data, had_temps);
+            };
+            let lent = format!("_mv_{}_{}", bid, *idx);
+            *idx += 1;
+            lines.push(format!("{} = load {}+8 as u64", lent, pair));
+            let eff = format!("_mv_{}_{}", bid, *idx);
+            *idx += 1;
+            lines.push(format!("{} = sub {}, {}", eff, lent, off));
+            if size == 0 {
+                (lines, data, had_temps)
+            } else {
+                let sc = format!("_mv_{}_{}", bid, *idx);
+                *idx += 1;
+                lines.push(format!("{} = mul {}, {}", sc, eff, size));
+                let mut addr = format!("_mv_{}_{}", bid, *idx);
+                *idx += 1;
+                lines.push(format!("{} = add {}, {}", addr, data, sc));
+                if tail != 0 {
+                    let a2 = format!("_mv_{}_{}", bid, *idx);
+                    *idx += 1;
+                    lines.push(format!("{} = add {}, {}", a2, addr, tail));
+                    addr = a2;
+                }
+                (lines, addr, true)
+            }
+        }
+        None => (lines, data, had_temps),
+    }
+}
+
+/// Lines binding `dest` to an indexed operand's VALUE. Scalar and
+/// pointer elements load from the computed element address;
+/// zero-sized elements are 0 (their address is never read).
+pub fn index_value_into(
+    pr: &IndexProj<'_>,
+    dest: &str,
+    bid: &str,
+    idx: &mut usize,
+) -> Vec<String> {
+    if pr.pty == Some("zst") {
+        return vec![format!("{} = 0", dest)];
+    }
+    // Untyped / aggregate-typed index reads are gated loud upstream
+    // (index_proj_loud); the fallback keeps rendering total.
+    let Some(ty) = pr.pty else {
+        return vec![format!("{} = 0", dest)];
+    };
+    if ty == "buf" {
+        return vec![format!("{} = 0", dest)];
+    }
+    // Loads never consume their base, so a zero-offset address that
+    // IS the base register loads exactly like a fresh address temp.
+    let (mut lines, addr, _fresh) = index_addr_reg(pr, bid, idx);
+    lines.push(format!("{} = load {}+0 as {}", dest, addr, ty));
+    lines
+}
+
+/// Lines binding `dest` to an indexed Ref/RawPtr's ADDRESS. The
+/// address temp is fresh, so binding it never moves the base; the
+/// only base-preserving case is a zero total offset with no
+/// resolution temps, which renders as `add base, 0` (a plain assign
+/// would move the base pointer, but a borrow must not consume it).
+pub fn index_addr_into(
+    pr: &IndexProj<'_>,
+    dest: &str,
+    bid: &str,
+    idx: &mut usize,
+) -> Vec<String> {
+    let (mut lines, addr, fresh) = index_addr_reg(pr, bid, idx);
+    if fresh {
+        lines.push(format!("{} = {}", dest, addr));
+    } else {
+        lines.push(format!("{} = add {}, 0", dest, addr));
+    }
+    lines
+}
+
+/// Same value rule as index_value_into but with a caller-chosen temp
+/// name and no shared counter: temps derive from `tmp` itself, so
+/// names stay unique per caller context. Used by lower_adt_init,
+/// which has no mv_idx to thread.
+pub fn index_value_named(pr: &IndexProj<'_>, tmp: &str) -> Vec<String> {
+    if pr.pty == Some("zst") {
+        return vec![format!("{} = 0", tmp)];
+    }
+    let Some(ty) = pr.pty else {
+        return vec![format!("{} = 0", tmp)];
+    };
+    if ty == "buf" {
+        return vec![format!("{} = 0", tmp)];
+    }
+    // Named-base resolution (mirrors index_base, temps from `tmp`).
+    let (mut lines, data, pair, tail) = if !pr.deref {
+        (vec![], pr.place.to_string(), None, pr.off)
+    } else if pr.deref_first {
+        if pr.fat {
+            let data = format!("{}_data", tmp);
+            (
+                vec![format!("{} = load {}+0 as ptr", data, pr.place)],
+                data,
+                Some(pr.place.to_string()),
+                pr.off2,
+            )
+        } else {
+            (vec![], pr.place.to_string(), None, pr.off2)
+        }
+    } else {
+        let p = format!("{}_ptr", tmp);
+        let mut lines = vec![format!("{} = load {}+{} as ptr", p, pr.place, pr.off)];
+        if pr.fat {
+            let data = format!("{}_data", tmp);
+            lines.push(format!("{} = load {}+0 as ptr", data, p));
+            (lines, data, Some(p), pr.off2)
+        } else {
+            (lines, p, None, pr.off2)
+        }
+    };
+    match pr.form() {
+        Some(IndexForm::Dyn(local, size)) => {
+            if size == 0 {
+                lines.push(format!("{} = load {}+{} as {}", tmp, data, tail, ty));
+            } else {
+                let sc = format!("{}_sc", tmp);
+                lines.push(format!("{} = mul {}, {}", sc, local, size));
+                let mut addr = format!("{}_addr", tmp);
+                lines.push(format!("{} = add {}, {}", addr, data, sc));
+                if tail != 0 {
+                    let a2 = format!("{}_addr2", tmp);
+                    lines.push(format!("{} = add {}, {}", a2, addr, tail));
+                    addr = a2;
+                }
+                lines.push(format!("{} = load {}+0 as {}", tmp, addr, ty));
+            }
+        }
+        Some(IndexForm::Const(bytes)) => {
+            lines.push(format!("{} = load {}+{} as {}", tmp, data, tail + bytes, ty));
+        }
+        Some(IndexForm::FromEnd(off, size)) => {
+            let Some(pair) = pair else {
+                return vec![format!("{} = 0", tmp)];
+            };
+            let lent = format!("{}_len", tmp);
+            lines.push(format!("{} = load {}+8 as u64", lent, pair));
+            let eff = format!("{}_eff", tmp);
+            lines.push(format!("{} = sub {}, {}", eff, lent, off));
+            if size == 0 {
+                lines.push(format!("{} = load {}+{} as {}", tmp, data, tail, ty));
+            } else {
+                let sc = format!("{}_sc", tmp);
+                lines.push(format!("{} = mul {}, {}", sc, eff, size));
+                let mut addr = format!("{}_addr", tmp);
+                lines.push(format!("{} = add {}, {}", addr, data, sc));
+                if tail != 0 {
+                    let a2 = format!("{}_addr2", tmp);
+                    lines.push(format!("{} = add {}, {}", a2, addr, tail));
+                    addr = a2;
+                }
+                lines.push(format!("{} = load {}+0 as {}", tmp, addr, ty));
+            }
+        }
+        None => lines.push(format!("{} = 0", tmp)),
+    }
+    lines
+}
+
 /// Lines binding `dest` to a projected operand's VALUE. mir2sa stores
 /// aggregate-typed fields as pointer slots (lower_adt_init stores the
 /// inner buffer pointer, not inline bytes), so every field value is a
@@ -451,6 +868,9 @@ pub fn field_value_into(
     bid: &str,
     idx: &mut usize,
 ) -> Vec<String> {
+    if let Some(ipr) = operand_index(op) {
+        return index_value_into(&ipr, dest, bid, idx);
+    }
     let pr = match operand_proj(op) {
         Some(pr) => pr,
         None => return vec![format!("{} = {}", dest, render_operand(op))],
@@ -496,6 +916,9 @@ pub fn field_value_temp(
 /// derives from `tmp` itself, so names stay unique per caller context.
 /// Used by lower_adt_init, which has no mv_idx to thread.
 pub fn field_value_named(op: &Operand, tmp: &str) -> Vec<String> {
+    if let Some(ipr) = operand_index(op) {
+        return index_value_named(&ipr, tmp);
+    }
     let pr = match operand_proj(op) {
         Some(pr) => pr,
         None => return vec![format!("{} = {}", tmp, render_operand(op))],
@@ -633,6 +1056,9 @@ pub fn binop_operand_signedness(
             let base = base_local(place)?;
             int_type_signedness(local_types.get(base)?)
         }
+        // An indexed element's signedness is its own driver type
+        // (the base place's array type says nothing about it).
+        Operand::Index { pty, .. } => pty.as_deref().and_then(int_type_signedness),
         Operand::Const { value, .. } => {
             let (ty, _) = crate::const_util::const_elem_ty(value)?;
             int_type_signedness(ty)
@@ -803,6 +1229,11 @@ pub fn build_constmap<'a>(
                             map.remove(dest);
                         }
                     }
+                    // An indexed value is not a literal: the dest's
+                    // old literal mapping (if any) is invalidated.
+                    Operand::Index { .. } => {
+                        map.remove(dest);
+                    }
                 },
                 _ => {
                     map.remove(dest);
@@ -811,4 +1242,143 @@ pub fn build_constmap<'a>(
         }
     }
     map
+}
+
+#[cfg(test)]
+mod index_tests {
+    use super::*;
+    use crate::mir::Operand;
+
+    fn idx_op(
+        place: &str,
+        pty: Option<&str>,
+        idx: Option<&str>,
+        idx_size: u64,
+        idx_const: Option<u64>,
+        idx_fe: Option<u64>,
+        deref: bool,
+        deref_first: bool,
+        fat: bool,
+    ) -> Operand {
+        Operand::Index {
+            place: place.to_string(),
+            off: 0,
+            off2: 0,
+            deref,
+            deref_first,
+            pty: pty.map(|t| t.to_string()),
+            proj_loud: false,
+            idx: idx.map(|t| t.to_string()),
+            idx_size,
+            idx_const,
+            idx_fe,
+            fat,
+        }
+    }
+
+    #[test]
+    fn dyn_index_value_loads_scaled_address() {
+        let op = idx_op("_1", Some("u64"), Some("_2"), 8, None, None, false, false, false);
+        assert!(operand_is_projected(&op));
+        assert!(operand_is_field_projected(&op));
+        assert!(!operand_proj_loud(&op));
+        let mut c = 0;
+        let lines = field_value_into(&op, "_0", "bb1", &mut c);
+        let text = lines.join("\n");
+        assert!(text.contains("mul"), "{}", text);
+        assert!(text.contains("_2, 8"), "{}", text);
+        assert!(text.contains("load"), "{}", text);
+        assert!(lines.last().unwrap().starts_with("_0 = load"), "{}", text);
+    }
+
+    #[test]
+    fn dyn_index_value_text() {
+        let op = idx_op("_1", Some("u64"), Some("_2"), 8, None, None, false, false, false);
+        let mut c = 0;
+        let lines = field_value_into(&op, "_0", "bb1", &mut c);
+        assert_eq!(
+            lines,
+            vec![
+                "_mv_bb1_0 = mul _2, 8".to_string(),
+                "_mv_bb1_1 = add _1, _mv_bb1_0".to_string(),
+                "_0 = load _mv_bb1_1+0 as u64".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn fat_index_value_loads_data_pointer_first() {
+        let op = idx_op("_2", Some("u64"), Some("_4"), 8, None, None, true, true, true);
+        let mut c = 0;
+        let lines = field_value_into(&op, "_0", "bb1", &mut c);
+        assert_eq!(lines[0], "_mv_bb1_0 = load _2+0 as ptr");
+        assert!(lines.iter().any(|l| l.contains("mul _4, 8")));
+        assert!(lines.last().unwrap().ends_with("as u64"));
+    }
+
+    #[test]
+    fn const_fat_index_value_is_data_plus_bytes() {
+        let op = idx_op("_2", Some("u64"), None, 8, Some(16), None, true, true, true);
+        let mut c = 0;
+        let lines = field_value_into(&op, "_0", "bb1", &mut c);
+        // Const goes through the uniform address-temp path (the
+        // temp + load 0 reads exactly the data+16 cell).
+        assert_eq!(
+            lines,
+            vec![
+                "_mv_bb1_0 = load _2+0 as ptr".to_string(),
+                "_mv_bb1_1 = add _mv_bb1_0, 16".to_string(),
+                "_0 = load _mv_bb1_1+0 as u64".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn from_end_index_value_subtracts_from_length() {
+        let op = idx_op("_2", Some("u64"), None, 8, None, Some(1), true, true, true);
+        let mut c = 0;
+        let lines = field_value_into(&op, "_0", "bb1", &mut c);
+        let text = lines.join("\n");
+        assert!(text.contains("load _2+8 as u64"), "{}", text);
+        assert!(text.contains("sub"), "{}", text);
+        assert!(text.contains("mul"), "{}", text);
+    }
+
+    #[test]
+    fn index_addr_zero_offset_does_not_move_base() {
+        let op = idx_op("_1", Some("u64"), None, 8, Some(0), None, false, false, false);
+        let ipr = operand_index(&op).unwrap();
+        let mut c = 0;
+        let lines = index_addr_into(&ipr, "_d", "bb1", &mut c);
+        assert_eq!(lines, vec!["_d = add _1, 0".to_string()]);
+    }
+
+    #[test]
+    fn index_loud_gates() {
+        // Aggregate-typed elements stay loud (two storage shapes).
+        let op = idx_op("_1", Some("buf"), Some("_2"), 8, None, None, false, false, false);
+        assert!(operand_proj_loud(&op));
+        // No index form at all stays loud.
+        let op = idx_op("_1", Some("u64"), None, 8, None, None, false, false, false);
+        assert!(operand_proj_loud(&op));
+        // Two index forms at once stay loud.
+        let op = idx_op("_1", Some("u64"), Some("_2"), 8, Some(0), None, false, false, false);
+        assert!(operand_proj_loud(&op));
+        // Untyped stays loud.
+        let op = idx_op("_1", None, Some("_2"), 8, None, None, false, false, false);
+        assert!(operand_proj_loud(&op));
+        // From-end without a fat length stays loud.
+        let op = idx_op("_1", Some("u64"), None, 8, None, Some(1), false, false, false);
+        assert!(operand_proj_loud(&op));
+        // Fat without a deref stays loud.
+        let op = idx_op("_1", Some("u64"), Some("_2"), 8, None, None, false, false, true);
+        assert!(operand_proj_loud(&op));
+    }
+
+    #[test]
+    fn zst_index_value_is_zero() {
+        let op = idx_op("_1", Some("zst"), Some("_2"), 0, None, None, false, false, false);
+        let mut c = 0;
+        assert_eq!(field_value_into(&op, "_0", "bb1", &mut c), vec!["_0 = 0".to_string()]);
+    }
 }

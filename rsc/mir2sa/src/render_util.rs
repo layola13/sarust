@@ -90,7 +90,7 @@ pub fn loud_operand_reason(op: &Operand) -> Option<String> {
 /// keeps the strict `const_needs_loud` verdict.
 pub fn const_needs_loud_value(op: &Operand) -> bool {
     match op {
-        Operand::Const { value, str_bytes, str_len } => {
+        Operand::Const { value, str_bytes, str_len, .. } => {
             let inlineable = crate::layout::plan_const_bytes(
                 "_probe", "bb", 0, value, str_bytes.as_ref(), *str_len,
             )
@@ -114,7 +114,7 @@ pub fn const_needs_loud_value(op: &Operand) -> bool {
 /// cond is still loud: those positions take a plain scalar, not a pair).
 pub fn const_needs_loud_call(op: &Operand) -> bool {
     match op {
-        Operand::Const { value, str_bytes, str_len } => {
+        Operand::Const { value, str_bytes, str_len, .. } => {
             if crate::layout::plan_str_pair(
                 "_probe", "bb", 0, value, str_bytes.as_ref(), *str_len,
             )
@@ -167,7 +167,7 @@ pub fn render_call_arg_preamble(
         return (lines, tmp.clone(), vec![tmp]);
     }
     match op {
-        Operand::Const { value, str_bytes, str_len } => {
+        Operand::Const { value, str_bytes, str_len, .. } => {
             let tmp = format!("_carg_{}_{}", bid, *idx);
             if let Some(lines) = crate::layout::plan_str_pair(
                 &tmp, bid, *idx, value, str_bytes.as_ref(), *str_len,

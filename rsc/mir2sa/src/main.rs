@@ -148,7 +148,8 @@ fn cmd_coverage(args: &[String]) -> ExitCode {
                         // Calls without signatures mirror lower()'s CallNoSig.
                         let fails = if phi_place_fails {
                             true
-                        } else if assign_loud_const(rvalue).is_some() {
+                        } else if assign_loud_const(rvalue).is_some()
+                            && !matches!(rvalue, Rvalue::Use { op } if routed_static_cell(op).is_some()) {
                             true
                         } else if crate::render_util::rvalue_proj_loud(rvalue)
                             || crate::render_util::rvalue_agg_field_copy_loud(rvalue)
@@ -466,11 +467,11 @@ mod tests {
     use crate::render::render_rvalue;
 
     fn c(v: &str) -> Operand {
-        Operand::Const { value: v.to_string(), str_bytes: None, str_len: None }
+        Operand::Const { value: v.to_string(), str_bytes: None, str_len: None, static_bytes: None, static_size: None }
     }
 
     fn sc(v: &str, bytes: &[u64]) -> Operand {
-        Operand::Const { value: v.to_string(), str_bytes: Some(bytes.to_vec()), str_len: Some(bytes.len() as u64) }
+        Operand::Const { value: v.to_string(), str_bytes: Some(bytes.to_vec()), str_len: Some(bytes.len() as u64), static_bytes: None, static_size: None }
     }
 
     #[test]
@@ -778,7 +779,7 @@ mod tests {
             Operand::Const {
                 value: "Val(Slice { alloc_id: alloc1, meta: 3 }, &'erased str)".to_string(),
                 str_bytes: Some(vec![71, 69]),
-                str_len: Some(3),
+                str_len: Some(3), static_bytes: None, static_size: None,
             },
             c("Val(Scalar(0x00000001), i32)"),
         ];
@@ -824,6 +825,41 @@ mod tests {
         assert!(sa.contains("_sw_bb0_eq_0 = eq _1, 0"), "eq arm:\n{}", sa);
         assert!(sa.contains("br _sw_bb0_eq_0 -> L_bb1, L_sw_bb0_0"), "two-target br:\n{}", sa);
         assert!(sa.contains("L_sw_bb0_0:"), "fallthrough label:\n{}", sa);
+    }
+
+    #[test]
+    fn static_cell_two_defs_share_one_cell_via_add() {
+        // 118: two address locals for the same static bind one entry
+        // cell. The bind must be `add cell, 0` (a read), never a plain
+        // `= cell` (a move): the second plain bind would trap
+        // UseAfterMove on the shared cell.
+        let payload = |dest: &str| Stmt::Assign {
+            dest: dest.to_string(),
+            dest_place: Some(dest.to_string()),
+            rvalue: Rvalue::Use {
+                op: Operand::Const {
+                    value: "Val(Scalar(alloc1), *mut i32)".to_string(),
+                    str_bytes: None,
+                    str_len: None, static_bytes: Some(vec![7, 0, 0, 0]), static_size: Some(4),
+                },
+            },
+        };
+        let f = blank_fn(
+            "f_static",
+            vec![Block {
+                id: "bb0".to_string(),
+                statements: vec![payload("_1"), payload("_3")],
+                terminator: Term::Return { ret: None },
+            }],
+        );
+        let mut unsup = vec![];
+        let sa = lower_function_with_layouts(&f, &mut unsup, &crate::place_store::AdtLayoutIndex::default());
+        assert!(unsup.is_empty(), "unsup: {:?}", unsup);
+        assert!(sa.contains("__static_alloc1 = alloc 4"), "cell alloc:\n{}", sa);
+        assert!(sa.contains("store __static_alloc1+0, 7 as u8"), "init bytes:\n{}", sa);
+        assert!(sa.contains("_1 = add __static_alloc1, 0"), "first bind:\n{}", sa);
+        assert!(sa.contains("_3 = add __static_alloc1, 0"), "second bind:\n{}", sa);
+        assert!(!sa.contains("= __static_alloc1"), "no plain move of the cell:\n{}", sa);
     }
 
     fn ret_fn(name: &str, ret: Option<&str>, blocks: Vec<Block>) -> Function {
@@ -1060,7 +1096,7 @@ mod tests {
         let loud = Operand::Const {
             value: "Unevaluated(UnevaluatedConst { def: DefId(0:1 })".to_string(),
             str_bytes: None,
-            str_len: None,
+            str_len: None, static_bytes: None, static_size: None,
         };
         let f = blank_fn("f_loudblk", vec![
             Block {

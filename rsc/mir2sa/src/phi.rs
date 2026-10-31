@@ -635,7 +635,7 @@ mod phi_tests {
     }
 
     fn const_op(v: &str) -> Operand {
-        Operand::Const { value: v.to_string(), str_bytes: None, str_len: None }
+        Operand::Const { value: v.to_string(), str_bytes: None, str_len: None, static_bytes: None, static_size: None }
     }
 
     #[test]
@@ -676,7 +676,7 @@ mod phi_tests {
             right: Box::new(Operand::Const {
                 value: "1_i32".to_string(),
                 str_bytes: None,
-                str_len: None,
+                str_len: None, static_bytes: None, static_size: None,
             }),
         };
         let mut idx = 0;

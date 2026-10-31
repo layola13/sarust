@@ -24,7 +24,9 @@
 //!   phi-managed bases stay loud (the slot, not the register, owns the
 //!   current pointer value); raw-pointer bases defined by an
 //!   unresolvable const (a static address rendered as placeholder 0)
-//!   stay loud too (118, Jev scope_118 = wait_static, jev-1.14.0);
+//!   stay loud too, EXCEPT routed statics (118): a base bound
+//!   to a static cell is a real address, so stores through it plan
+//!   (Jev per_function_cell, jev-1.14.0);
 //! - a raw-pointer-typed cell stores as `ptr` (182: `(_1.1: *const u8)`
 //!   field store); a const raw-pointer value stays loud (no trustworthy
 //!   address);
@@ -40,7 +42,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use crate::asm::{is_plain_local, strip_version_suffix};
-use crate::const_util::{array_elem_size, const_array_elem, const_elem_ty, sa_scalar_ty};
+use crate::const_util::{array_elem_size, const_array_elem, const_elem_ty, routed_static_cell, sa_scalar_ty};
 use crate::mir::{Function, Operand, Rvalue, Stmt};
 use crate::render_util::{assign_loud_const, const_scalar_text, field_value_temp, operand_is_projected, operand_proj_loud};
 use crate::spill::{spill_slot, SpillMap};
@@ -265,6 +267,7 @@ fn base_is_loud_const(f: &Function, base: &str) -> bool {
             dest_place.as_deref() == Some(dest.as_str())
                 && strip_version_suffix(dest) == stripped
                 && assign_loud_const(rvalue).is_some()
+                && !matches!(rvalue, Rvalue::Use { op } if routed_static_cell(op).is_some())
         }
         _ => false,
     })
@@ -481,11 +484,13 @@ pub fn plan_place_store(
     if !base_is_ptr {
         return None;
     }
-    // Placeholder guard (Jev scope_118 = wait_static, jev-1.14.0): a
-    // raw-pointer base defined by an unresolvable const (e.g. a static
-    // address rendered as placeholder 0) is not a real address; storing
-    // through it would write address 0. Stay loud. Reference/param
-    // bases are untouched by this guard.
+    // Placeholder guard: a raw-pointer base defined by an
+    // unresolvable const (e.g. a static address rendered as
+    // placeholder 0) is not a real address; storing through it would
+    // write address 0. Stay loud. A base bound to a routed static cell
+    // (118) IS a real address, so the guard exempts it. The old Jev
+    // scope_118 = wait_static note is superseded by per_function_cell.
+    // Reference/param bases are untouched by this guard.
     if deref && is_raw_ptr(&base_ty) && base_is_loud_const(f, &base) {
         return None;
     }
@@ -932,6 +937,7 @@ pub fn plan_agg_place_store(
                 value,
                 str_bytes,
                 str_len,
+                ..
             } => {
                 if value.trim_start().starts_with("Val(ZeroSized") {
                     plans.push(AggElemPlan::Skip);
@@ -1119,12 +1125,12 @@ mod place_store_tests {
                             Operand::Const {
                                 value: "Val(Scalar(0x00), u8)".to_string(),
                                 str_bytes: None,
-                                str_len: None,
+                                str_len: None, static_bytes: None, static_size: None,
                             },
                             Operand::Const {
                                 value: "Val(Scalar(0x00), u8)".to_string(),
                                 str_bytes: None,
-                                str_len: None,
+                                str_len: None, static_bytes: None, static_size: None,
                             },
                         ],
                         layout: Some(AdtLayout {
@@ -1239,7 +1245,7 @@ mod place_store_tests {
             &use_rv(Operand::Const {
                 value: "Val(Scalar(0x00000000), i32)".to_string(),
                 str_bytes: None,
-                str_len: None,
+                str_len: None, static_bytes: None, static_size: None,
             }),
             &f,
             &idx,
@@ -1263,7 +1269,7 @@ mod place_store_tests {
             &use_rv(Operand::Const {
                 value: "Val(Scalar(0x00), u8)".to_string(),
                 str_bytes: None,
-                str_len: None,
+                str_len: None, static_bytes: None, static_size: None,
             }),
             &f,
             &AdtLayoutIndex::default(),
@@ -1353,17 +1359,17 @@ mod place_store_tests {
                             Operand::Const {
                                 value: "Val(Scalar(0x00000000), i32)".to_string(),
                                 str_bytes: None,
-                                str_len: None,
+                                str_len: None, static_bytes: None, static_size: None,
                             },
                             Operand::Const {
                                 value: "Val(Scalar(0x00000000), *const u8)".to_string(),
                                 str_bytes: None,
-                                str_len: None,
+                                str_len: None, static_bytes: None, static_size: None,
                             },
                             Operand::Const {
                                 value: "Val(Scalar(0x00000004), i32)".to_string(),
                                 str_bytes: None,
-                                str_len: None,
+                                str_len: None, static_bytes: None, static_size: None,
                             },
                         ],
                         layout: Some(AdtLayout {
@@ -1444,11 +1450,10 @@ mod place_store_tests {
     }
 
     #[test]
-    fn deref_placeholder_base_stays_loud() {
-        // 118: _1 is defined by an unresolvable static-address const
-        // (rendered as placeholder 0). A store through it stays loud
-        // (Jev scope_118 = wait_static, jev-1.14.0), even though a
-        // genuine raw-pointer base would plan.
+    fn deref_routed_static_base_plans() {
+        // 118 routed: _1 is defined by a static-address const WITH the
+        // driver payload, so it binds a real cell and a store through
+        // it plans (Jev per_function_cell, jev-1.14.0).
         let f = fn_with_types(
             "main",
             vec![],
@@ -1461,7 +1466,55 @@ mod place_store_tests {
                     rvalue: use_rv(Operand::Const {
                         value: "Val(Scalar(alloc1), *mut i32)".to_string(),
                         str_bytes: None,
-                        str_len: None,
+                        str_len: None, static_bytes: Some(vec![0, 0, 0, 0]), static_size: Some(4),
+                    }),
+                }],
+                terminator: Term::Return { ret: None },
+            }],
+        );
+        let plan = plan_place_store(
+            Some("(*_1)"),
+            "_1",
+            &use_rv(Operand::Move {
+                place: "_2".to_string(),
+                off: 0,
+                off2: 0,
+                deref: false,
+                deref_first: false,
+                pty: None,
+                proj_loud: false,
+                deref_last: false,
+            }),
+            &f,
+            &AdtLayoutIndex::default(),
+            &BTreeMap::new(),
+            &HashMap::new(),
+        )
+        .expect("routed static deref store must plan");
+        assert_eq!(plan.base, "_1");
+        assert_eq!(plan.offset, Some(0));
+        assert_eq!(plan.sa_ty, "i32");
+    }
+
+    #[test]
+    fn deref_placeholder_base_stays_loud() {
+        // 118 without the driver payload: _1 is defined by an
+        // unresolvable static-address const (rendered as placeholder
+        // 0). A store through it stays loud, even though a genuine
+        // raw-pointer base would plan.
+        let f = fn_with_types(
+            "main",
+            vec![],
+            vec![("_1", "*mut i32"), ("_2", "i32")],
+            vec![Block {
+                id: "bb0".to_string(),
+                statements: vec![Stmt::Assign {
+                    dest: "_1".to_string(),
+                    dest_place: Some("_1".to_string()),
+                    rvalue: use_rv(Operand::Const {
+                        value: "Val(Scalar(alloc1), *mut i32)".to_string(),
+                        str_bytes: None,
+                        str_len: None, static_bytes: None, static_size: None,
                     }),
                 }],
                 terminator: Term::Return { ret: None },
@@ -1576,22 +1629,22 @@ mod place_store_tests {
                     Operand::Const {
                         value: "Val(Scalar(0x0000000a), i32)".to_string(),
                         str_bytes: None,
-                        str_len: None,
+                        str_len: None, static_bytes: None, static_size: None,
                     },
                     Operand::Const {
                         value: "Val(Scalar(0x00000014), i32)".to_string(),
                         str_bytes: None,
-                        str_len: None,
+                        str_len: None, static_bytes: None, static_size: None,
                     },
                     Operand::Const {
                         value: "Val(Scalar(0x0000001e), i32)".to_string(),
                         str_bytes: None,
-                        str_len: None,
+                        str_len: None, static_bytes: None, static_size: None,
                     },
                     Operand::Const {
                         value: "Val(Scalar(0x00000028), i32)".to_string(),
                         str_bytes: None,
-                        str_len: None,
+                        str_len: None, static_bytes: None, static_size: None,
                     },
                 ],
                 Some(agg_layout(vec![0, 4, 8, 12])),
@@ -1684,7 +1737,7 @@ mod place_store_tests {
                     Operand::Const {
                         value: "Val(Scalar(0x00000003), i32)".to_string(),
                         str_bytes: None,
-                        str_len: None,
+                        str_len: None, static_bytes: None, static_size: None,
                     },
                 ],
                 None,
@@ -1720,7 +1773,7 @@ mod place_store_tests {
                 vec![Operand::Const {
                     value: "Val(Scalar(0x00000001), i32)".to_string(),
                     str_bytes: None,
-                    str_len: None,
+                    str_len: None, static_bytes: None, static_size: None,
                 }],
                 Some(agg_layout(vec![0])),
             ),
@@ -1767,7 +1820,7 @@ mod place_store_tests {
                 vec![Operand::Const {
                     value: "Val(Scalar(0x00000001), i32)".to_string(),
                     str_bytes: None,
-                    str_len: None,
+                    str_len: None, static_bytes: None, static_size: None,
                 }],
                 Some(agg_layout(vec![0])),
             ),
@@ -1802,22 +1855,22 @@ mod place_store_tests {
                             Operand::Const {
                                 value: "Val(Scalar(0x0000000a), i32)".to_string(),
                                 str_bytes: None,
-                                str_len: None,
+                                str_len: None, static_bytes: None, static_size: None,
                             },
                             Operand::Const {
                                 value: "Val(Scalar(0x00000014), i32)".to_string(),
                                 str_bytes: None,
-                                str_len: None,
+                                str_len: None, static_bytes: None, static_size: None,
                             },
                             Operand::Const {
                                 value: "Val(Scalar(0x0000001e), i32)".to_string(),
                                 str_bytes: None,
-                                str_len: None,
+                                str_len: None, static_bytes: None, static_size: None,
                             },
                             Operand::Const {
                                 value: "Val(Scalar(0x00000028), i32)".to_string(),
                                 str_bytes: None,
-                                str_len: None,
+                                str_len: None, static_bytes: None, static_size: None,
                             },
                         ],
                         Some(agg_layout(vec![0, 4, 8, 12])),

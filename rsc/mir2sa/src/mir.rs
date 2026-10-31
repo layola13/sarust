@@ -282,6 +282,15 @@ pub enum Operand {
         str_bytes: Option<Vec<u64>>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         str_len: Option<u64>,
+        /// Static-cell payload (sars driver, 118): init bytes of the
+        /// static allocation behind a raw-pointer address const, plus
+        /// its size. Present only for `Val(Scalar(allocN), *mut T)` /
+        /// `*const T` consts whose pointee is sized; absent keeps the
+        /// old loud path. Old mir.json (no fields) parses as before.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        static_bytes: Option<Vec<u64>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        static_size: Option<u64>,
     },
     /// Join-ambiguous use inserted by `version.rs`: two or more reaching
     /// definitions with no dominance order (needs phi nodes, which SA lacks).

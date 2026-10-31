@@ -80,7 +80,7 @@ pub fn lower_adt_init(
                 plans.push(FieldPlan::Store { text: None, sa_ty: "u8", size: 0 });
                 free_after.push(None);
             }
-            Operand::Const { value, str_bytes, str_len } => {
+            Operand::Const { value, str_bytes, str_len, .. } => {
                 if str_bytes.is_some() {
                     plans.push(plan_str_field(value, str_bytes.as_ref(), *str_len)?);
                     free_after.push(None);

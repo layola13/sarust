@@ -176,7 +176,7 @@ pub fn render_rvalue(
                 }
                 // Byte-literal const in value position: inline the payload
                 // and bind its thin address.
-                Operand::Const { value, str_bytes, str_len } => {
+                Operand::Const { value, str_bytes, str_len, .. } => {
                     if let Some(mut lines) = crate::layout::plan_const_bytes(
                         dest, bid, *mv_idx, value, str_bytes.as_ref(), *str_len,
                     ) {
@@ -395,6 +395,35 @@ pub fn render_rvalue(
             }
             let mut idx = 0usize;
             let (pre, t) = bind_move_operand(operand, bid, &mut idx);
+            // Bool Not (118): sa build-exe LLVM lowering has no neg/not
+            // case (sci demo 354 documents InvalidOperand; sa run
+            // works). A bool is 0/1, so `eq x, 0` is exact, and it
+            // keeps the same use pattern as `not` (a read, never a
+            // move). Int Neg/Not keep `not`/`neg` (sa gap, out of
+            // this task's scope). Jev rewrite_bool_not, jev-1.14.0.
+            let is_bool_not = *op == "Not"
+                && match operand.as_ref() {
+                    Operand::Copy { place, pty, .. } | Operand::Move { place, pty, .. } => {
+                        pty.as_deref() == Some("bool")
+                            || local_types
+                                .get(place)
+                                .or_else(|| {
+                                    local_types.get(crate::asm::strip_version_suffix(place))
+                                })
+                                .is_some_and(|ty| ty.trim() == "bool")
+                    }
+                    _ => false,
+                };
+            if is_bool_not {
+                let mut lines = pre;
+                lines.push(format!("{} = eq {}, 0", dest, t));
+                if let Some(ty) = spill.get(dest) {
+                    let slot = crate::spill::spill_slot(dest);
+                    lines.push(format!("{} = alloc 8", slot));
+                    lines.push(format!("store {}+0, {} as {}", slot, dest, ty));
+                }
+                return lines.join("\n");
+            }
             match unop_mnemonic(op) {
                 Some(m) => {
                     let mut lines = pre;
@@ -710,7 +739,7 @@ mod render_tests {
                 rvalue: Rvalue::Aggregate {
                     elems: vec![
                         Operand::Move { place: "_10".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false },
-                        Operand::Const { value: "Val(1)".to_string(), str_bytes: None, str_len: None },
+                        Operand::Const { value: "Val(1)".to_string(), str_bytes: None, str_len: None, static_bytes: None, static_size: None },
                     ],
                     layout: Some(crate::mir::AdtLayout { size: 16, offsets: vec![0, 8] }),
                 },
@@ -805,7 +834,7 @@ mod render_tests {
             &Rvalue::BinOp {
                 op: "BitAnd".to_string(),
                 left: Box::new(Operand::Move { place: "_3".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false }),
-                right: Box::new(Operand::Const { value: "Val(Scalar(0x80), u8)".to_string(), str_bytes: None, str_len: None }),
+                right: Box::new(Operand::Const { value: "Val(Scalar(0x80), u8)".to_string(), str_bytes: None, str_len: None, static_bytes: None, static_size: None }),
             },
             "_2",
             Some("_2"),
@@ -837,7 +866,7 @@ mod render_tests {
                 op: Operand::Const {
                     value: "Val(Scalar(0x00000002), u32)".to_string(),
                     str_bytes: None,
-                    str_len: None,
+                    str_len: None, static_bytes: None, static_size: None,
                 },
             },
             "_1_v0", Some("_1_v0"), &mut unsup, "bb2", &mut idx,
@@ -888,7 +917,7 @@ mod render_tests {
         let c = |v: &str| Operand::Const {
             value: v.to_string(),
             str_bytes: None,
-            str_len: None,
+            str_len: None, static_bytes: None, static_size: None,
         };
         let cp = |p: &str| Operand::Copy {
             place: p.to_string(),

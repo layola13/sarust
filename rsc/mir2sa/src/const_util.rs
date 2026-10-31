@@ -278,6 +278,48 @@ mod ty_unwrap_tests {
     }
 }
 
+/// Parse a static-address const `Val(Scalar(allocN), *mut T)` /
+/// `*const T` -> N. Only raw-pointer address consts qualify; `&` refs
+/// (possibly fat) never do, and neither do hex addresses.
+pub fn static_alloc_id(value: &str) -> Option<u64> {
+    let rest = value.trim().strip_prefix("Val(Scalar(")?;
+    let comma = rest.find(", ")?;
+    let payload = rest[..comma].trim_end_matches(')');
+    let ty = rest[comma + 2..].trim_end_matches(')');
+    let digits = payload.strip_prefix("alloc")?;
+    if digits.is_empty()
+        || !digits.chars().all(|c| c.is_ascii_digit())
+        || !ty.starts_with('*')
+    {
+        return None;
+    }
+    digits.parse::<u64>().ok()
+}
+
+/// A routed static cell behind a Use(Const) operand: (alloc id, size,
+/// init bytes). Requires the driver static payload, a size that
+/// matches the byte count, a nonzero size, in-range bytes, and a
+/// parseable alloc id; anything else is None (old loud path). This is
+/// the single predicate shared by lower(), coverage, and the
+/// place-store placeholder guard, so the three can never drift.
+pub fn routed_static_cell(op: &crate::mir::Operand) -> Option<(u64, usize, Vec<u8>)> {
+    let crate::mir::Operand::Const {
+        value,
+        static_bytes: Some(bytes),
+        static_size: Some(size),
+        ..
+    } = op
+    else {
+        return None;
+    };
+    let id = static_alloc_id(value)?;
+    let size = usize::try_from(*size).ok()?;
+    if size == 0 || size != bytes.len() || bytes.iter().any(|b| *b > 255) {
+        return None;
+    }
+    Some((id, size, bytes.iter().map(|b| *b as u8).collect()))
+}
+
 #[cfg(test)]
 mod const_elem_ty_tests {
     use super::*;
@@ -314,6 +356,49 @@ mod const_elem_ty_tests {
             const_elem_ty("Val(Scalar(0x00000001), *mut i32)"),
             None
         );
+    }
+
+    #[test]
+    fn static_alloc_id_shapes() {
+        assert_eq!(static_alloc_id("Val(Scalar(alloc1), *mut i32)"), Some(1));
+        assert_eq!(static_alloc_id("Val(Scalar(alloc12), *const u8)"), Some(12));
+        assert_eq!(static_alloc_id("Val(Scalar(alloc1), &'{erased} str)"), None);
+        assert_eq!(static_alloc_id("Val(Scalar(0x00000001), *mut i32)"), None);
+        assert_eq!(static_alloc_id("Val(Scalar(alloc), *mut i32)"), None);
+    }
+
+    #[test]
+    fn routed_static_cell_gates() {
+        use crate::mir::Operand;
+        let good = Operand::Const {
+            value: "Val(Scalar(alloc1), *mut i32)".to_string(),
+            str_bytes: None,
+            str_len: None,
+            static_bytes: Some(vec![0, 0, 0, 0]),
+            static_size: Some(4),
+        };
+        assert_eq!(
+            routed_static_cell(&good),
+            Some((1, 4, vec![0, 0, 0, 0]))
+        );
+        // Size/bytes mismatch stays loud.
+        let bad = Operand::Const {
+            value: "Val(Scalar(alloc1), *mut i32)".to_string(),
+            str_bytes: None,
+            str_len: None,
+            static_bytes: Some(vec![0, 0]),
+            static_size: Some(4),
+        };
+        assert_eq!(routed_static_cell(&bad), None);
+        // No payload stays loud.
+        let loud = Operand::Const {
+            value: "Val(Scalar(alloc1), *mut i32)".to_string(),
+            str_bytes: None,
+            str_len: None,
+            static_bytes: None,
+            static_size: None,
+        };
+        assert_eq!(routed_static_cell(&loud), None);
     }
 
     #[test]

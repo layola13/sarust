@@ -2,6 +2,7 @@
 use std::process::ExitCode;
 
 use crate::asm::{asm_inout_passthrough, asm_mov_copy, is_plain_local};
+use crate::const_util::routed_static_cell;
 use crate::mir::*;
 use crate::render::*;
 use crate::render_util::{assert_panic_code, assign_loud_const, build_constmap, call_sig_loud, const_needs_loud, flat_comment, is_overflow_assert, loud_const_kind, loud_const_kind_call, loud_operand_reason, render_call_arg, render_operand, sa_ident, sa_label, unreachable_panic_code};
@@ -21,6 +22,40 @@ pub fn bind_placeholder(
             bound.insert(d.clone());
         }
     }
+}
+
+/// Static-cell bind line for a routed static-address def: the dest
+/// binds the function's shared cell for that static (never loud, never
+/// a placeholder). None for unrouted consts and for conflicted cells
+/// (the cell map dropped them, so no cell line exists to bind).
+/// Spilled dests mirror the cell address into their slot, exactly like
+/// every other render arm.
+fn static_cell_line(
+    rvalue: &Rvalue,
+    dest: &str,
+    spill: &crate::spill::SpillMap,
+    cells: &std::collections::BTreeMap<u64, (usize, Vec<u8>)>,
+) -> Option<String> {
+    let Rvalue::Use { op } = rvalue else {
+        return None;
+    };
+    let (id, _size, _bytes) = routed_static_cell(op)?;
+    if !cells.contains_key(&id) {
+        return None;
+    }
+    // SA `=` moves: a plain bind would consume the shared cell on the
+    // second def (UseAfterMove, seen on 118's _3). `add cell, 0` reads
+    // the cell and yields the same address without consuming it -- the
+    // same address-copy idiom the Ref arm already uses (`_8 = add _9, 0`).
+    let mut s = format!("{} = add __static_alloc{}, 0", dest, id);
+    if let Some(ty) = spill.get(dest) {
+        let slot = crate::spill::spill_slot(dest);
+        s.push_str(&format!(
+            "\n{} = alloc 8\nstore {}+0, {} as {}",
+            slot, slot, dest, ty
+        ));
+    }
+    Some(s)
 }
 
 /// Mirror a placeholder bind into the spill slot (keeps reloads parseable).
@@ -204,6 +239,39 @@ pub fn lower_function_with_layouts(
             }
         }
     }
+    // Static cells (118, Jev per_function_cell): alloc id -> (size,
+    // init bytes) for routed statics used in this function. Conflicting
+    // payloads for one alloc id void the cell (stay loud, never guess);
+    // the void is visible to the def arm via the map lookup below.
+    let mut static_cells: std::collections::BTreeMap<u64, (usize, Vec<u8>)> =
+        std::collections::BTreeMap::new();
+    let mut static_cell_bad: std::collections::BTreeSet<u64> =
+        std::collections::BTreeSet::new();
+    for b in &f.blocks {
+        for st in &b.statements {
+            if let Stmt::Assign {
+                rvalue: Rvalue::Use { op },
+                ..
+            } = st
+            {
+                if let Some((id, size, bytes)) = routed_static_cell(op) {
+                    if static_cell_bad.contains(&id) {
+                        continue;
+                    }
+                    match static_cells.get(&id) {
+                        None => {
+                            static_cells.insert(id, (size, bytes));
+                        }
+                        Some((s, bb)) if *s == size && *bb == bytes => {}
+                        Some(_) => {
+                            static_cells.remove(&id);
+                            static_cell_bad.insert(id);
+                        }
+                    }
+                }
+            }
+        }
+    }
     // Phi slots (C2 version-conflict): per conflicted base local, one
     // entry-allocated slot that every versioned def stores into; conflict
     // uses load from it (see phi.rs for the soundness gates).
@@ -280,6 +348,19 @@ pub fn lower_function_with_layouts(
                 let name = format!("_{}", i);
                 if let Some(ty) = phi_b.get(&name) {
                     out.push(format!("    store {}+0, {} as {}", spill_slot(&name), name, ty));
+                }
+            }
+            // Static cells: one entry-allocated cell per routed static,
+            // initialized from the driver's init bytes. Every address
+            // local for the static binds this same cell, so loads,
+            // stores and refs through any of them hit one cell.
+            // Lifetime is this invocation: SA has no mutable global,
+            // so a static does not persist across calls (documented).
+            for (id, (size, bytes)) in &static_cells {
+                let cell = format!("__static_alloc{}", id);
+                out.push(format!("    {} = alloc {}", cell, size));
+                for (off, byte) in bytes.iter().enumerate() {
+                    out.push(format!("    store {}+{}, {} as u8", cell, off, byte));
                 }
             }
         }
@@ -412,6 +493,18 @@ pub fn lower_function_with_layouts(
                         out.push(format!("    // UNSUPPORTED rvalue -> {}: version conflict at join (multiple reaching defs of {})", dest, base));
                     } else if dead_literal {
                         out.push(format!("    // dead byte-literal store {} (no reads; not materialized)", dest));
+                    } else if let Some(line) = static_cell_line(rvalue, dest, &spill, &static_cells) {
+                        // Routed static address (118): bind the shared
+                        // cell, never loud, never a placeholder.
+                        for l in &phi_loads {
+                            out.push(format!("    {}", l));
+                        }
+                        for l in line.split('\n') {
+                            out.push(format!("    {}", l));
+                        }
+                        for t in &phi_frees {
+                            out.push(format!("    !{}", t));
+                        }
                     } else if let Some(why) = assign_loud_const(rvalue) {
                         unsup.push(format!("{}:{} ConstValue", b.id, dest));
                         out.push(format!("    // UNSUPPORTED const-value -> {}: {}", dest, flat_comment(&why)));

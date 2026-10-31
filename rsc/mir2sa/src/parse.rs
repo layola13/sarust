@@ -56,13 +56,13 @@ pub fn parse_operand(s: &str) -> Operand {
         return Operand::Copy { place: base_local(rest).unwrap_or_else(|| rest.to_string()) , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false };
     }
     if let Some(rest) = s.strip_prefix("const ") {
-        return Operand::Const { value: rest.chars().take(60).collect(), str_bytes: None, str_len: None };
+        return Operand::Const { value: rest.chars().take(60).collect(), str_bytes: None, str_len: None, static_bytes: None, static_size: None };
     }
     if s.starts_with('_') && base_local(s).as_deref() == Some(s) {
         return Operand::Copy { place: s.to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false };
     }
     let v: String = s.chars().take(60).collect();
-    Operand::Const { value: v, str_bytes: None, str_len: None }
+    Operand::Const { value: v, str_bytes: None, str_len: None, static_bytes: None, static_size: None }
 }
 
 pub fn sanitize_func(raw: &str) -> String {

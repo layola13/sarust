@@ -1,6 +1,6 @@
 //! rsc_driver::emit.
 use crate::place::{place_name, place_via};
-use crate::tyinfo::{aggregate_layout, fn_operand_sig, operand_ty_short, place_proj, resolve_const, str_const_bytes, ty_sa_sig_opt};
+use crate::tyinfo::{aggregate_layout, fn_operand_sig, operand_ty_short, place_proj, resolve_const, static_init_bytes, str_const_bytes, ty_sa_sig_opt};
 use crate::util::{bb_name, esc, local_name, sanitize, trunc};
 use rustc_ast::ast::InlineAsmTemplatePiece;
 use rustc_middle::mir::{Body, BorrowKind, Const, ConstOperand, InlineAsmOperand, Local, Operand, Place, Rvalue, StatementKind, TerminatorKind};
@@ -116,6 +116,20 @@ pub fn operand_json<'a>(op: &Operand<'a>, tcx: TyCtxt<'a>, body: &Body<'a>, into
                     write!(into, "{}", b).unwrap();
                 }
                 write!(into, "], \"str_len\": {}", len).unwrap();
+            }
+            // Static-cell payload: init bytes of the static allocation
+            // behind a raw-pointer address const (118). Absent fields
+            // keep old mir.json byte-compatible; mir2sa routes only
+            // consts that carry this payload, others stay loud.
+            if let Some((len, bytes)) = static_init_bytes(tcx, &resolved) {
+                into.push_str(", \"static_bytes\": [");
+                for (i, b) in bytes.iter().enumerate() {
+                    if i > 0 {
+                        into.push_str(", ");
+                    }
+                    write!(into, "{}", b).unwrap();
+                }
+                write!(into, "], \"static_size\": {}", len).unwrap();
             }
             into.push('}');
         }

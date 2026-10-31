@@ -1912,7 +1912,7 @@ mod borrow_end_tests {
     fn const_bool(dest: &str, v: &str) -> Stmt {
         Stmt::Assign {
             dest: dest.to_string(), dest_place: None,
-            rvalue: Rvalue::Use { op: Operand::Const { value: v.to_string(), str_bytes: None, str_len: None } },
+            rvalue: Rvalue::Use { op: Operand::Const { value: v.to_string(), str_bytes: None, str_len: None, static_bytes: None, static_size: None } },
         }
     }
 
@@ -1945,7 +1945,7 @@ mod borrow_end_tests {
                     rvalue: Rvalue::BinOp {
                         op: "Gt".to_string(),
                         left: Box::new(Operand::Move { place: "_6".to_string() , off: 0, off2: 0, deref: false, deref_first: false, pty: None, proj_loud: false , deref_last: false }),
-                        right: Box::new(Operand::Const { value: "Val(Scalar(0x00000000), i32)".to_string(), str_bytes: None, str_len: None }),
+                        right: Box::new(Operand::Const { value: "Val(Scalar(0x00000000), i32)".to_string(), str_bytes: None, str_len: None, static_bytes: None, static_size: None }),
                     },
                 },
             ], switch("_5", "bb1", "bb3")),

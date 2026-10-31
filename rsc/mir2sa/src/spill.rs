@@ -374,7 +374,7 @@ pub fn build_spill(
     // likewise a thin `ptr`, so Copy uses reload it the same way.
     for b in blocks {
         for st in &b.statements {
-            if let Stmt::Assign { dest, rvalue: Rvalue::Use { op: Operand::Const { value, str_bytes, str_len } }, .. } = st {
+            if let Stmt::Assign { dest, rvalue: Rvalue::Use { op: Operand::Const { value, str_bytes, str_len, .. } }, .. } = st {
                 let inlineable =
                     crate::layout::plan_const_bytes(dest, "bb", 0, value, str_bytes.as_ref(), *str_len)
                         .is_some()
@@ -860,12 +860,12 @@ mod spill_tests {
                     Stmt::Assign {
                         dest: "_1_v0".to_string(),
                         dest_place: Some("_1_v0".to_string()),
-                        rvalue: Rvalue::Use { op: Operand::Const { value: "Val(Scalar(0x00000000), i32)".to_string(), str_bytes: None, str_len: None } },
+                        rvalue: Rvalue::Use { op: Operand::Const { value: "Val(Scalar(0x00000000), i32)".to_string(), str_bytes: None, str_len: None, static_bytes: None, static_size: None } },
                     },
                     Stmt::Assign {
                         dest: "_3".to_string(),
                         dest_place: Some("_3".to_string()),
-                        rvalue: Rvalue::Use { op: Operand::Const { value: "Val(Scalar(0x00000001), i32)".to_string(), str_bytes: None, str_len: None } },
+                        rvalue: Rvalue::Use { op: Operand::Const { value: "Val(Scalar(0x00000001), i32)".to_string(), str_bytes: None, str_len: None, static_bytes: None, static_size: None } },
                     },
                 ],
                 terminator: Term::Goto { target: "bb2".to_string() },
@@ -943,8 +943,8 @@ mod spill_tests {
                     dest_place: Some("_1".to_string()),
                     rvalue: Rvalue::Aggregate {
                         elems: vec![
-                            Operand::Const { value: "Val(Scalar(0x00000002), i32)".to_string(), str_bytes: None, str_len: None },
-                            Operand::Const { value: "Val(Scalar(0x00000005), i32)".to_string(), str_bytes: None, str_len: None },
+                            Operand::Const { value: "Val(Scalar(0x00000002), i32)".to_string(), str_bytes: None, str_len: None, static_bytes: None, static_size: None },
+                            Operand::Const { value: "Val(Scalar(0x00000005), i32)".to_string(), str_bytes: None, str_len: None, static_bytes: None, static_size: None },
                         ],
                         layout: Some(crate::mir::AdtLayout { size: 8, offsets: vec![0, 4] }),
                     },
@@ -1182,7 +1182,7 @@ mod spill_tests {
         let konst = Operand::Const {
             value: "Val(Scalar(alloc1), &'{erased} [u8; 3_usize])".to_string(),
             str_bytes: Some(bytes),
-            str_len: Some(3),
+            str_len: Some(3), static_bytes: None, static_size: None,
         };
         let blocks = vec![Block {
             id: "bb0".to_string(),
@@ -1242,7 +1242,7 @@ mod spill_tests {
                         op: Operand::Const {
                             value: "Val(Slice { alloc_id: alloc1, meta: 3 }, &'{erased} str)".to_string(),
                             str_bytes: Some(vec![104, 105, 33]),
-                            str_len: Some(3),
+                            str_len: Some(3), static_bytes: None, static_size: None,
                         },
                     },
                 },
@@ -1265,7 +1265,7 @@ mod spill_tests {
                 op: Operand::Const {
                     value: value.to_string(),
                     str_bytes: None,
-                    str_len: None,
+                    str_len: None, static_bytes: None, static_size: None,
                 },
             },
         }
@@ -1573,7 +1573,7 @@ mod spill_tests {
                         op: Operand::Const {
                             value: "Val(Scalar(alloc1), &'[u8; 64])".to_string(),
                             str_bytes: Some(vec![65, 66]),
-                            str_len: Some(2),
+                            str_len: Some(2), static_bytes: None, static_size: None,
                         },
                     },
                 },
@@ -1584,7 +1584,7 @@ mod spill_tests {
                         op: Operand::Const {
                             value: "Val(Scalar(0x0000000000000000), usize)".to_string(),
                             str_bytes: None,
-                            str_len: None,
+                            str_len: None, static_bytes: None, static_size: None,
                         },
                     },
                 },

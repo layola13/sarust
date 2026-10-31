@@ -105,6 +105,96 @@ pub fn str_const_bytes<'a>(tcx: TyCtxt<'a>, c: &Const<'a>) -> Option<(&'a [u8], 
     Some((bytes, n))
 }
 
+/// Init bytes for a static allocation behind a raw-pointer const
+/// (`Val(Scalar(allocN), *mut T)` / `*const T`, e.g. 118's static mut
+/// COUNTER address): (pointee size, init bytes from offset 0).
+/// Only scalar pointees (int/uint/float/bool/char, incl. 128-bit) are
+/// routed: their bytes are plain data. Composite/array pointees stay
+/// loud (their allocation bytes can carry pointer provenance that SA
+/// cannot materialize; a future lane can add a relocation-checked walk).
+/// Two allocation shapes:
+/// - Memory: the allocation already holds the bytes (read them).
+/// - Static (lazy, not yet computed): evaluate the static's initializer
+///   with the compiler's own static query; the resulting allocation
+///   holds the initializer's bytes. Anything else (unevaluatable, Function
+///   / VTable / TypeId allocations, non-zero offsets, ZSTs) returns
+///   None (the caller keeps the old loud path).
+pub fn static_init_bytes<'a>(tcx: TyCtxt<'a>, c: &Const<'a>) -> Option<(usize, Vec<u8>)> {
+    use rustc_abi::Size;
+    use rustc_middle::mir::interpret::{AllocRange, GlobalAlloc, Scalar};
+    let (cval, ty) = match c {
+        Const::Val(v, ty) => (*v, *ty),
+        _ => return None,
+    };
+    let pointee = match ty.kind() {
+        TyKind::RawPtr(inner, _) => *inner,
+        _ => return None,
+    };
+    match pointee.kind() {
+        TyKind::Uint(_) | TyKind::Int(_) | TyKind::Float(_) | TyKind::Bool | TyKind::Char => {}
+        _ => return None,
+    }
+    let typing_env = ty::TypingEnv::fully_monomorphized();
+    let size = tcx
+        .layout_of(ty::PseudoCanonicalInput { typing_env, value: pointee })
+        .ok()?
+        .layout
+        .size
+        .bytes() as usize;
+    if size == 0 {
+        return None;
+    }
+    let (alloc_id, offset) = match cval {
+        rustc_middle::mir::ConstValue::Scalar(s) => match s.try_to_scalar_int() {
+            Err(Scalar::Ptr(p, _)) => p.into_raw_parts(),
+            _ => return None,
+        },
+        _ => return None,
+    };
+    if offset != Size::ZERO {
+        return None;
+    }
+    match tcx.global_alloc(alloc_id) {
+        GlobalAlloc::Memory(m) => {
+            let avail = m.inner().size().bytes() as usize;
+            if avail < size {
+                return None;
+            }
+            Some((
+                size,
+                m.inner()
+                    .get_bytes_unchecked(AllocRange {
+                        start: Size::ZERO,
+                        size: Size::from_bytes(size as u64),
+                    })
+                    .to_vec(),
+            ))
+        }
+        GlobalAlloc::Static(did) => {
+            // The lazy static's initializer, evaluated by the compiler's
+            // own static query (const_eval_poly must not be called on a
+            // static DefId: it panics on the static assertion). The
+            // allocation holds the initializer's bytes; the scalar-only
+            // gate above keeps those bytes plain data.
+            let alloc = tcx.eval_static_initializer(did).ok()?;
+            let mem = alloc.inner();
+            let avail = mem.size().bytes() as usize;
+            if avail < size {
+                return None;
+            }
+            Some((
+                size,
+                mem.get_bytes_unchecked(AllocRange {
+                    start: Size::ZERO,
+                    size: Size::from_bytes(size as u64),
+                })
+                .to_vec(),
+            ))
+        }
+        _ => return None,
+    }
+}
+
 pub fn operand_ty_short<'tcx>(tcx: TyCtxt<'tcx>, body: &Body<'tcx>, op: &Operand<'tcx>) -> String {
     use rustc_middle::ty::{FloatTy, IntTy, UintTy};
     let ty = match op {
